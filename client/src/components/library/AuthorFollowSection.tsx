@@ -86,10 +86,21 @@ export function AuthorFollowSection({ authorId, authorName }: AuthorFollowSectio
       </Button>
 
       {isMatched ? (
-        <Button variant="ghost" size="sm" disabled={busy} onClick={() => void handleUnmatch()}>
-          <Link2Off className="mr-1.5 h-3.5 w-3.5" />
-          Unlink Hardcover match
-        </Button>
+        <>
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={busy}
+            onClick={() => setMatchDialogOpen(true)}
+          >
+            <Link2 className="mr-1.5 h-3.5 w-3.5" />
+            Change Hardcover match
+          </Button>
+          <Button variant="ghost" size="sm" disabled={busy} onClick={() => void handleUnmatch()}>
+            <Link2Off className="mr-1.5 h-3.5 w-3.5" />
+            Unlink Hardcover match
+          </Button>
+        </>
       ) : (
         <Button variant="ghost" size="sm" onClick={() => setMatchDialogOpen(true)}>
           <Link2 className="mr-1.5 h-3.5 w-3.5" />
@@ -118,6 +129,20 @@ interface AuthorMatchDialogProps {
 // (see similarValuesApi.getAutocomplete callers) and avoids a burst of single/double-letter
 // requests against the shared Hardcover daily budget while the user is still typing a name.
 const MIN_SEARCH_LENGTH = 2;
+
+/**
+ * Whether the search box holds a pasted link rather than a name. The backend resolves a link
+ * directly (that one author, from the source whose domain it is) instead of searching, which is
+ * how an author the name search cannot find gets matched. Only a COMPLETE absolute http(s) URL
+ * counts: a half-typed "https://hardc" must not be fired at the source as a name search.
+ */
+function isCompleteUrl(value: string): boolean {
+  return /^https?:\/\//i.test(value) && URL.canParse(value);
+}
+
+function isUrlInProgress(value: string): boolean {
+  return /^https?:/i.test(value) && !isCompleteUrl(value);
+}
 
 function AuthorMatchDialog({ authorId, authorName, open, onOpenChange }: AuthorMatchDialogProps) {
   const queryClient = useQueryClient();
@@ -156,7 +181,9 @@ function AuthorMatchDialog({ authorId, authorName, open, onOpenChange }: AuthorM
   }, [query]);
 
   const trimmedQuery = debouncedQuery.trim();
-  const searchEnabled = open && trimmedQuery.length >= MIN_SEARCH_LENGTH;
+  const queryIsUrl = isCompleteUrl(trimmedQuery);
+  const searchEnabled =
+    open && trimmedQuery.length >= MIN_SEARCH_LENGTH && !isUrlInProgress(trimmedQuery);
 
   const candidatesQuery = useQuery({
     queryKey: queryKeys.authorHardcoverMatchCandidates(authorId, trimmedQuery),
@@ -216,13 +243,16 @@ function AuthorMatchDialog({ authorId, authorName, open, onOpenChange }: AuthorM
             <Input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search Hardcover authors..."
+              placeholder="Search Hardcover authors, or paste an author URL..."
+              aria-label="Search Hardcover authors or paste an author URL"
             />
           </div>
 
           {!searchEnabled ? (
             <p className="text-muted-foreground py-6 text-center">
-              Type at least {MIN_SEARCH_LENGTH} characters to search.
+              {isUrlInProgress(trimmedQuery)
+                ? "Paste the complete author URL, e.g. https://hardcover.app/authors/..."
+                : `Type at least ${MIN_SEARCH_LENGTH} characters to search, or paste a Hardcover author URL.`}
             </p>
           ) : candidatesQuery.isLoading ? (
             <div className="text-muted-foreground flex items-center justify-center py-8">
@@ -235,7 +265,11 @@ function AuthorMatchDialog({ authorId, authorName, open, onOpenChange }: AuthorM
               {handleApiError(candidatesQuery.error).message}
             </div>
           ) : candidates.length === 0 ? (
-            <p className="text-muted-foreground py-6 text-center">No matching authors found.</p>
+            <p className="text-muted-foreground py-6 text-center">
+              {queryIsUrl
+                ? "No Hardcover author was found at that URL. Check that it is an author page (hardcover.app/authors/...)."
+                : "No matching authors found."}
+            </p>
           ) : (
             <div className="divide-y rounded-md border">
               {candidates.map((candidate) => (

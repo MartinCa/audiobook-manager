@@ -15,6 +15,7 @@ import {
   Wand2,
   Plus,
   Edit2,
+  Pencil,
   Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -39,6 +40,7 @@ import { MissingBookCandidatesDialog } from "./MissingBookCandidatesDialog";
 import { BulkMissingBookMatchDialog } from "./BulkMissingBookMatchDialog";
 import { SeriesRefreshPendingDialog } from "./SeriesRefreshPendingDialog";
 import { LastRefreshedHint } from "@/components/LastRefreshedHint";
+import { RenameValueDialog } from "@/components/RenameValueDialog";
 import { seriesApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { useClampedPage } from "@/hooks/useClampedPage";
@@ -151,6 +153,7 @@ export function SeriesDetail() {
     }
   }, [router, authorId, navigate]);
 
+  const [renameOpen, setRenameOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [loadingCandidates, setLoadingCandidates] = useState(false);
   const [searchingCandidates, setSearchingCandidates] = useState(false);
@@ -764,7 +767,7 @@ export function SeriesDetail() {
             </span>
           )}
         </div>
-        <div className="mt-3">
+        <div className="mt-3 flex flex-wrap items-center gap-2">
           <SeriesFollowButton
             seriesName={seriesName}
             onChanged={() => {
@@ -773,8 +776,34 @@ export function SeriesDetail() {
               });
             }}
           />
+          <Button variant="ghost" size="sm" onClick={() => setRenameOpen(true)}>
+            <Pencil className="mr-1.5 h-3.5 w-3.5" />
+            Rename series
+          </Button>
         </div>
       </div>
+
+      {renameOpen ? (
+        <RenameValueDialog
+          open
+          onOpenChange={setRenameOpen}
+          valueType="series"
+          currentName={seriesName}
+          onRenamed={async (newName) => {
+            setRenameOpen(false);
+            // The route addresses the series by its name, so it has to move to the new one before
+            // anything refetches: the old name no longer exists, and a refetch against it would
+            // 404 and bounce the page back through history (see the navigate-away effect above).
+            await navigate({
+              to: "/library/series/$seriesName",
+              params: { seriesName: newName },
+              search: { authorId },
+              replace: true,
+            });
+            void queryClient.invalidateQueries();
+          }}
+        />
+      ) : null}
 
       {overview.id != null && (
         <UpcomingReleasesList

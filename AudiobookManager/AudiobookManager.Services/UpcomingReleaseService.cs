@@ -4,6 +4,7 @@ using AudiobookManager.Scraping;
 using AudiobookManager.Scraping.Models;
 using AudiobookManager.Scraping.RateLimiting;
 using AudiobookManager.Scraping.Scrapers;
+using AudiobookManager.Services.MappingExtensions;
 using Microsoft.Extensions.Logging;
 
 namespace AudiobookManager.Services;
@@ -20,6 +21,8 @@ public class UpcomingReleaseService : IUpcomingReleaseService
     private readonly IAuthorReconciliationProvider _authorReconciliationProvider;
     private readonly ISeriesReconciliationCache _seriesReconciliationCache;
     private readonly IAuthorConsistencyIssueRepository _authorConsistencyIssueRepository;
+    private readonly IPendingAuthorRefreshRepository _pendingAuthorRefreshRepository;
+    private readonly ILibrarySettingsRepository _librarySettingsRepository;
     private readonly IEnumerable<IScraper> _scrapers;
     private readonly ILogger<UpcomingReleaseService> _logger;
 
@@ -34,6 +37,8 @@ public class UpcomingReleaseService : IUpcomingReleaseService
         IAuthorReconciliationProvider authorReconciliationProvider,
         ISeriesReconciliationCache seriesReconciliationCache,
         IAuthorConsistencyIssueRepository authorConsistencyIssueRepository,
+        IPendingAuthorRefreshRepository pendingAuthorRefreshRepository,
+        ILibrarySettingsRepository librarySettingsRepository,
         IEnumerable<IScraper> scrapers,
         ILogger<UpcomingReleaseService> logger)
     {
@@ -47,6 +52,8 @@ public class UpcomingReleaseService : IUpcomingReleaseService
         _authorReconciliationProvider = authorReconciliationProvider;
         _seriesReconciliationCache = seriesReconciliationCache;
         _authorConsistencyIssueRepository = authorConsistencyIssueRepository;
+        _pendingAuthorRefreshRepository = pendingAuthorRefreshRepository;
+        _librarySettingsRepository = librarySettingsRepository;
         _scrapers = scrapers;
         _logger = logger;
     }
@@ -80,7 +87,34 @@ public class UpcomingReleaseService : IUpcomingReleaseService
             return new List<AuthorSearchResult>();
         }
 
-        var results = await scraper.SearchAuthors(query.Trim());
+        var trimmed = query.Trim();
+
+        // A pasted author page URL resolves that one author directly - the way to match an author
+        // the name search cannot find (a pen name, a spelling the source indexes differently).
+        // Only a source whose SupportsUrl accepts the host is asked, so a pasted URL is never
+        // fetched from an arbitrary site. Comes back as a one-item list so the dialog flow is the
+        // same as for a search result.
+        if (Uri.TryCreate(trimmed, UriKind.Absolute, out var uri) &&
+            (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps))
+        {
+            var urlScraper = _scrapers.FirstOrDefault(s =>
+                s.SupportsAuthorLookup && (!s.RequiresApiKey || s.IsApiKeyConfigured) && s.SupportsUrl(trimmed));
+            if (urlScraper is null)
+            {
+                return new List<AuthorSearchResult>();
+            }
+
+            var author = await urlScraper.GetAuthor(trimmed);
+            if (author is null)
+            {
+                return new List<AuthorSearchResult>();
+            }
+
+            author.Source = urlScraper.SourceName;
+            return new List<AuthorSearchResult> { author };
+        }
+
+        var results = await scraper.SearchAuthors(trimmed);
         foreach (var result in results)
         {
             result.Source = scraper.SourceName;
@@ -102,6 +136,10 @@ public class UpcomingReleaseService : IUpcomingReleaseService
             ?? throw new KeyNotFoundException($"Author {personId} not found");
 
         await _personRepository.SetAuthorMatchAsync(personId, sourceName, sourceId, sourceUrl);
+
+        // A proposal came from the previous match's source author; the new match's next refresh
+        // decides afresh.
+        await _pendingAuthorRefreshRepository.DeleteByPersonIdAsync(personId);
     }
 
     public async Task UnmatchAuthorAsync(long personId)
@@ -110,6 +148,7 @@ public class UpcomingReleaseService : IUpcomingReleaseService
             ?? throw new KeyNotFoundException($"Author {personId} not found");
 
         await _personRepository.SetAuthorMatchAsync(personId, null, null, null);
+        await _pendingAuthorRefreshRepository.DeleteByPersonIdAsync(personId);
     }
 
     public Task<bool> IsSeriesFollowedAsync(long seriesId) => _seriesFollowRepository.IsFollowedAsync(seriesId);
@@ -732,7 +771,8 @@ public class UpcomingReleaseService : IUpcomingReleaseService
         // invalidation as the bounded reads saw, like every other best-effort cache.
         var touchedSeries = await CollectTouchedSeriesNamesAsync(person.Id);
 
-        var books = await scraper.GetAuthorBooks(person.MatchedSourceId!);
+        var bibliography = await scraper.GetAuthorBibliography(person.MatchedSourceId!);
+        var books = bibliography.Books;
 
         // Resolve each book's source series to a local matched catalog row once per distinct
         // (source name, source series id) pair - a bibliography with many entries of one series
@@ -791,6 +831,48 @@ public class UpcomingReleaseService : IUpcomingReleaseService
         foreach (var seriesName in touchedSeries)
         {
             _seriesReconciliationCache.Invalidate(seriesName);
+        }
+
+        await ReviewSourceAuthorNameAsync(scraper, person, bibliography.Name);
+    }
+
+    /// <summary>
+    /// Records the name the source uses for the author as a pending rename when it differs from
+    /// the library's (after both follow the library's initials convention - see
+    /// <see cref="AuthorNameReview"/>), and clears a stale proposal when they now agree. Nothing
+    /// is renamed here: like a series refresh, the author refresh only proposes, and the user
+    /// accepts or dismisses. A source that reports no name leaves any existing proposal alone.
+    ///
+    /// Best-effort by design: the roster was already written and stamped, so a failure here must
+    /// not turn a successful refresh into a recorded failure (and a re-run next refresh re-derives
+    /// the proposal anyway).
+    /// </summary>
+    private async Task ReviewSourceAuthorNameAsync(IScraper scraper, Person person, string? sourceName)
+    {
+        if (string.IsNullOrWhiteSpace(sourceName))
+        {
+            return;
+        }
+
+        try
+        {
+            var settings = (await _librarySettingsRepository.GetOrCreateAsync()).ToDomain();
+            var proposed = AuthorNameReview.ProposeRename(
+                person.Name, sourceName, settings.InitialsSpacing, settings.InitialsPunctuation);
+
+            if (proposed is null)
+            {
+                await _pendingAuthorRefreshRepository.DeleteByPersonIdAsync(person.Id);
+            }
+            else
+            {
+                await _pendingAuthorRefreshRepository.UpsertAsync(
+                    person.Id, proposed, scraper.SourceName, person.MatchedSourceUrl);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to record the source's name for author {PersonId} after a roster refresh", person.Id);
         }
     }
 

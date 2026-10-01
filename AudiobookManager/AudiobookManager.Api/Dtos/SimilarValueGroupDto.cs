@@ -44,6 +44,18 @@ public class AlignSimilarValuesDto
     public string TargetValue { get; set; } = string.Empty;
 }
 
+/// <summary>
+/// A manual rename of one author or series value, <c>POST api/similar-values/rename</c>. Runs as
+/// the same background operation (and reports through the same progress/complete events) as an
+/// alignment: a rename is an alignment of a single value onto a new name.
+/// </summary>
+public class RenameSimilarValueDto
+{
+    public string ValueType { get; set; } = string.Empty;
+    public string OldValue { get; set; } = string.Empty;
+    public string NewValue { get; set; } = string.Empty;
+}
+
 /// <summary>One pair a user has marked as not similar, as returned by <c>GET api/similar-values/ignored</c>.</summary>
 public record IgnoredSimilarValuePairDto(long Id, string ValueA, string ValueB, DateTime IgnoredAtUtc);
 

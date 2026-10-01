@@ -272,6 +272,14 @@ export const queryKeys = {
   authorHardcoverMatchCandidates: (authorId: number, query: string) =>
     ["authorHardcoverMatchCandidates", authorId, query] as const,
 
+  // Authors whose matched source spells their name differently from the library (a pending rename).
+  authorPending: {
+    all: () => ["authorPending"] as const,
+    byAuthor: (authorId: number) => ["authorPending", authorId] as const,
+    page: (page: number, pageSize: number) => ["authorPending", "page", page, pageSize] as const,
+    count: () => ["authorPending", "count"] as const,
+  },
+
   seriesFollow: (seriesName: string) => ["seriesFollow", seriesName] as const,
 
   upcomingReleases: {

@@ -36,6 +36,7 @@ public class BrowseController : ControllerBase
     private readonly IUpcomingReleaseService _upcomingReleaseService;
     private readonly IAuthorReconciliationProvider _authorReconciliation;
     private readonly IAuthorConsistencyIssueRepository _authorConsistencyIssueRepository;
+    private readonly IPendingAuthorRefreshRepository _pendingAuthorRefreshRepository;
     private readonly IEnumerable<IScraper> _scrapers;
     private readonly IServiceScopeFactory _serviceScopeFactory;
     private readonly IOperationStatusRegistry _statusRegistry;
@@ -50,6 +51,7 @@ public class BrowseController : ControllerBase
         IUpcomingReleaseService upcomingReleaseService,
         IAuthorReconciliationProvider authorReconciliation,
         IAuthorConsistencyIssueRepository authorConsistencyIssueRepository,
+        IPendingAuthorRefreshRepository pendingAuthorRefreshRepository,
         IExpectedBookWriteGate expectedBookWriteGate,
         IEnumerable<IScraper> scrapers,
         IServiceScopeFactory serviceScopeFactory,
@@ -64,6 +66,7 @@ public class BrowseController : ControllerBase
         _upcomingReleaseService = upcomingReleaseService;
         _authorReconciliation = authorReconciliation;
         _authorConsistencyIssueRepository = authorConsistencyIssueRepository;
+        _pendingAuthorRefreshRepository = pendingAuthorRefreshRepository;
         _expectedBookWriteGate = expectedBookWriteGate;
         _scrapers = scrapers;
         _serviceScopeFactory = serviceScopeFactory;
@@ -558,6 +561,74 @@ public class BrowseController : ControllerBase
             issues.Select(i => new AuthorConsistencyIssueDto(i.Id, i.PersonId, i.Person.Name, i.ErrorMessage, i.DetectedAt)).ToList(),
             totalCount));
     }
+
+    /// <summary>
+    /// One page of authors whose matched source spells their name differently from the library
+    /// (after both follow the library's initials convention), newest fetch first - the author
+    /// counterpart to the pending series-refresh list. Rows come from roster refreshes; accepting
+    /// one is a rename (<c>POST api/similar-values/rename</c>), dismissing it deletes the row.
+    /// </summary>
+    [HttpGet("authors/pending-refresh")]
+    public async Task<ActionResult<AuthorRefreshPendingPageDto>> GetPendingAuthorRefreshes(
+        [FromQuery] int page = 0,
+        [FromQuery] int pageSize = PagingLimits.DefaultPageSize)
+    {
+        if (page < 0)
+        {
+            return this.InvalidRequest("page must be zero or greater.");
+        }
+
+        if (pageSize < 1 || pageSize > PagingLimits.MaxPageSize)
+        {
+            return this.InvalidRequest($"pageSize must be between 1 and {PagingLimits.MaxPageSize}.");
+        }
+
+        var skip = (long)page * pageSize;
+        if (skip > PagingLimits.MaxPageOffset)
+        {
+            return this.InvalidRequest($"page and pageSize together may not skip more than {PagingLimits.MaxPageOffset} pending author names.");
+        }
+
+        var (rows, totalCount) = await _pendingAuthorRefreshRepository.GetPageWithAuthorAsync((int)skip, pageSize);
+        return Ok(new AuthorRefreshPendingPageDto(rows.Select(ToPendingAuthorDto).ToList(), totalCount));
+    }
+
+    /// <summary>The number of authors with a pending name, for the list header badge.</summary>
+    [HttpGet("authors/pending-refresh/count")]
+    public async Task<ActionResult<int>> GetPendingAuthorRefreshCount() =>
+        Ok(await _pendingAuthorRefreshRepository.CountAsync());
+
+    /// <summary>
+    /// The pending name for one author, for the author page's review banner. 204 - not 404 - when
+    /// there is none: that is the normal state the page polls on every visit, and every non-2xx
+    /// response is logged by the browser as a failed request.
+    /// </summary>
+    [HttpGet("authors/{authorId}/pending-refresh")]
+    public async Task<ActionResult<AuthorRefreshPendingDto>> GetPendingAuthorRefresh(long authorId)
+    {
+        var pending = await _pendingAuthorRefreshRepository.GetByPersonIdAsync(authorId);
+        return pending is null ? NoContent() : Ok(ToPendingAuthorDto(pending));
+    }
+
+    /// <summary>
+    /// Discards the pending name for one author. A no-op success when there is none - the author
+    /// is already in the state the caller asked for. The next roster refresh proposes it again if
+    /// the source still spells the name differently.
+    /// </summary>
+    [HttpPost("authors/{authorId}/pending-refresh/dismiss")]
+    public async Task<IActionResult> DismissPendingAuthorRefresh(long authorId)
+    {
+        await _pendingAuthorRefreshRepository.DeleteByPersonIdAsync(authorId);
+        return Ok();
+    }
+
+    private static AuthorRefreshPendingDto ToPendingAuthorDto(PendingAuthorRefresh pending) => new(
+        pending.PersonId,
+        pending.Person.Name,
+        pending.ProposedName,
+        pending.SourceName,
+        pending.SourceUrl,
+        pending.FetchedAt);
 
     // Roster entries are addressed by the stable expected-book row id (preferred - the id the
     // unified row keeps across refreshes, so a person with two same-titled entries can ignore the

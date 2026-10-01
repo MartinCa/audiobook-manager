@@ -4,6 +4,7 @@ import { PAGE_SIZE, TYPEAHEAD_LIMIT } from "@/constants/paging";
 import type { Audiobook } from "@/types/Audiobook";
 import type { AudiobookDetail } from "@/types/AudiobookDetail";
 import type { AuthorDetail } from "@/types/AuthorDetail";
+import type { AuthorRefreshPending, AuthorRefreshPendingPage } from "@/types/AuthorRefreshPending";
 import type { AuthorSummary } from "@/types/AuthorSummary";
 import type { BookFileInfo } from "@/types/BookFileInfo";
 import type { BulkEditAudiobooksRequest, BulkEditPreviewResponse } from "@/types/BulkEdit";
@@ -324,6 +325,25 @@ export const browseApi = {
   // via operationsApi.getStatus(OperationKeys.authorRosterRefreshAll).
   refreshAllAuthors: () => api.post<void>("/browse/authors/refresh-all", undefined),
 
+  // Paged server-side: one page of authors whose matched source spells their name differently
+  // from the library (after the library's initials convention is applied to both), newest first.
+  // Rows come from roster refreshes; accepting one is a rename (similarValuesApi.rename).
+  getAuthorPendingRefreshPage: (page: number, pageSize: number) =>
+    api.get<AuthorRefreshPendingPage>("/browse/authors/pending-refresh", {
+      query: { page, pageSize },
+    }),
+
+  getAuthorPendingRefreshCount: () => api.get<number>("/browse/authors/pending-refresh/count"),
+
+  // The backend answers 204 (not 404) when the author has no pending name, which the API layer
+  // reads as undefined - the normal "nothing to review" state the author page polls on every
+  // visit.
+  getAuthorPendingRefresh: (authorId: number) =>
+    api.get<AuthorRefreshPending | undefined>(`/browse/authors/${authorId}/pending-refresh`),
+
+  dismissAuthorPendingRefresh: (authorId: number) =>
+    api.post<void>(`/browse/authors/${authorId}/pending-refresh/dismiss`, undefined),
+
   // Paged server-side: one page of authors whose most recent roster refresh (single or bulk)
   // failed, newest first. Retrying is just calling refreshAuthor again for the same author.
   getAuthorConsistencyIssuesPage: (page: number, pageSize: number) =>
@@ -462,6 +482,14 @@ export const similarValuesApi = {
     api.get<string[]>("/similar-values/autocomplete", {
       query: { valueType, query, limit },
     }),
+
+  // Fire-and-forget manual rename of one author or series across every book (the standard
+  // update pipeline, so tags, folders and sidecars follow). Shares the alignment's operation key
+  // and SignalR events (SimilarValueAlignProgress/Complete): a rename is an alignment of a
+  // single value onto a new name. The backend refuses an invalid name with a 400 before
+  // starting anything.
+  rename: (valueType: "author" | "series", oldValue: string, newValue: string) =>
+    api.post<void>("/similar-values/rename", { valueType, oldValue, newValue }),
 
   align: (valueType: "author" | "series", sourceValues: string[], targetValue: string) =>
     api.post<void>("/similar-values/align", {

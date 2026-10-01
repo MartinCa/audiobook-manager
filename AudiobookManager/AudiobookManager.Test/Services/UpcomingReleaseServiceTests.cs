@@ -25,6 +25,8 @@ public class UpcomingReleaseServiceTests
     private Mock<IAuthorReconciliationProvider> _authorReconciliationProvider = null!;
     private Mock<ISeriesReconciliationCache> _seriesReconciliationCache = null!;
     private Mock<IAuthorConsistencyIssueRepository> _authorConsistencyIssueRepository = null!;
+    private Mock<IPendingAuthorRefreshRepository> _pendingAuthorRefreshRepository = null!;
+    private Mock<ILibrarySettingsRepository> _librarySettingsRepository = null!;
     private Mock<IScraper> _scraper = null!;
     private UpcomingReleaseService _service = null!;
 
@@ -45,11 +47,20 @@ public class UpcomingReleaseServiceTests
         _authorReconciliationProvider = new Mock<IAuthorReconciliationProvider>();
         _seriesReconciliationCache = new Mock<ISeriesReconciliationCache>();
         _authorConsistencyIssueRepository = new Mock<IAuthorConsistencyIssueRepository>();
+        _pendingAuthorRefreshRepository = new Mock<IPendingAuthorRefreshRepository>();
+        _librarySettingsRepository = new Mock<ILibrarySettingsRepository>();
+        _librarySettingsRepository.Setup(r => r.GetOrCreateAsync())
+            .ReturnsAsync(new AudiobookManager.Database.Models.LibrarySettings());
 
         _scraper = new Mock<IScraper>();
         _scraper.Setup(s => s.SourceName).Returns("Hardcover");
         _scraper.Setup(s => s.SupportsAuthorLookup).Returns(true);
         _scraper.Setup(s => s.RequiresApiKey).Returns(false);
+        // A bare Mock<IScraper> does not run the interface's default GetAuthorBibliography (which
+        // wraps GetAuthorBooks), so delegate it here: every test that stubs GetAuthorBooks keeps
+        // working, and a test that cares about the source's name overrides this one setup.
+        _scraper.Setup(s => s.GetAuthorBibliography(It.IsAny<string>()))
+            .Returns(async (string id) => new AuthorBibliographyResult(null, await _scraper.Object.GetAuthorBooks(id)));
 
         _service = new UpcomingReleaseService(
             _personRepository.Object,
@@ -62,6 +73,8 @@ public class UpcomingReleaseServiceTests
             _authorReconciliationProvider.Object,
             _seriesReconciliationCache.Object,
             _authorConsistencyIssueRepository.Object,
+            _pendingAuthorRefreshRepository.Object,
+            _librarySettingsRepository.Object,
             new[] { _scraper.Object },
             Mock.Of<ILogger<UpcomingReleaseService>>());
     }
@@ -273,6 +286,7 @@ public class UpcomingReleaseServiceTests
             _expectedBookRepository.Object,
             _seriesReconciliationProvider.Object, _authorReconciliationProvider.Object,
             _seriesReconciliationCache.Object, _authorConsistencyIssueRepository.Object,
+            _pendingAuthorRefreshRepository.Object, _librarySettingsRepository.Object,
             new[] { scraperNoAuthorLookup.Object },
             Mock.Of<ILogger<UpcomingReleaseService>>());
         _personRepository.Setup(r => r.GetByIdAsync(7))
@@ -611,6 +625,7 @@ public class UpcomingReleaseServiceTests
             _expectedBookRepository.Object,
             _seriesReconciliationProvider.Object, _authorReconciliationProvider.Object,
             _seriesReconciliationCache.Object, _authorConsistencyIssueRepository.Object,
+            _pendingAuthorRefreshRepository.Object, _librarySettingsRepository.Object,
             new[] { scraperNoAuthorLookup.Object },
             Mock.Of<ILogger<UpcomingReleaseService>>());
 
@@ -1200,5 +1215,181 @@ public class UpcomingReleaseServiceTests
         Assert.AreEqual(1, total, "an unfollowed but matched author's scoped page must still show their roster Upcoming entries");
         Assert.AreEqual("Standalone Novella", items.Single().Title);
         Assert.AreEqual(7, items.Single().AuthorId);
+    }
+
+    // ---------- Source author name review ----------
+
+    private void SourceReportsAuthorName(string? name) =>
+        _scraper.Setup(s => s.GetAuthorBibliography("123"))
+            .ReturnsAsync(new AuthorBibliographyResult(name, new List<AuthorBookResult>()));
+
+    [TestMethod]
+    public async Task RefreshAuthorRosterAsync_SourceSpellsTheNameDifferently_StoresAPendingRenameAndRenamesNothing()
+    {
+        var author = await SetupRefreshableAuthorAsync();
+        author.MatchedSourceUrl = "https://hardcover.app/authors/123";
+        SourceReportsAuthorName("Brandon Sanderson-Smith");
+
+        await _service.RefreshAuthorRosterAsync(7);
+
+        _pendingAuthorRefreshRepository.Verify(
+            r => r.UpsertAsync(7, "Brandon Sanderson-Smith", "Hardcover", "https://hardcover.app/authors/123"),
+            Times.Once);
+        // Like a series refresh, the author refresh only proposes - the author is never renamed here.
+        _personRepository.Verify(r => r.MergeAuthorAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        _pendingAuthorRefreshRepository.Verify(r => r.DeleteByPersonIdAsync(It.IsAny<long>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task RefreshAuthorRosterAsync_NameAgreesWithTheLibrary_ClearsAStalePendingRename()
+    {
+        await SetupRefreshableAuthorAsync();
+        SourceReportsAuthorName("Brandon Sanderson");
+
+        await _service.RefreshAuthorRosterAsync(7);
+
+        _pendingAuthorRefreshRepository.Verify(r => r.DeleteByPersonIdAsync(7), Times.Once);
+        _pendingAuthorRefreshRepository.Verify(
+            r => r.UpsertAsync(It.IsAny<long>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>()),
+            Times.Never);
+    }
+
+    [TestMethod]
+    public async Task RefreshAuthorRosterAsync_OnlyTheInitialsFormattingDiffers_ProposesNothingUnderTheLibrarysInitialsSettings()
+    {
+        var author = await SetupRefreshableAuthorAsync();
+        author.Name = "J.K. Rowling";
+        // Library default: unspaced, dotted initials. The source spells them spaced.
+        SourceReportsAuthorName("J. K. Rowling");
+
+        await _service.RefreshAuthorRosterAsync(7);
+
+        _pendingAuthorRefreshRepository.Verify(
+            r => r.UpsertAsync(It.IsAny<long>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>()),
+            Times.Never);
+        _pendingAuthorRefreshRepository.Verify(r => r.DeleteByPersonIdAsync(7), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task RefreshAuthorRosterAsync_TheProposedNameIsFormattedToTheLibrarysInitialsSettings()
+    {
+        var author = await SetupRefreshableAuthorAsync();
+        author.Name = "Tolkien";
+        _librarySettingsRepository.Setup(r => r.GetOrCreateAsync()).ReturnsAsync(new AudiobookManager.Database.Models.LibrarySettings
+        {
+            InitialsSpacing = AudiobookManager.Database.Models.InitialsSpacing.Spaced,
+            InitialsPunctuation = AudiobookManager.Database.Models.InitialsPunctuation.Dotted,
+        });
+        SourceReportsAuthorName("J.R.R. Tolkien");
+
+        await _service.RefreshAuthorRosterAsync(7);
+
+        _pendingAuthorRefreshRepository.Verify(
+            r => r.UpsertAsync(7, "J. R. R. Tolkien", "Hardcover", It.IsAny<string?>()),
+            Times.Once);
+    }
+
+    [TestMethod]
+    public async Task RefreshAuthorRosterAsync_SourceReportsNoName_LeavesAnExistingPendingRenameAlone()
+    {
+        await SetupRefreshableAuthorAsync();
+        SourceReportsAuthorName(null);
+
+        await _service.RefreshAuthorRosterAsync(7);
+
+        _pendingAuthorRefreshRepository.Verify(r => r.DeleteByPersonIdAsync(It.IsAny<long>()), Times.Never);
+        _pendingAuthorRefreshRepository.Verify(
+            r => r.UpsertAsync(It.IsAny<long>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>()),
+            Times.Never);
+    }
+
+    [TestMethod]
+    public async Task RefreshAuthorRosterAsync_FailingToStoreTheProposal_DoesNotFailTheRefresh()
+    {
+        await SetupRefreshableAuthorAsync();
+        SourceReportsAuthorName("Someone Else");
+        _pendingAuthorRefreshRepository
+            .Setup(r => r.UpsertAsync(It.IsAny<long>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>()))
+            .ThrowsAsync(new InvalidOperationException("boom"));
+
+        await _service.RefreshAuthorRosterAsync(7);
+
+        // The roster was already written and stamped; a refresh that did its job is not a failure.
+        _personRepository.Verify(r => r.SetLastRefreshedAtAsync(7, It.IsAny<DateTime>()), Times.Once);
+        _authorConsistencyIssueRepository.Verify(r => r.UpsertFailureAsync(It.IsAny<long>(), It.IsAny<string>()), Times.Never);
+        _authorConsistencyIssueRepository.Verify(r => r.DeleteByPersonIdAsync(7), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task MatchAuthorAsync_DropsThePendingRenameProposedByThePreviousMatch()
+    {
+        _personRepository.Setup(r => r.GetByIdAsync(7)).ReturnsAsync(new Person(7, "Brandon Sanderson"));
+
+        await _service.MatchAuthorAsync(7, "999", "Hardcover", null);
+
+        _pendingAuthorRefreshRepository.Verify(r => r.DeleteByPersonIdAsync(7), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task UnmatchAuthorAsync_DropsThePendingRename()
+    {
+        _personRepository.Setup(r => r.GetByIdAsync(7)).ReturnsAsync(new Person(7, "Brandon Sanderson"));
+
+        await _service.UnmatchAuthorAsync(7);
+
+        _pendingAuthorRefreshRepository.Verify(r => r.DeleteByPersonIdAsync(7), Times.Once);
+    }
+
+    // ---------- Author match by URL ----------
+
+    [TestMethod]
+    public async Task SearchAuthorMatchCandidatesAsync_APastedAuthorUrl_ResolvesThatAuthorDirectlyInsteadOfSearching()
+    {
+        const string url = "https://hardcover.app/authors/brandon-sanderson";
+        _scraper.Setup(s => s.SupportsUrl(url)).Returns(true);
+        _scraper.Setup(s => s.GetAuthor(url))
+            .ReturnsAsync(new AuthorSearchResult("204214", "Brandon Sanderson") { SourceUrl = url, BookCount = 312 });
+
+        var candidates = await _service.SearchAuthorMatchCandidatesAsync($"  {url}  ");
+
+        var candidate = candidates.Single();
+        Assert.AreEqual("204214", candidate.SourceId);
+        Assert.AreEqual("Hardcover", candidate.Source);
+        _scraper.Verify(s => s.SearchAuthors(It.IsAny<string>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task SearchAuthorMatchCandidatesAsync_AUrlNoSourceSupports_IsNeverFetchedAndYieldsNothing()
+    {
+        const string url = "https://evil.example.com/authors/x";
+        _scraper.Setup(s => s.SupportsUrl(url)).Returns(false);
+
+        var candidates = await _service.SearchAuthorMatchCandidatesAsync(url);
+
+        Assert.AreEqual(0, candidates.Count);
+        _scraper.Verify(s => s.GetAuthor(It.IsAny<string>()), Times.Never);
+        _scraper.Verify(s => s.SearchAuthors(It.IsAny<string>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task SearchAuthorMatchCandidatesAsync_AUrlTheSourceCannotResolve_YieldsNothing()
+    {
+        const string url = "https://hardcover.app/authors/nobody";
+        _scraper.Setup(s => s.SupportsUrl(url)).Returns(true);
+        _scraper.Setup(s => s.GetAuthor(url)).ReturnsAsync((AuthorSearchResult?)null);
+
+        Assert.AreEqual(0, (await _service.SearchAuthorMatchCandidatesAsync(url)).Count);
+    }
+
+    [TestMethod]
+    public async Task SearchAuthorMatchCandidatesAsync_APlainName_StillSearches()
+    {
+        _scraper.Setup(s => s.SearchAuthors("Sanderson"))
+            .ReturnsAsync(new List<AuthorSearchResult> { new("1", "Brandon Sanderson") });
+
+        var candidates = await _service.SearchAuthorMatchCandidatesAsync("Sanderson");
+
+        Assert.AreEqual(1, candidates.Count);
+        _scraper.Verify(s => s.GetAuthor(It.IsAny<string>()), Times.Never);
     }
 }

@@ -18,6 +18,9 @@ public class SimilarValueServiceTests
     private Mock<IAudiobookService> _audiobookService = null!;
     private Mock<ILogger<SimilarValueService>> _logger = null!;
     private Mock<IIgnoredSimilarValuePairRepository> _ignoredPairRepository = null!;
+    private Mock<ISeriesRepository> _seriesRepository = null!;
+    private Mock<IPendingSeriesRefreshRepository> _pendingSeriesRefreshRepository = null!;
+    private Mock<ISeriesReconciliationCache> _seriesReconciliationCache = null!;
     private IOptions<AudiobookManagerSettings> _settings = null!;
     private AudiobookSaveGate _saveGate = null!;
     private SimilarValueDetectionCache _detectionCache = null!;
@@ -33,6 +36,9 @@ public class SimilarValueServiceTests
         _saveGate = new AudiobookSaveGate();
         _detectionCache = new SimilarValueDetectionCache();
         _ignoredPairRepository = new Mock<IIgnoredSimilarValuePairRepository>();
+        _seriesRepository = new Mock<ISeriesRepository>();
+        _pendingSeriesRefreshRepository = new Mock<IPendingSeriesRefreshRepository>();
+        _seriesReconciliationCache = new Mock<ISeriesReconciliationCache>();
         _ignoredPairRepository.Setup(r => r.GetForKindAsync(It.IsAny<string>()))
             .ReturnsAsync(new List<AudiobookManager.Database.Models.IgnoredSimilarValuePair>());
         _settings = Options.Create(new AudiobookManagerSettings
@@ -48,6 +54,9 @@ public class SimilarValueServiceTests
             _saveGate,
             _detectionCache,
             _ignoredPairRepository.Object,
+            _seriesRepository.Object,
+            _pendingSeriesRefreshRepository.Object,
+            _seriesReconciliationCache.Object,
             _settings,
             _logger.Object);
     }
@@ -1088,5 +1097,196 @@ public class SimilarValueServiceTests
         _audiobookService.Verify(
             s => s.UpdateAudiobook(4021, It.Is<Audiobook>(a => a.Series == "New Series" && a.Qualifiers.SequenceEqual(new[] { "dramatized" }))),
             Times.Once);
+    }
+
+    // ---------- Manual rename ----------
+
+    private void UpdateAudiobookSucceeds() =>
+        _audiobookService.Setup(s => s.UpdateAudiobook(It.IsAny<long>(), It.IsAny<Audiobook>()))
+            .ReturnsAsync((long id, Audiobook a, Func<string, int, Task>? _) => a);
+
+    [TestMethod]
+    public async Task RenameAuthorAsync_RewritesEveryBookThroughTheStandardPipeline_ThenMovesTheAuthorEntity()
+    {
+        var book1 = MakeDbAudiobook(1, "Book One");
+        book1.Authors = new List<DbPerson> { new(1, "Robert Galbraith"), new(5, "Someone Else") };
+        var book2 = MakeDbAudiobook(2, "Book Two");
+        book2.Authors = new List<DbPerson> { new(1, "Robert Galbraith") };
+        _audiobookRepository.Setup(r => r.GetBooksByAuthorNamesAsync(It.IsAny<IEnumerable<string>>()))
+            .ReturnsAsync(new List<DbAudiobook> { book1, book2 });
+        UpdateAudiobookSucceeds();
+
+        var result = await _service.RenameAuthorAsync("Robert Galbraith", "J.K. Rowling", (_, _, _, _) => Task.CompletedTask);
+
+        Assert.AreEqual((2, 2, 0), result);
+        _audiobookService.Verify(s => s.UpdateAudiobook(1, It.Is<Audiobook>(a =>
+            a.Authors.Select(p => p.Name).SequenceEqual(new[] { "J.K. Rowling", "Someone Else" }))), Times.Once);
+        _audiobookService.Verify(s => s.UpdateAudiobook(2, It.Is<Audiobook>(a =>
+            a.Authors.Select(p => p.Name).SequenceEqual(new[] { "J.K. Rowling" }))), Times.Once);
+        _personRepository.Verify(r => r.MergeAuthorAsync("Robert Galbraith", "J.K. Rowling"), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task RenameAuthorAsync_OneBookFails_LeavesTheAuthorEntityUnderTheOldNameSoARetryFinishesTheJob()
+    {
+        var book1 = MakeDbAudiobook(1, "Book One");
+        book1.Authors = new List<DbPerson> { new(1, "Old Name") };
+        var book2 = MakeDbAudiobook(2, "Book Two");
+        book2.Authors = new List<DbPerson> { new(1, "Old Name") };
+        _audiobookRepository.Setup(r => r.GetBooksByAuthorNamesAsync(It.IsAny<IEnumerable<string>>()))
+            .ReturnsAsync(new List<DbAudiobook> { book1, book2 });
+        _audiobookService.Setup(s => s.UpdateAudiobook(1, It.IsAny<Audiobook>())).ThrowsAsync(new Exception("path collision"));
+        _audiobookService.Setup(s => s.UpdateAudiobook(2, It.IsAny<Audiobook>()))
+            .ReturnsAsync((long id, Audiobook a, Func<string, int, Task>? _) => a);
+
+        var result = await _service.RenameAuthorAsync("Old Name", "New Name", (_, _, _, _) => Task.CompletedTask);
+
+        // The rename must actually have run and failed for "never merged" to mean anything.
+        Assert.AreEqual(1, result.Failed);
+        Assert.AreEqual(1, result.Succeeded);
+        _personRepository.Verify(r => r.MergeAuthorAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task RenameAuthorAsync_ANameTheTagsCannotHold_ThrowsBeforeTouchingAnyBook()
+    {
+        await Assert.ThrowsExactlyAsync<ArgumentException>(() =>
+            _service.RenameAuthorAsync("Old", "Smith, John", (_, _, _, _) => Task.CompletedTask));
+
+        _audiobookRepository.Verify(r => r.GetBooksByAuthorNamesAsync(It.IsAny<IEnumerable<string>>()), Times.Never);
+        _personRepository.Verify(r => r.MergeAuthorAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task RenameAuthorAsync_AnAuthorWithNoBooks_StillMovesTheEntity()
+    {
+        _audiobookRepository.Setup(r => r.GetBooksByAuthorNamesAsync(It.IsAny<IEnumerable<string>>()))
+            .ReturnsAsync(new List<DbAudiobook>());
+
+        await _service.RenameAuthorAsync("Old", "New", (_, _, _, _) => Task.CompletedTask);
+
+        _personRepository.Verify(r => r.MergeAuthorAsync("Old", "New"), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task RenameSeriesAsync_RenamesTheCleanSeriesOnEveryBook_KeepingEachBooksQualifiers()
+    {
+        var plain = MakeDbAudiobook(1, "Killing Floor", "Jack Reacher");
+        var dramatized = MakeDbAudiobook(2, "Killing Floor (dramatized)", "Jack Reacher");
+        dramatized.Qualifiers = ",dramatized,";
+        _audiobookRepository.Setup(r => r.GetBooksBySeriesValuesAsync(It.IsAny<IEnumerable<string>>()))
+            .ReturnsAsync(new List<DbAudiobook> { plain, dramatized });
+        UpdateAudiobookSucceeds();
+
+        var result = await _service.RenameSeriesAsync("Jack Reacher", "Reacher", (_, _, _, _) => Task.CompletedTask);
+
+        Assert.AreEqual((2, 2, 0), result);
+        // The stored series stays clean and the qualifier stays on the book: the pipeline derives
+        // "Reacher (Dramatized)" for the file from these two facts.
+        _audiobookService.Verify(s => s.UpdateAudiobook(1, It.Is<Audiobook>(a =>
+            a.Series == "Reacher" && a.Qualifiers.Count == 0)), Times.Once);
+        _audiobookService.Verify(s => s.UpdateAudiobook(2, It.Is<Audiobook>(a =>
+            a.Series == "Reacher" && a.Qualifiers.SequenceEqual(new[] { "dramatized" }))), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task RenameSeriesAsync_MovesTheCatalogRowAndDropsThePendingReviewOnlyAfterEveryBookSucceeded()
+    {
+        _audiobookRepository.Setup(r => r.GetBooksBySeriesValuesAsync(It.IsAny<IEnumerable<string>>()))
+            .ReturnsAsync(new List<DbAudiobook> { MakeDbAudiobook(1, "Book", "Mistborn") });
+        UpdateAudiobookSucceeds();
+        _seriesRepository.Setup(r => r.GetByNameAsync("Mistborn")).ReturnsAsync(new AudiobookManager.Database.Models.Series { Id = 4, Name = "Mistborn" });
+        _seriesRepository.Setup(r => r.GetByNameAsync("Mistborn Saga")).ReturnsAsync((AudiobookManager.Database.Models.Series?)null);
+
+        await _service.RenameSeriesAsync("Mistborn", "Mistborn Saga", (_, _, _, _) => Task.CompletedTask);
+
+        _seriesRepository.Verify(r => r.RenameAsync("Mistborn", "Mistborn Saga"), Times.Once);
+        _pendingSeriesRefreshRepository.Verify(r => r.DeleteBySeriesNameAsync("Mistborn"), Times.Once);
+        _seriesReconciliationCache.Verify(c => c.Invalidate("Mistborn"), Times.Once);
+        _seriesReconciliationCache.Verify(c => c.Invalidate("Mistborn Saga"), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task RenameSeriesAsync_AnUnmatchedSeriesWithNoCatalogRow_RenamesBooksAndNothingElse()
+    {
+        _audiobookRepository.Setup(r => r.GetBooksBySeriesValuesAsync(It.IsAny<IEnumerable<string>>()))
+            .ReturnsAsync(new List<DbAudiobook> { MakeDbAudiobook(1, "Book", "Loose") });
+        UpdateAudiobookSucceeds();
+
+        var result = await _service.RenameSeriesAsync("Loose", "Tight", (_, _, _, _) => Task.CompletedTask);
+
+        Assert.AreEqual(0, result.Failed);
+        _seriesRepository.Verify(r => r.RenameAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task RenameSeriesAsync_OneBookFails_KeepsTheCatalogRowAndPendingReviewUnderTheOldName()
+    {
+        _audiobookRepository.Setup(r => r.GetBooksBySeriesValuesAsync(It.IsAny<IEnumerable<string>>()))
+            .ReturnsAsync(new List<DbAudiobook> { MakeDbAudiobook(1, "A", "Old"), MakeDbAudiobook(2, "B", "Old") });
+        _audiobookService.Setup(s => s.UpdateAudiobook(1, It.IsAny<Audiobook>())).ThrowsAsync(new Exception("collision"));
+        _audiobookService.Setup(s => s.UpdateAudiobook(2, It.IsAny<Audiobook>()))
+            .ReturnsAsync((long id, Audiobook a, Func<string, int, Task>? _) => a);
+        _seriesRepository.Setup(r => r.GetByNameAsync("Old")).ReturnsAsync(new AudiobookManager.Database.Models.Series { Id = 4, Name = "Old" });
+
+        var result = await _service.RenameSeriesAsync("Old", "New", (_, _, _, _) => Task.CompletedTask);
+
+        Assert.AreEqual(1, result.Failed);
+        _seriesRepository.Verify(r => r.RenameAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        _pendingSeriesRefreshRepository.Verify(r => r.DeleteBySeriesNameAsync(It.IsAny<string>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task RenameSeriesAsync_TheCatalogMoveFailsAfterTheBooksRenamed_IsReportedAsAFailedItem()
+    {
+        _audiobookRepository.Setup(r => r.GetBooksBySeriesValuesAsync(It.IsAny<IEnumerable<string>>()))
+            .ReturnsAsync(new List<DbAudiobook> { MakeDbAudiobook(1, "A", "Old") });
+        UpdateAudiobookSucceeds();
+        _seriesRepository.Setup(r => r.GetByNameAsync("Old")).ReturnsAsync(new AudiobookManager.Database.Models.Series { Id = 4, Name = "Old" });
+        _seriesRepository.Setup(r => r.RenameAsync("Old", "New")).ThrowsAsync(new InvalidOperationException("exists"));
+
+        var result = await _service.RenameSeriesAsync("Old", "New", (_, _, _, _) => Task.CompletedTask);
+
+        Assert.AreEqual(1, result.Succeeded);
+        Assert.AreEqual(1, result.Failed);
+    }
+
+    [TestMethod]
+    public async Task RenameSeriesAsync_BothNamesOwnACatalogRow_IsRefusedBeforeAnyBookIsTouched()
+    {
+        _seriesRepository.Setup(r => r.GetByNameAsync("Old")).ReturnsAsync(new AudiobookManager.Database.Models.Series { Id = 4, Name = "Old" });
+        _seriesRepository.Setup(r => r.GetByNameAsync("New")).ReturnsAsync(new AudiobookManager.Database.Models.Series { Id = 9, Name = "New" });
+
+        await Assert.ThrowsExactlyAsync<ArgumentException>(() =>
+            _service.RenameSeriesAsync("Old", "New", (_, _, _, _) => Task.CompletedTask));
+
+        _audiobookRepository.Verify(r => r.GetBooksBySeriesValuesAsync(It.IsAny<IEnumerable<string>>()), Times.Never);
+        _audiobookService.Verify(s => s.UpdateAudiobook(It.IsAny<long>(), It.IsAny<Audiobook>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task ValidateSeriesRenameAsync_ANameCarryingAQualifierSuffix_IsRefused()
+    {
+        var error = await _service.ValidateSeriesRenameAsync("Jack Reacher", "Jack Reacher (Dramatized)");
+
+        Assert.IsNotNull(error);
+        StringAssert.Contains(error, "qualifier");
+    }
+
+    [TestMethod]
+    public async Task ValidateSeriesRenameAsync_OnlyTheOldNameHasACatalogRow_IsAccepted()
+    {
+        _seriesRepository.Setup(r => r.GetByNameAsync("Old")).ReturnsAsync(new AudiobookManager.Database.Models.Series { Id = 4, Name = "Old" });
+
+        Assert.IsNull(await _service.ValidateSeriesRenameAsync("Old", "New"));
+    }
+
+    [TestMethod]
+    public async Task ValidateSeriesRenameAsync_OnlyTheNewNameHasACatalogRow_IsAccepted()
+    {
+        // The books simply join the existing series - the same as aligning onto it.
+        _seriesRepository.Setup(r => r.GetByNameAsync("New")).ReturnsAsync(new AudiobookManager.Database.Models.Series { Id = 9, Name = "New" });
+
+        Assert.IsNull(await _service.ValidateSeriesRenameAsync("Old", "New"));
     }
 }

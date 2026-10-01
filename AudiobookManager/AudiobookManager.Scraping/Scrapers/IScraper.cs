@@ -74,6 +74,24 @@ public interface IScraper
         Task.FromResult<IList<AuthorBookResult>>(new List<AuthorBookResult>());
 
     /// <summary>
+    /// Resolves one author directly from a source id or a source author page URL (a pasted URL is
+    /// how the user matches an author the name search cannot find). Returns null when the input is
+    /// not something this source can resolve, or the source knows no such author. Gated by the
+    /// same <see cref="SupportsAuthorLookup"/> flag as the rest of the author capability.
+    /// </summary>
+    Task<AuthorSearchResult?> GetAuthor(string authorIdOrUrl) =>
+        Task.FromResult<AuthorSearchResult?>(null);
+
+    /// <summary>
+    /// <see cref="GetAuthorBooks"/> plus the source's own name for the author, fetched in the same
+    /// request. The default reports no name, so a scraper that only implements
+    /// <see cref="GetAuthorBooks"/> keeps working (and simply never proposes a rename). Throws
+    /// <c>AuthorNotFoundException</c> under the same conditions as <see cref="GetAuthorBooks"/>.
+    /// </summary>
+    async Task<AuthorBibliographyResult> GetAuthorBibliography(string authorSourceId) =>
+        new AuthorBibliographyResult(null, await GetAuthorBooks(authorSourceId));
+
+    /// <summary>
     /// Not-yet-released books in the series identified by <paramref name="seriesSourceId"/> (the
     /// same source id <see cref="SeriesSearchResult.SourceId"/>/<see cref="GetSeriesBooks"/> use).
     /// </summary>
