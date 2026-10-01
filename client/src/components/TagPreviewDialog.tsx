@@ -71,9 +71,7 @@ export function TagPreviewDialog({
   // Opt-in toggle to split a scraped "Title: Subtitle" title at its first colon-space. Defaults
   // off — a scraped title is trusted as-is unless the user explicitly asks otherwise (see
   // helpers/titleSplitter.ts).
-  const [splitTitleOnColonEnabled, setSplitTitleOnColonEnabled] = useState(
-    currentInput.splitTitleOnColon ?? false,
-  );
+  const [splitTitleOnColonEnabled, setSplitTitleOnColonEnabled] = useState(recordedSplit);
 
   // Which of the source's series becomes the book's primary one. Undefined = the default the
   // apply would pick (the book's current primary when the source still lists it); reset with the
