@@ -274,11 +274,11 @@ describe("PendingRefreshRowPanel", () => {
       expect(metadataRefreshApi.applyPending).not.toHaveBeenCalled();
     });
 
-    it("applies without the dialog when the target is the book's own file", async () => {
+    it("applies without the dialog when the server reports no collision", async () => {
       setUpRatingDiff();
       vi.mocked(metadataRefreshApi.checkApplyTarget).mockResolvedValue({
-        ...collision,
         targetPath: bookDetailWithOnlyRatingDiffering.filePath,
+        exists: false,
       });
 
       renderPanel();

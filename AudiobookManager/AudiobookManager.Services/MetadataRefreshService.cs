@@ -658,6 +658,11 @@ public class MetadataRefreshService : IMetadataRefreshService
         domain.Id = dbBook.Id;
         MetadataRefreshApplier.ApplyFields(domain, payload, fieldsToApply, splitTitleOnColon, primarySeriesName);
 
+        // The save promotes an additional series to primary before it derives the path; doing the
+        // same here keeps the collision preview and the apply on the same path by construction
+        // (a preview of the unpromoted path could clear a target the apply then replaces).
+        domain.PromoteAdditionalSeriesIfNoPrimary();
+
         if (domain.Authors.Count == 0 || string.IsNullOrWhiteSpace(domain.BookName))
         {
             throw new InvalidOperationException(

@@ -1051,6 +1051,33 @@ public class MetadataRefreshServiceTests
         _pendingRepository.Verify(r => r.DeleteByAudiobookIdAsync(It.IsAny<long>()), Times.Never);
     }
 
+    // Regression (review finding): the save promotes an additional series to primary before it
+    // derives the path, so a preview built without that step checked a path the apply never uses -
+    // and could clear it while the real (promoted) path was occupied, letting a user-approved
+    // replace delete a file the dialog never showed.
+    [TestMethod]
+    public async Task CheckApplyTargetCollisionAsync_AdditionalSeriesWithoutPrimary_ChecksThePromotedPath()
+    {
+        var (book, _) = SetUpBookWithRatingPending(314);
+        book.SeriesRelations = new List<Database.Models.AudiobookSeries>
+        {
+            new() { SeriesName = "Spinoff", SeriesPart = "3", IsPrimary = false, SortOrder = 1 },
+        };
+
+        Domain.Audiobook? checkedBook = null;
+        _audiobookService.Setup(s => s.CheckTargetPathCollision(It.IsAny<Domain.Audiobook>()))
+            .Callback<Domain.Audiobook>(a => checkedBook = a)
+            .ReturnsAsync(new TargetPathCollisionResult { TargetPath = "/library/new/book.m4b", Exists = false });
+
+        // Explicit fields: left to the re-diff, the snapshot's lack of series would select (and apply) the
+        // Series field itself, which is not what this test is about.
+        await CreateService().CheckApplyTargetCollisionAsync(314, new[] { "Rating" });
+
+        Assert.IsNotNull(checkedBook);
+        Assert.AreEqual("Spinoff", checkedBook!.Series);
+        Assert.AreEqual("3", checkedBook.SeriesPart);
+    }
+
     [TestMethod]
     public async Task CheckApplyTargetCollisionAsync_TargetIsTheBooksOwnFile_IsNotACollision()
     {

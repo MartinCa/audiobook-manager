@@ -21,7 +21,6 @@ import {
 } from "@/helpers/seriesRelations";
 import { handleApiError } from "@/lib/api";
 import { notifications } from "@/lib/notifications";
-import { pathsEqual } from "@/helpers/pathHelpers";
 import type { TargetPathCheckResult } from "@/types/TargetPathCheck";
 
 /** Maps a diff row's client-side key to the backend field name(s) MetadataRefreshFields defines; "series" is the whole set of a book's series with their parts and the primary. */
@@ -179,7 +178,8 @@ export function PendingRefreshRowPanel({ audiobookId, onApplied }: PendingRefres
     check: TargetPathCheckResult;
   } | null>(null);
 
-  // If the check itself fails, fall through and let the apply decide: the server refuses a
+  // The server already treats the book's own file as no collision, from a fresh read of the row,
+  // so its answer is trusted as is. If the check itself fails, fall through and let the apply decide: the server refuses a
   // colliding apply with a 409 either way, so a failed preview cannot overwrite anything.
   const findTargetCollision = async (fields: string[]): Promise<TargetPathCheckResult | null> => {
     try {
@@ -189,7 +189,7 @@ export function PendingRefreshRowPanel({ audiobookId, onApplied }: PendingRefres
         splitTitleOnColonEnabled,
         chosenPrimarySeries,
       );
-      return check?.exists && !pathsEqual(check.targetPath, bookDetail?.filePath) ? check : null;
+      return check?.exists ? check : null;
     } catch {
       return null;
     }
