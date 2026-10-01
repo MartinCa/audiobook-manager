@@ -20,6 +20,14 @@ import {
 import type { OrganizeAudiobookInput } from "@/types/OrganizeAudiobookInput";
 import type { MetadataSearchResult } from "@/types/MetadataSearchResult";
 
+/**
+ * What an apply decided about the book's recorded title split: "split" - the book name was applied
+ * and the split changed it (record the choice, so a later refresh splits the same way); "unsplit" -
+ * the book name was applied with the split toggled off (stop splitting); "none" - nothing to
+ * record (book name not applied, or the split had nothing to change).
+ */
+export type TitleSplitOutcome = "split" | "unsplit" | "none";
+
 interface TagPreviewDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -29,12 +37,8 @@ interface TagPreviewDialogProps {
     result: MetadataSearchResult,
     selectedFields: Set<string>,
     saveImmediately: boolean,
-    /**
-     * The title was actually split at its colon by this apply (the book name field was applied
-     * and the split changed it), so the consumer records that choice on the book and a later
-     * refresh splits the same way.
-     */
-    titleSplit: boolean,
+    /** What this apply decided about the book's recorded title split (see TitleSplitOutcome). */
+    titleSplit: TitleSplitOutcome,
   ) => void;
   /**
    * Shows the "don't save automatically" opt-out checkbox. Only the interactive search-result
@@ -60,6 +64,9 @@ export function TagPreviewDialog({
 
   const languages = useMemo(() => langData?.languages ?? [], [langData?.languages]);
   const qualifierOptions = useBookQualifiers();
+
+  // Whether the book is recorded as split: the toggle starts (and resets) to this.
+  const recordedSplit = currentInput.splitTitleOnColon ?? false;
 
   // Opt-in toggle to split a scraped "Title: Subtitle" title at its first colon-space. Defaults
   // off — a scraped title is trusted as-is unless the user explicitly asks otherwise (see
@@ -120,7 +127,7 @@ export function TagPreviewDialog({
     setLastSearchResult(searchResult);
     setSelected(new Set(changedFieldKeys));
     setDontSaveAutomatically(false);
-    setSplitTitleOnColonEnabled(currentInput.splitTitleOnColon ?? false);
+    setSplitTitleOnColonEnabled(recordedSplit);
     setChosenPrimarySeries(undefined);
   }
 
@@ -134,7 +141,7 @@ export function TagPreviewDialog({
     setWasOpen(open);
     if (open) {
       setDontSaveAutomatically(false);
-      setSplitTitleOnColonEnabled(currentInput.splitTitleOnColon ?? false);
+      setSplitTitleOnColonEnabled(recordedSplit);
       setChosenPrimarySeries(undefined);
     }
   }
@@ -190,7 +197,7 @@ export function TagPreviewDialog({
   // key, changed or not), so this only bites Apply Selected after a manual bookName deselection.
   const applyAdjustedResult = (
     keys: Set<string>,
-  ): { result: MetadataSearchResult; titleSplit: boolean } => {
+  ): { result: MetadataSearchResult; titleSplit: TitleSplitOutcome } => {
     const originalSubtitleBlank = !searchResult.subtitle?.trim();
     const { bookName, subtitle } = splitTitleOnColon(
       searchResult.bookName ?? "",
@@ -209,11 +216,15 @@ export function TagPreviewDialog({
         chosenPrimarySeries,
       ),
       // Only a split that really changed the title is a choice worth recording (the same rule
-      // as the server's MetadataRefreshApplier), and only when the title itself is applied.
-      titleSplit:
-        splitTitleOnColonEnabled &&
-        keys.has("bookName") &&
-        bookName !== (searchResult.bookName ?? ""),
+      // as the server's MetadataRefreshApplier), and only when the title itself is applied. An
+      // applied title with the toggle off is an explicit decision to stop splitting.
+      titleSplit: !keys.has("bookName")
+        ? "none"
+        : !splitTitleOnColonEnabled
+          ? "unsplit"
+          : bookName !== (searchResult.bookName ?? "")
+            ? "split"
+            : "none",
     };
   };
 

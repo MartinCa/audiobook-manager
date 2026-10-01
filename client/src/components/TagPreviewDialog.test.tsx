@@ -523,7 +523,7 @@ describe("TagPreviewDialog", () => {
 
   // The recorded choice: a split that changed the applied title is reported so the edit form can
   // remember it on the book and a later refresh splits the same way.
-  it("reports titleSplit=true to onApply when the split changed the applied title", () => {
+  it("reports titleSplit=split to onApply when the split changed the applied title", () => {
     const onApply = vi.fn();
     renderWithQuery(
       <TagPreviewDialog
@@ -542,10 +542,10 @@ describe("TagPreviewDialog", () => {
     );
     fireEvent.click(screen.getByText("Apply All"));
 
-    expect(onApply.mock.calls[0]?.[3]).toBe(true);
+    expect(onApply.mock.calls[0]?.[3]).toBe("split");
   });
 
-  it("reports titleSplit=false when the toggle is off, or when the title has no colon to split", () => {
+  it("reports unsplit when the toggle is off and none when the title has no colon to split", () => {
     const onApply = vi.fn();
     const { unmount } = renderWithQuery(
       <TagPreviewDialog
@@ -557,7 +557,7 @@ describe("TagPreviewDialog", () => {
       />,
     );
     fireEvent.click(screen.getByText("Apply All"));
-    expect(onApply.mock.calls[0]?.[3]).toBe(false);
+    expect(onApply.mock.calls[0]?.[3]).toBe("unsplit");
     unmount();
 
     const noColon = vi.fn();
@@ -576,7 +576,7 @@ describe("TagPreviewDialog", () => {
       }),
     );
     fireEvent.click(screen.getByText("Apply All"));
-    expect(noColon.mock.calls[0]?.[3]).toBe(false);
+    expect(noColon.mock.calls[0]?.[3]).toBe("none");
   });
 
   it("starts with the split on for a book recorded as split, so a refresh repeats it", () => {
@@ -601,5 +601,25 @@ describe("TagPreviewDialog", () => {
     const [appliedResult] = onApply.mock.calls[0] as [MetadataSearchResult];
     expect(appliedResult.bookName).toBe("The Hobbit");
     expect(appliedResult.subtitle).toBe("There and Back Again");
+  });
+
+  it("reports titleSplit=none when the book name is not applied, so the record is left alone", () => {
+    const onApply = vi.fn();
+    renderWithQuery(
+      <TagPreviewDialog
+        open={true}
+        onOpenChange={() => {}}
+        currentInput={{ ...currentInput, splitTitleOnColon: true }}
+        searchResult={{ ...searchResult, bookName: "The Hobbit: There and Back Again" }}
+        onApply={onApply}
+      />,
+    );
+
+    // Deselect the book name, then apply the rest.
+    const bookNameRow = screen.getByText("Book Name").closest("tr");
+    fireEvent.click(within(bookNameRow as HTMLElement).getByRole("checkbox"));
+    fireEvent.click(screen.getByRole("button", { name: /selected/i }));
+
+    expect(onApply.mock.calls[0]?.[3]).toBe("none");
   });
 });

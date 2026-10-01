@@ -30,7 +30,7 @@ import { SeriesRelationRow } from "@/components/fields/SeriesRelationRow";
 import { LanguageField } from "@/components/fields/LanguageField";
 import { CoverEditor } from "./CoverEditor";
 import { BookSearchDialog } from "./BookSearchDialog";
-import { TagPreviewDialog } from "./TagPreviewDialog";
+import { TagPreviewDialog, type TitleSplitOutcome } from "./TagPreviewDialog";
 import { DiffDisplay } from "./DiffDisplay";
 import { audiobookApi, settingsApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
@@ -571,15 +571,16 @@ export function BookEditForm({
   const handleApplyPreviewedTags = async (
     result: MetadataSearchResult,
     selectedFields: Set<string>,
-    titleSplit = false,
+    titleSplit: TitleSplitOutcome = "none",
   ) => {
     if (selectedFields.size === 0) return;
     metadataAppliedFromSearchRef.current = true;
     if (selectedFields.has("bookName") && result.bookName) {
       form.setValue("bookName", result.bookName, { shouldDirty: true });
-      // Remember that this title was split, so a metadata refresh splits it the same way.
-      if (titleSplit) {
-        form.setValue("splitTitleOnColon", true, { shouldDirty: true });
+      // Remember that this title was split, so a metadata refresh splits it the same way - or
+      // forget it when the title was applied whole, or the next refresh would re-split it.
+      if (titleSplit !== "none") {
+        form.setValue("splitTitleOnColon", titleSplit === "split", { shouldDirty: true });
       }
     }
     // Qualifiers the source reported (or whose wording was cleaned off the title) are their own
@@ -783,7 +784,7 @@ export function BookEditForm({
   const handleApplyPendingRefresh = async (
     result: MetadataSearchResult,
     selectedFields: Set<string>,
-    titleSplit: boolean,
+    titleSplit: TitleSplitOutcome,
   ) => {
     if (selectedFields.size === 0) return;
     setSaving(true);
@@ -805,7 +806,7 @@ export function BookEditForm({
     result: MetadataSearchResult,
     selectedFields: Set<string>,
     saveImmediately: boolean,
-    titleSplit: boolean,
+    titleSplit: TitleSplitOutcome,
   ) => {
     if (selectedFields.size === 0) return;
     if (saveImmediately) setSaving(true);
