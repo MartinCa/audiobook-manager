@@ -31,8 +31,11 @@ public static class MetadataRefreshDiffer
         add(MetadataRefreshFields.Narrators,
             JoinNames(book.Narrators.Select(n => n.Name), spacing, punctuation),
             JoinNames(fetched.Narrators.Select(n => n.Name), spacing, punctuation));
-        add(MetadataRefreshFields.BookName, book.BookName, fetched.BookName);
-        add(MetadataRefreshFields.Subtitle, book.Subtitle, fetched.Subtitle);
+        // A book recorded as split compares against the source's title split the same way, or
+        // every refresh would propose undoing the split.
+        var (sourceBookName, sourceSubtitle) = TitleSplitter.Apply(fetched.BookName, fetched.Subtitle, book.SplitTitleOnColon);
+        add(MetadataRefreshFields.BookName, book.BookName, sourceBookName);
+        add(MetadataRefreshFields.Subtitle, book.Subtitle, sourceSubtitle);
         AddSeries(diffs, book, (fetched.Series ?? new List<MetadataSeriesSearchResult>())
             .Select(s => new SeriesRelationSet.Entry(s.SeriesName, s.SeriesPart, s.OriginalSeriesName)));
 
@@ -89,8 +92,9 @@ public static class MetadataRefreshDiffer
         add(MetadataRefreshFields.Narrators,
             JoinNames(book.Narrators.Select(n => n.Name), spacing, punctuation),
             JoinNames(snapshot.Narrators, spacing, punctuation));
-        add(MetadataRefreshFields.BookName, book.BookName, snapshot.BookName);
-        add(MetadataRefreshFields.Subtitle, book.Subtitle, snapshot.Subtitle);
+        var (sourceBookName, sourceSubtitle) = TitleSplitter.Apply(snapshot.BookName, snapshot.Subtitle, book.SplitTitleOnColon);
+        add(MetadataRefreshFields.BookName, book.BookName, sourceBookName);
+        add(MetadataRefreshFields.Subtitle, book.Subtitle, sourceSubtitle);
         AddSeries(diffs, book, PendingRefreshPayload.SeriesOf(snapshot));
 
         if (snapshot.Year.HasValue)

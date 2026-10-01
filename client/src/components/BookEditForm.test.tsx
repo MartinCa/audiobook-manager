@@ -2108,4 +2108,128 @@ describe("BookEditForm additional series", () => {
     expect(previewed.series).toBe("Mistborn");
     expect(previewed.seriesPart).toBe("1");
   });
+
+  describe("split title at colon", () => {
+    const colonBook: Audiobook = { ...initialBook, bookName: "The Hobbit: There and Back Again" };
+
+    it("splits the title into book name and subtitle and saves the split flag on the book", async () => {
+      const onSave = vi.fn();
+      renderWithProviders(<BookEditForm initialBook={colonBook} onSave={onSave} />);
+
+      fireEvent.click(await screen.findByRole("button", { name: "Split title at colon" }));
+      fireEvent.click(screen.getByText("Save Audiobook"));
+
+      await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+      const saved = onSave.mock.calls[0]?.[0] as Audiobook;
+      expect(saved.bookName).toBe("The Hobbit");
+      expect(saved.subtitle).toBe("There and Back Again");
+      expect(saved.splitTitleOnColon).toBe(true);
+    });
+
+    it("does not offer the split for a title without a colon-space, such as a time", () => {
+      renderWithProviders(
+        <BookEditForm
+          initialBook={{ ...initialBook, bookName: "4:50 from Paddington" }}
+          onSave={vi.fn()}
+        />,
+      );
+
+      expect(screen.queryByRole("button", { name: "Split title at colon" })).toBeNull();
+    });
+
+    it("saves a book as not split unless the user splits it", async () => {
+      const onSave = vi.fn();
+      renderWithProviders(<BookEditForm initialBook={colonBook} onSave={onSave} />);
+
+      fireEvent.click(await screen.findByText("Save Audiobook"));
+
+      await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+      expect((onSave.mock.calls[0]?.[0] as Audiobook).splitTitleOnColon).toBe(false);
+    });
+
+    // Regression for a review finding: the form only ever set the record, so a flagged book whose
+    // source title was applied whole (split toggle unchecked) kept the flag and the next refresh
+    // re-split the title the user had just applied unsplit.
+    it("clears the recorded split when the source title is applied whole through the search dialog", async () => {
+      const { metadataSearchApi } = await import("@/services/api");
+      vi.mocked(metadataSearchApi.searchMultiple).mockResolvedValueOnce({
+        results: [
+          {
+            url: "https://audible.com/pd/B0SPLIT",
+            cleanUrl: "https://audible.com/pd/B0SPLIT",
+            source: "Audible",
+            bookName: "The Hobbit: There and Back Again",
+            authors: [{ name: "Jane Author" }],
+            narrators: [],
+            series: [],
+            genres: [],
+          },
+        ],
+        sourceStatuses: [],
+      });
+      const onSave = vi.fn<(book: Audiobook) => Promise<void>>().mockResolvedValue(undefined);
+      renderWithProviders(
+        <BookEditForm
+          initialBook={{
+            ...initialBook,
+            bookName: "The Hobbit",
+            subtitle: "There and Back Again",
+            splitTitleOnColon: true,
+          }}
+          onSave={onSave}
+        />,
+      );
+
+      fireEvent.click(screen.getByText("Search Online Metadata"));
+      const searchInput = await screen.findByPlaceholderText(
+        "Search title, author, or paste URL...",
+      );
+      fireEvent.change(searchInput, { target: { value: "Hobbit" } });
+      fireEvent.submit(searchInput.closest("form")!);
+      fireEvent.click(await screen.findByRole("button", { name: "Apply" }));
+
+      // The dialog starts with the split on for a flagged book; turn it off and apply.
+      fireEvent.click(
+        await screen.findByRole("checkbox", {
+          name: "Split title into book name and subtitle at first colon",
+        }),
+      );
+      fireEvent.click(screen.getByRole("checkbox", { name: "Don't save automatically" }));
+      fireEvent.click(screen.getByRole("button", { name: "Apply All" }));
+      fireEvent.click(await screen.findByText("Save Audiobook"));
+
+      await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+      const saved = onSave.mock.calls[0]?.[0] as Audiobook;
+      expect(saved.bookName).toBe("The Hobbit: There and Back Again");
+      expect(saved.splitTitleOnColon).toBe(false);
+    });
+
+    it("can turn the recorded split off again without touching the text", async () => {
+      const onSave = vi.fn();
+      renderWithProviders(
+        <BookEditForm
+          initialBook={{
+            ...initialBook,
+            bookName: "The Hobbit",
+            subtitle: "There and Back Again",
+            splitTitleOnColon: true,
+          }}
+          onSave={onSave}
+        />,
+      );
+
+      const flag = screen.getByRole("checkbox", {
+        name: "Split the title at its colon on metadata refresh",
+      });
+      expect(flag).toBeChecked();
+      fireEvent.click(flag);
+      fireEvent.click(screen.getByText("Save Audiobook"));
+
+      await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+      const saved = onSave.mock.calls[0]?.[0] as Audiobook;
+      expect(saved.splitTitleOnColon).toBe(false);
+      expect(saved.bookName).toBe("The Hobbit");
+      expect(saved.subtitle).toBe("There and Back Again");
+    });
+  });
 });

@@ -953,7 +953,8 @@ public class BrowseController : ControllerBase
             QualifierColumn.Parse(audiobook.Qualifiers),
             (SeriesRelationSync.AdditionalOf(audiobook) ?? new List<Domain.SeriesRelation>())
                 .Select(r => new SeriesRelationDto { SeriesName = r.Name, SeriesPart = r.Part })
-                .ToList()
+                .ToList(),
+            audiobook.SplitTitleOnColon
         );
     }
 

@@ -6,6 +6,13 @@ public class OrganizeAudiobookDto
 {
     [Required] public string BookName { get; set; } = null!;
     public string? Subtitle { get; set; }
+
+    /// <summary>
+    /// Records that the title is kept split at its first colon into <c>BookName</c> and
+    /// <c>Subtitle</c>, so a metadata refresh splits the source's title the same way. Database-only
+    /// bookkeeping - it never reaches a tag or the library path.
+    /// </summary>
+    public bool SplitTitleOnColon { get; set; }
     public string? Series { get; set; }
     public string? SeriesPart { get; set; }
 

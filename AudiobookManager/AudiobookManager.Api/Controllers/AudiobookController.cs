@@ -511,6 +511,7 @@ public class AudiobookController : ControllerBase
         {
             Narrators = narrators,
             Subtitle = dto.Subtitle,
+            SplitTitleOnColon = dto.SplitTitleOnColon,
             Series = dto.Series,
             SeriesPart = dto.SeriesPart,
             AdditionalSeries = dto.AdditionalSeries?

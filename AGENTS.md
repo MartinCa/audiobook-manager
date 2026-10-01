@@ -665,6 +665,19 @@ re-serializes byte-identically). `SeriesRelationSet` is the one implementation t
 - The client's `TagPreviewDialog` hands the series over primary-first, so `BookEditForm` applies
   "first = primary, the rest = additional" without a signature of its own for the choice.
 
+### The title split is recorded on the book
+
+**Invariant: a split of "Title: Subtitle" at the first ": " is remembered per book** (`audiobooks.split_title_on_colon`,
+`Audiobook.SplitTitleOnColon` on the domain model, `splitTitleOnColon` on the detail/save DTOs). Scrapers never split
+(see `TitleSplitter`); the user opts in, either with the toggle on an apply point (tag preview, pending refresh,
+bulk apply) or with "Split title at colon" on the edit form, and that choice sets the flag. From then on a refresh
+splits the source's title the same way *without being asked*: `MetadataRefreshDiffer` compares the book against the
+source's title split per the flag (so the stored split is never proposed as a diff) and `MetadataRefreshApplier`
+ORs the flag into the request's toggle. The applier only *records* the flag when the split actually changed the
+applied title, so a bulk apply with the toggle on does not flag every book that has no colon. It is
+database-only bookkeeping (no tag, sidecar or path), carried through `FromDb` -> `UpdateAudiobook` like
+`Qualifiers`; the edit form's checkbox is the one way to turn it off again.
+
 ### Metadata sidecar files
 
 Alongside each m4b, `WriteMetadata()` creates `desc.txt` (description), `reader.txt` (narrators)

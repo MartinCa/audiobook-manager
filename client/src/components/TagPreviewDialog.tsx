@@ -20,6 +20,33 @@ import {
 import type { OrganizeAudiobookInput } from "@/types/OrganizeAudiobookInput";
 import type { MetadataSearchResult } from "@/types/MetadataSearchResult";
 
+/**
+ * What an apply decided about the book's recorded title split: "split" - the book name was applied
+ * and the split changed it (record the choice, so a later refresh splits the same way); "unsplit" -
+ * the book name was applied with the split toggled off (stop splitting); "none" - nothing to
+ * record (book name not applied, or the split had nothing to change).
+ */
+export type TitleSplitOutcome = "split" | "unsplit" | "none";
+
+/**
+ * Only a split that really changed the title is a choice worth recording (the same rule as the
+ * server's MetadataRefreshApplier), and only when the title itself is applied. An applied title
+ * with the toggle off is an explicit decision to stop splitting.
+ */
+function titleSplitOutcome({
+  bookNameApplied,
+  splitEnabled,
+  titleChanged,
+}: {
+  bookNameApplied: boolean;
+  splitEnabled: boolean;
+  titleChanged: boolean;
+}): TitleSplitOutcome {
+  if (!bookNameApplied) return "none";
+  if (!splitEnabled) return "unsplit";
+  return titleChanged ? "split" : "none";
+}
+
 interface TagPreviewDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -29,6 +56,8 @@ interface TagPreviewDialogProps {
     result: MetadataSearchResult,
     selectedFields: Set<string>,
     saveImmediately: boolean,
+    /** What this apply decided about the book's recorded title split (see TitleSplitOutcome). */
+    titleSplit: TitleSplitOutcome,
   ) => void;
   /**
    * Shows the "don't save automatically" opt-out checkbox. Only the interactive search-result
@@ -55,10 +84,13 @@ export function TagPreviewDialog({
   const languages = useMemo(() => langData?.languages ?? [], [langData?.languages]);
   const qualifierOptions = useBookQualifiers();
 
+  // Whether the book is recorded as split: the toggle starts (and resets) to this.
+  const recordedSplit = currentInput.splitTitleOnColon ?? false;
+
   // Opt-in toggle to split a scraped "Title: Subtitle" title at its first colon-space. Defaults
   // off — a scraped title is trusted as-is unless the user explicitly asks otherwise (see
   // helpers/titleSplitter.ts).
-  const [splitTitleOnColonEnabled, setSplitTitleOnColonEnabled] = useState(false);
+  const [splitTitleOnColonEnabled, setSplitTitleOnColonEnabled] = useState(recordedSplit);
 
   // Which of the source's series becomes the book's primary one. Undefined = the default the
   // apply would pick (the book's current primary when the source still lists it); reset with the
@@ -112,7 +144,7 @@ export function TagPreviewDialog({
     setLastSearchResult(searchResult);
     setSelected(new Set(changedFieldKeys));
     setDontSaveAutomatically(false);
-    setSplitTitleOnColonEnabled(false);
+    setSplitTitleOnColonEnabled(recordedSplit);
     setChosenPrimarySeries(undefined);
   }
 
@@ -126,7 +158,7 @@ export function TagPreviewDialog({
     setWasOpen(open);
     if (open) {
       setDontSaveAutomatically(false);
-      setSplitTitleOnColonEnabled(false);
+      setSplitTitleOnColonEnabled(recordedSplit);
       setChosenPrimarySeries(undefined);
     }
   }
@@ -180,7 +212,9 @@ export function TagPreviewDialog({
   // both fields instead of moving it. Mirrors the same guard in the backend's
   // MetadataRefreshApplier. handleApplyAll's `keys` always includes "bookName" (it's every field
   // key, changed or not), so this only bites Apply Selected after a manual bookName deselection.
-  const applyAdjustedResult = (keys: Set<string>): MetadataSearchResult => {
+  const applyAdjustedResult = (
+    keys: Set<string>,
+  ): { result: MetadataSearchResult; titleSplit: TitleSplitOutcome } => {
     const originalSubtitleBlank = !searchResult.subtitle?.trim();
     const { bookName, subtitle } = splitTitleOnColon(
       searchResult.bookName ?? "",
@@ -192,21 +226,30 @@ export function TagPreviewDialog({
       subtitleRecoveredBySplit && !keys.has("bookName") ? searchResult.subtitle : subtitle;
     // The series go out primary-first (then the rest in canonical order), so the consumer applies
     // "first = primary, the others = additional" without a signature of its own for the choice.
-    return withPrimarySeriesFirst(
-      { ...searchResult, bookName, subtitle: effectiveSubtitle ?? undefined },
-      currentSeriesEntries,
-      chosenPrimarySeries,
-    );
+    return {
+      result: withPrimarySeriesFirst(
+        { ...searchResult, bookName, subtitle: effectiveSubtitle ?? undefined },
+        currentSeriesEntries,
+        chosenPrimarySeries,
+      ),
+      titleSplit: titleSplitOutcome({
+        bookNameApplied: keys.has("bookName"),
+        splitEnabled: splitTitleOnColonEnabled,
+        titleChanged: bookName !== (searchResult.bookName ?? ""),
+      }),
+    };
   };
 
   const handleApplySelected = () => {
-    onApply(applyAdjustedResult(selected), selected, saveImmediately);
+    const { result, titleSplit } = applyAdjustedResult(selected);
+    onApply(result, selected, saveImmediately, titleSplit);
     onOpenChange(false);
   };
 
   const handleApplyAll = () => {
     const allKeys = new Set(fields.map((f) => f.key));
-    onApply(applyAdjustedResult(allKeys), allKeys, saveImmediately);
+    const { result, titleSplit } = applyAdjustedResult(allKeys);
+    onApply(result, allKeys, saveImmediately, titleSplit);
     onOpenChange(false);
   };
 

@@ -64,7 +64,7 @@ export function PendingRefreshRowPanel({ audiobookId, onApplied }: PendingRefres
   // Opt-in toggle to split a scraped "Title: Subtitle" title at its first colon-space. Defaults
   // off (see helpers/titleSplitter.ts); no need to persist across anything since this component
   // remounts per row.
-  const [splitTitleOnColonEnabled, setSplitTitleOnColonEnabled] = useState(false);
+  const [splitChosen, setSplitChosen] = useState(false);
   // Which of the source's series becomes the book's primary one; undefined = the default the
   // server would pick (the book's current primary when the source still lists it).
   const [chosenPrimarySeries, setChosenPrimarySeries] = useState<string | undefined>(undefined);
@@ -91,6 +91,13 @@ export function PendingRefreshRowPanel({ audiobookId, onApplied }: PendingRefres
     () => (bookDetail ? audiobookToOrganizeInput(toAudiobook(bookDetail)) : {}),
     [bookDetail],
   );
+  // A book recorded as split is always split again by the server (the record is what makes a
+  // refresh repeat the split), so the toggle shows on and cannot be turned off here; clear the
+  // record on the book's edit form to stop it.
+  const splitRecorded = currentInput.splitTitleOnColon ?? false;
+  const splitTitleOnColonEnabled = splitRecorded || splitChosen;
+  const setSplitTitleOnColonEnabled = (next: boolean | ((prev: boolean) => boolean)) =>
+    setSplitChosen((prev) => (typeof next === "function" ? next(prev) : next));
   const searchResult = useMemo(
     () => (pending?.payload ? pendingSnapshotToSearchResult(pending.payload) : null),
     [pending],
@@ -267,12 +274,14 @@ export function PendingRefreshRowPanel({ audiobookId, onApplied }: PendingRefres
       <div className="text-muted-foreground flex items-center gap-2 text-xs">
         <Checkbox
           checked={splitTitleOnColonEnabled}
+          disabled={splitRecorded}
           onCheckedChange={(next) => setSplitTitleOnColonEnabled(next === true)}
           aria-label="Split title into book name and subtitle at first colon"
         />
         <button
           type="button"
           className="text-left hover:underline"
+          disabled={splitRecorded}
           onClick={() => setSplitTitleOnColonEnabled((prev) => !prev)}
         >
           Split title into book name + subtitle at first colon (e.g. &quot;Title: Subtitle&quot;)

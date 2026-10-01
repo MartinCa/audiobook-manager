@@ -81,6 +81,7 @@ export function toAudiobookDto(data: Audiobook) {
     narrators: data.narrators.map((n) => n.name),
     bookName: data.bookName,
     subtitle: data.subtitle,
+    splitTitleOnColon: data.splitTitleOnColon ?? false,
     series: data.series,
     seriesPart: data.seriesPart,
     additionalSeries: data.additionalSeries,

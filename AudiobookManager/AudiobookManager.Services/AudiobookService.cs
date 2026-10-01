@@ -434,7 +434,8 @@ public class AudiobookService : IAudiobookService
             Authors = authors,
             Narrators = narrators,
             Genres = genres,
-            Qualifiers = QualifierColumn.Serialize(BookQualifiers.Normalize(audiobook.Qualifiers))
+            Qualifiers = QualifierColumn.Serialize(BookQualifiers.Normalize(audiobook.Qualifiers)),
+            SplitTitleOnColon = audiobook.SplitTitleOnColon
         };
         var seriesTouched = SeriesRelationSync.Apply(dbAudiobook, audiobook);
 
@@ -478,6 +479,7 @@ public class AudiobookService : IAudiobookService
         // recorded and any series it now records need a fresh reconciliation.
         existing.BookName = audiobook.BookName ?? string.Empty;
         existing.Subtitle = audiobook.Subtitle;
+        existing.SplitTitleOnColon = audiobook.SplitTitleOnColon;
         var seriesTouched = SeriesRelationSync.Apply(existing, audiobook);
         existing.Qualifiers = QualifierColumn.Serialize(BookQualifiers.Normalize(audiobook.Qualifiers));
         existing.Year = audiobook.Year ?? existing.Year;
@@ -592,6 +594,7 @@ public class AudiobookService : IAudiobookService
             Narrators = audiobookDb.Narrators.Select(FromDbPerson).ToList(),
             BookName = audiobookDb.BookName,
             Subtitle = audiobookDb.Subtitle,
+            SplitTitleOnColon = audiobookDb.SplitTitleOnColon,
             Series = audiobookDb.Series,
             SeriesPart = audiobookDb.SeriesPart,
             // Null when the relations were not loaded, which UpdateAudiobook reads as "leave them".

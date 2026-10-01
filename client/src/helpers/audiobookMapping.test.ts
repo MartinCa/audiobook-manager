@@ -119,6 +119,22 @@ describe("toAudiobook", () => {
     });
   });
 
+  it("carries the recorded split-title flag of an AudiobookDetail through", () => {
+    const base = {
+      id: 1,
+      filePath: "/library/a.m4b",
+      fileName: "a.m4b",
+      sizeInBytes: 1,
+      authors: ["A"],
+      narrators: [],
+      genres: [],
+      authorRefs: [],
+    };
+
+    expect(toAudiobook({ ...base, splitTitleOnColon: true }).splitTitleOnColon).toBe(true);
+    expect(toAudiobook(base).splitTitleOnColon).toBe(false);
+  });
+
   it("carries the qualifiers of an AudiobookDetail through, alongside the clean name", () => {
     const result = toAudiobook({
       id: 1,

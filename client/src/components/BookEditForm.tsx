@@ -17,6 +17,8 @@ import {
   Plus,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { splitTitleOnColon } from "@/helpers/titleSplitter";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { TagsInput } from "@/components/tags-input";
@@ -28,7 +30,7 @@ import { SeriesRelationRow } from "@/components/fields/SeriesRelationRow";
 import { LanguageField } from "@/components/fields/LanguageField";
 import { CoverEditor } from "./CoverEditor";
 import { BookSearchDialog } from "./BookSearchDialog";
-import { TagPreviewDialog } from "./TagPreviewDialog";
+import { TagPreviewDialog, type TitleSplitOutcome } from "./TagPreviewDialog";
 import { DiffDisplay } from "./DiffDisplay";
 import { audiobookApi, settingsApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
@@ -64,6 +66,8 @@ const bookEditFormSchema = z
     narrators: z.array(z.string()),
     bookName: z.string().trim().min(1, "Book title is required"),
     subtitle: z.string(),
+    // Recorded split of the title at its colon (see Audiobook.splitTitleOnColon).
+    splitTitleOnColon: z.boolean(),
     series: z.string(),
     seriesPart: z.string(),
     // The book's additional (non-primary) series; `series`/`seriesPart` above are the primary one.
@@ -111,6 +115,7 @@ function valuesFromBook(book: Audiobook): BookEditFormValues {
     narrators: book.narrators?.map((n) => n.name) ?? [],
     bookName: book.bookName || "",
     subtitle: book.subtitle || "",
+    splitTitleOnColon: book.splitTitleOnColon ?? false,
     series: book.series || "",
     seriesPart: book.seriesPart || "",
     additionalSeries: (book.additionalSeries ?? []).map((r) => ({
@@ -173,6 +178,7 @@ function buildAudiobook(
     narrators: (values.narrators ?? []).map((name) => ({ name })),
     bookName: (values.bookName ?? "").trim(),
     subtitle: values.subtitle?.trim() || undefined,
+    splitTitleOnColon: values.splitTitleOnColon,
     ...primaryAndAdditionalSeries(values),
     qualifiers: values.qualifiers ?? [],
     year: values.year ? parseInt(values.year, 10) : undefined,
@@ -475,6 +481,33 @@ export function BookEditForm({
   );
   const suffixSuggestion = !qualifiersKey && suffixSplit.qualifiers.length > 0 ? suffixSplit : null;
 
+  // Offer to split "Title: Subtitle" into the two fields (the first ": " is the separator, so
+  // "4:50 from Paddington" is never touched). Splitting records the choice on the book, so a later
+  // metadata refresh splits the source's title the same way; the checkbox undoes just that
+  // record, never the text.
+  const titleSplitProposal = splitTitleOnColon(
+    watchedValues.bookName ?? "",
+    watchedValues.subtitle,
+    true,
+  );
+  const canSplitTitle =
+    titleSplitProposal.bookName !== (watchedValues.bookName ?? "") ||
+    (titleSplitProposal.subtitle ?? "") !== (watchedValues.subtitle ?? "");
+
+  // The flag is offered whenever the book has a subtitle (so an already-split book can be marked
+  // too) and stays visible while set, so it can always be turned back off.
+  const showSplitFlag =
+    Boolean(watchedValues.splitTitleOnColon) || Boolean(watchedValues.subtitle?.trim());
+
+  const splitTitleNow = () => {
+    form.setValue("bookName", titleSplitProposal.bookName, {
+      shouldDirty: true,
+      shouldValidate: true,
+    });
+    form.setValue("subtitle", titleSplitProposal.subtitle ?? "", { shouldDirty: true });
+    form.setValue("splitTitleOnColon", true, { shouldDirty: true });
+  };
+
   const moveSuffixToQualifiers = () => {
     if (!suffixSuggestion) return;
     form.setValue("bookName", suffixSuggestion.bookName, {
@@ -511,6 +544,7 @@ export function BookEditForm({
       narrators: joinList(watchedValues.narrators),
       bookName: watchedValues.bookName,
       subtitle: watchedValues.subtitle,
+      splitTitleOnColon: watchedValues.splitTitleOnColon,
       series: currentSeries.series,
       seriesPart: currentSeries.seriesPart,
       additionalSeries: currentSeries.additionalSeries,
@@ -537,11 +571,17 @@ export function BookEditForm({
   const handleApplyPreviewedTags = async (
     result: MetadataSearchResult,
     selectedFields: Set<string>,
+    titleSplit: TitleSplitOutcome = "none",
   ) => {
     if (selectedFields.size === 0) return;
     metadataAppliedFromSearchRef.current = true;
     if (selectedFields.has("bookName") && result.bookName) {
       form.setValue("bookName", result.bookName, { shouldDirty: true });
+      // Remember that this title was split, so a metadata refresh splits it the same way - or
+      // forget it when the title was applied whole, or the next refresh would re-split it.
+      if (titleSplit !== "none") {
+        form.setValue("splitTitleOnColon", titleSplit === "split", { shouldDirty: true });
+      }
     }
     // Qualifiers the source reported (or whose wording was cleaned off the title) are their own
     // optional field, and only ever add to the book's - taking or skipping the title does not
@@ -744,10 +784,11 @@ export function BookEditForm({
   const handleApplyPendingRefresh = async (
     result: MetadataSearchResult,
     selectedFields: Set<string>,
+    titleSplit: TitleSplitOutcome,
   ) => {
     if (selectedFields.size === 0) return;
     setSaving(true);
-    await handleApplyPreviewedTags(result, selectedFields);
+    await handleApplyPreviewedTags(result, selectedFields, titleSplit);
     pendingRefreshAppliedRef.current = true;
     void form.handleSubmit(handleValidSubmit, resetSavingOnInvalidSubmit)();
   };
@@ -765,10 +806,11 @@ export function BookEditForm({
     result: MetadataSearchResult,
     selectedFields: Set<string>,
     saveImmediately: boolean,
+    titleSplit: TitleSplitOutcome,
   ) => {
     if (selectedFields.size === 0) return;
     if (saveImmediately) setSaving(true);
-    await handleApplyPreviewedTags(result, selectedFields);
+    await handleApplyPreviewedTags(result, selectedFields, titleSplit);
     if (saveImmediately) {
       autoSavedFromSearchRef.current = true;
       void form.handleSubmit(handleValidSubmit, resetSavingOnInvalidSubmit)();
@@ -906,6 +948,37 @@ export function BookEditForm({
                 </>
               )}
             </p>
+          )}
+
+          {(canSplitTitle || showSplitFlag) && (
+            <div
+              className="text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-1 text-xs"
+              data-testid="title-split"
+            >
+              {canSplitTitle && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-6 px-2 text-xs"
+                  onClick={splitTitleNow}
+                >
+                  Split title at colon
+                </Button>
+              )}
+              {showSplitFlag && (
+                <span className="flex items-center gap-2">
+                  <Checkbox
+                    checked={watchedValues.splitTitleOnColon ?? false}
+                    onCheckedChange={(next) =>
+                      form.setValue("splitTitleOnColon", next === true, { shouldDirty: true })
+                    }
+                    aria-label="Split the title at its colon on metadata refresh"
+                  />
+                  Split the title at its colon on metadata refresh
+                </span>
+              )}
+            </div>
           )}
 
           {suffixSuggestion && (
@@ -1192,8 +1265,8 @@ export function BookEditForm({
           onOpenChange={setTagPreviewOpen}
           currentInput={currentOrganizeInput}
           searchResult={cleanedPendingSearch.result}
-          onApply={(result, selectedFields, saveImmediately) => {
-            void handleApplySearchResult(result, selectedFields, saveImmediately);
+          onApply={(result, selectedFields, saveImmediately, titleSplit) => {
+            void handleApplySearchResult(result, selectedFields, saveImmediately, titleSplit);
           }}
           showAutoSaveToggle
         />
@@ -1205,8 +1278,8 @@ export function BookEditForm({
           onOpenChange={(open) => onPendingRefreshOpenChange?.(open)}
           currentInput={currentOrganizeInput}
           searchResult={cleanedPendingRefresh.result}
-          onApply={(result, selectedFields) => {
-            void handleApplyPendingRefresh(result, selectedFields);
+          onApply={(result, selectedFields, _saveImmediately, titleSplit) => {
+            void handleApplyPendingRefresh(result, selectedFields, titleSplit);
           }}
         />
       )}

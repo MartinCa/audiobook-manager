@@ -58,6 +58,11 @@ public class AudiobookMapping : IEntityTypeConfiguration<Audiobook>
             .Property(a => a.Qualifiers)
             .HasDefaultValue(string.Empty);
 
+        // Same reasoning: a book is not split unless the user said so.
+        builder
+            .Property(a => a.SplitTitleOnColon)
+            .HasDefaultValue(false);
+
         // BookNameFolded/SubtitleFolded/SeriesFolded/DescriptionFolded map by convention from
         // their [Column] attributes - see the comment on BookNameFolded (Audiobook model) for why
         // they exist and are deliberately not indexed.

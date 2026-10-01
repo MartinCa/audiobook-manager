@@ -44,6 +44,7 @@ export function toAudiobook(dto: DiscoveredAudiobook | AudiobookDetail): Audiobo
   return {
     bookName: dto.bookName ?? undefined,
     subtitle: dto.subtitle ?? undefined,
+    splitTitleOnColon: dto.splitTitleOnColon ?? false,
     series: dto.series ?? undefined,
     seriesPart: dto.seriesPart ?? undefined,
     additionalSeries: (dto.additionalSeries ?? []).map((r) => ({

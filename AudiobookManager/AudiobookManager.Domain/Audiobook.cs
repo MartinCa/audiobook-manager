@@ -9,6 +9,14 @@ public class Audiobook
     public List<Person> Narrators { get; set; }
     public string? BookName { get; set; }
     public string? Subtitle { get; set; }
+
+    /// <summary>
+    /// The book's title is kept split at its first ": " into <see cref="BookName"/> and
+    /// <see cref="Subtitle"/>; a metadata refresh then splits the source's title the same way.
+    /// Database-only bookkeeping (never reaches a tag or the library path), carried through every
+    /// FromDb -> UpdateAudiobook round trip like <see cref="Qualifiers"/>.
+    /// </summary>
+    public bool SplitTitleOnColon { get; set; }
     public string? Series { get; set; }
     public string? SeriesPart { get; set; }
 

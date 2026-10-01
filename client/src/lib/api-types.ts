@@ -5584,6 +5584,7 @@ export interface components {
             narrators?: components["schemas"]["Person"][] | null;
             bookName?: string | null;
             subtitle?: string | null;
+            splitTitleOnColon?: boolean;
             series?: string | null;
             seriesPart?: string | null;
             additionalSeries?: components["schemas"]["SeriesRelation"][] | null;
@@ -5643,6 +5644,7 @@ export interface components {
             authorRefs?: components["schemas"]["AudiobookAuthorDto"][] | null;
             qualifiers?: string[] | null;
             additionalSeries?: components["schemas"]["SeriesRelationDto"][] | null;
+            splitTitleOnColon?: boolean;
         };
         AudiobookFileInfo: {
             fullPath?: string | null;
@@ -6223,6 +6225,7 @@ export interface components {
         OrganizeAudiobookDto: {
             bookName: string;
             subtitle?: string | null;
+            splitTitleOnColon?: boolean;
             series?: string | null;
             seriesPart?: string | null;
             additionalSeries?: components["schemas"]["SeriesRelationDto"][] | null;

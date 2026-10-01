@@ -19,6 +19,13 @@ export interface Audiobook {
   narrators: AudiobookPerson[];
   bookName?: string;
   subtitle?: string;
+  /**
+   * The book's title is kept split at its first colon into `bookName` and `subtitle`. Recorded when
+   * the user splits (here or while applying online metadata) so a later metadata refresh splits
+   * the source's "Title: Subtitle" the same way. Database-only: it never reaches a tag or the
+   * library path. Missing means not split.
+   */
+  splitTitleOnColon?: boolean;
   /** The book's primary series - the one in its tags, metadata files and library path. */
   series?: string;
   seriesPart?: string;
