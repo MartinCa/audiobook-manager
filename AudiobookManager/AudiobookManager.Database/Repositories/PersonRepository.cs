@@ -507,6 +507,18 @@ public class PersonRepository : IPersonRepository
             source.Name = toName;
             await _db.SaveChangesAsync();
 
+            // The roster links carry the author's name as their fallback identity (used if the
+            // person row is ever removed), so they follow the rename like the merge branch's do.
+            await _db.ExpectedBookAuthors
+                .Where(l => l.PersonId == source.Id)
+                .ExecuteUpdateAsync(s => s.SetProperty(l => l.AuthorName, toName));
+            foreach (var entry in _db.ChangeTracker.Entries<ExpectedBookAuthor>()
+                         .Where(e => e.Entity.PersonId == source.Id)
+                         .ToList())
+            {
+                entry.State = EntityState.Detached;
+            }
+
             // The proposal was for the name the row no longer has.
             await _db.PendingAuthorRefreshes.Where(p => p.PersonId == source.Id).ExecuteDeleteAsync();
             await transaction.CommitAsync();

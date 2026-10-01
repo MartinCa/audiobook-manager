@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -63,6 +63,14 @@ export function RenameValueDialog({
   const [newName, setNewName] = useState(initialNewName ?? currentName);
   const [renaming, setRenaming] = useState(false);
   const [progress, setProgress] = useState<RenameProgressPayload | null>(null);
+  // The completion event is connection-wide and shared with every other align/rename (they hold
+  // one lock), so "this dialog is renaming" is not enough to know an event is ours: a foreign
+  // completion can land in the window before a refused request (409) is processed. An event only
+  // counts once the backend ACCEPTED the request. A completion that beats the HTTP response (a fast
+  // rename) is held in bufferedComplete and handled the moment the request resolves 2xx; if the
+  // request fails it is discarded.
+  const acceptedRef = useRef(false);
+  const bufferedCompleteRef = useRef<RenameCompletePayload | null>(null);
 
   // Reset whenever the dialog opens (or is pointed at another value while open): the instance is
   // reused across authors/series because the pages it lives on do not remount on a param change.
@@ -100,12 +108,9 @@ export function RenameValueDialog({
 
   const canSubmit = trimmed !== "" && problem === null && !renaming;
 
-  useSignalREvent<RenameProgressPayload>(SignalREvents.SimilarValueAlignProgress, (data) => {
-    if (renaming) setProgress(data);
-  });
-
-  useSignalREvent<RenameCompletePayload>(SignalREvents.SimilarValueAlignComplete, (data) => {
-    if (!renaming) return;
+  const finishRename = (data: RenameCompletePayload) => {
+    acceptedRef.current = false;
+    bufferedCompleteRef.current = null;
     setRenaming(false);
     setProgress(null);
     if (data.totalFailed > 0) {
@@ -122,18 +127,39 @@ export function RenameValueDialog({
       notifications.error(handleApiError(err).message);
     });
     onOpenChange(false);
+  };
+
+  useSignalREvent<RenameProgressPayload>(SignalREvents.SimilarValueAlignProgress, (data) => {
+    if (renaming && acceptedRef.current) setProgress(data);
+  });
+
+  useSignalREvent<RenameCompletePayload>(SignalREvents.SimilarValueAlignComplete, (data) => {
+    if (!renaming) return;
+    if (!acceptedRef.current) {
+      bufferedCompleteRef.current = data;
+      return;
+    }
+    finishRename(data);
   });
 
   const handleSubmit = async () => {
     if (!canSubmit) return;
+    acceptedRef.current = false;
+    bufferedCompleteRef.current = null;
     setRenaming(true);
     setProgress(null);
     try {
       await similarValuesApi.rename(valueType, currentName.trim(), trimmed);
     } catch (err: unknown) {
+      bufferedCompleteRef.current = null;
       notifications.error(handleApiError(err).message);
       setRenaming(false);
+      return;
     }
+
+    acceptedRef.current = true;
+    const early = bufferedCompleteRef.current;
+    if (early) finishRename(early);
   };
 
   return (

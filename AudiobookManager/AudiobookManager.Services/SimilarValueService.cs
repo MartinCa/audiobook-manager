@@ -616,8 +616,7 @@ public class SimilarValueService : ISimilarValueService
         // re-applies them as the suffix on disk, so the stored value stays clean.
         var result = await AlignSeriesAsync(new List<string> { oldName, newName }, newName, progressAction);
 
-        var failed = result.Failed;
-        if (failed == 0)
+        if (result.Failed == 0)
         {
             try
             {
@@ -625,10 +624,11 @@ public class SimilarValueService : ISimilarValueService
             }
             catch (Exception ex)
             {
-                // The books are already renamed; surface the catalog step as the one failed item
-                // rather than throwing away the success count.
+                // Deliberately NOT counted as a failed book: the completion event reports books,
+                // and no progress event ever included this step, so folding it in would make the
+                // numbers disagree with the stream. The books are renamed; the old catalog row
+                // (roster/match) stays under the old name and this is the only trace of it.
                 _logger.LogError(ex, "Renamed the books of series '{OldName}' to '{NewName}' but could not move its catalog row", oldName, newName);
-                failed++;
             }
         }
 
@@ -636,7 +636,7 @@ public class SimilarValueService : ISimilarValueService
         _seriesReconciliationCache.Invalidate(oldName);
         _seriesReconciliationCache.Invalidate(newName);
 
-        return (result.Processed, result.Succeeded, failed);
+        return result;
     }
 
     private async Task MoveSeriesCatalogAsync(string oldName, string newName)

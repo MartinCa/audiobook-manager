@@ -171,4 +171,63 @@ describe("RenameValueDialog", () => {
     await waitFor(() => expect(notifications.error).toHaveBeenCalled());
     expect(screen.getByRole("button", { name: "Rename" })).not.toBeDisabled();
   });
+
+  it("ignores a foreign completion that lands before a refused request, and shows no false success", async () => {
+    let rejectRename: (e: Error) => void = () => {};
+    vi.mocked(similarValuesApi.rename).mockReturnValue(
+      new Promise((_, reject) => {
+        rejectRename = reject;
+      }),
+    );
+    renderDialog({ initialNewName: "J.K. Rowling" });
+    fireEvent.click(screen.getByRole("button", { name: "Rename" }));
+    await waitFor(() => expect(similarValuesApi.rename).toHaveBeenCalled());
+
+    // Another client's operation finishes while our request is still in flight...
+    act(() => {
+      signalR.emit(SignalREvents.SimilarValueAlignComplete, {
+        totalProcessed: 5,
+        totalSucceeded: 5,
+        totalFailed: 0,
+      });
+    });
+    // ...and then the backend refuses ours (409: the shared lock was busy).
+    await act(() => {
+      rejectRename(new Error("An operation is already in progress"));
+      return Promise.resolve();
+    });
+
+    await waitFor(() => expect(notifications.error).toHaveBeenCalled());
+    expect(notifications.success).not.toHaveBeenCalled();
+    expect(onRenamed).not.toHaveBeenCalled();
+    expect(onOpenChange).not.toHaveBeenCalledWith(false);
+  });
+
+  it("handles a completion that beats the HTTP response once the request is accepted", async () => {
+    let resolveRename: () => void = () => {};
+    vi.mocked(similarValuesApi.rename).mockReturnValue(
+      new Promise<void>((resolve) => {
+        resolveRename = resolve;
+      }),
+    );
+    renderDialog({ initialNewName: "J.K. Rowling" });
+    fireEvent.click(screen.getByRole("button", { name: "Rename" }));
+    await waitFor(() => expect(similarValuesApi.rename).toHaveBeenCalled());
+
+    act(() => {
+      signalR.emit(SignalREvents.SimilarValueAlignComplete, {
+        totalProcessed: 0,
+        totalSucceeded: 0,
+        totalFailed: 0,
+      });
+    });
+    expect(onRenamed).not.toHaveBeenCalled();
+
+    await act(() => {
+      resolveRename();
+      return Promise.resolve();
+    });
+
+    await waitFor(() => expect(onRenamed).toHaveBeenCalledWith("J.K. Rowling"));
+  });
 });

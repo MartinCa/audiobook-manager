@@ -105,6 +105,19 @@ public class PersonRepositoryMergeAuthorTests
     }
 
     [TestMethod]
+    public async Task MergeAuthorAsync_InPlaceRename_UpdatesTheRosterLinksFallbackName()
+    {
+        var old = await SeedPersonAsync("Old Name");
+        await SeedExpectedBookAsync("Book", "b1", (old, "Old Name"));
+
+        await _repository.MergeAuthorAsync("Old Name", "New Name");
+
+        var link = await _db.ExpectedBookAuthors.AsNoTracking().SingleAsync();
+        Assert.AreEqual(old.Id, link.PersonId);
+        Assert.AreEqual("New Name", link.AuthorName);
+    }
+
+    [TestMethod]
     public async Task MergeAuthorAsync_AfterTheBooksMoved_CarriesTheMatchToTheDestinationAndDeletesTheSource()
     {
         var old = await SeedPersonAsync("Robert Galbraith", matchedSourceId: "204");

@@ -1237,7 +1237,7 @@ public class SimilarValueServiceTests
     }
 
     [TestMethod]
-    public async Task RenameSeriesAsync_TheCatalogMoveFailsAfterTheBooksRenamed_IsReportedAsAFailedItem()
+    public async Task RenameSeriesAsync_TheCatalogMoveFailsAfterTheBooksRenamed_KeepsTheBookCountsHonest()
     {
         _audiobookRepository.Setup(r => r.GetBooksBySeriesValuesAsync(It.IsAny<IEnumerable<string>>()))
             .ReturnsAsync(new List<DbAudiobook> { MakeDbAudiobook(1, "A", "Old") });
@@ -1247,8 +1247,9 @@ public class SimilarValueServiceTests
 
         var result = await _service.RenameSeriesAsync("Old", "New", (_, _, _, _) => Task.CompletedTask);
 
-        Assert.AreEqual(1, result.Succeeded);
-        Assert.AreEqual(1, result.Failed);
+        // The completion event reports books only; the catalog step was never part of the progress.
+        Assert.AreEqual((1, 1, 0), result);
+        _seriesRepository.Verify(r => r.RenameAsync("Old", "New"), Times.Once);
     }
 
     [TestMethod]
