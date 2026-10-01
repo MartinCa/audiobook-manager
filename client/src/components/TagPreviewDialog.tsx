@@ -28,6 +28,25 @@ import type { MetadataSearchResult } from "@/types/MetadataSearchResult";
  */
 export type TitleSplitOutcome = "split" | "unsplit" | "none";
 
+/**
+ * Only a split that really changed the title is a choice worth recording (the same rule as the
+ * server's MetadataRefreshApplier), and only when the title itself is applied. An applied title
+ * with the toggle off is an explicit decision to stop splitting.
+ */
+function titleSplitOutcome({
+  bookNameApplied,
+  splitEnabled,
+  titleChanged,
+}: {
+  bookNameApplied: boolean;
+  splitEnabled: boolean;
+  titleChanged: boolean;
+}): TitleSplitOutcome {
+  if (!bookNameApplied) return "none";
+  if (!splitEnabled) return "unsplit";
+  return titleChanged ? "split" : "none";
+}
+
 interface TagPreviewDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -213,16 +232,11 @@ export function TagPreviewDialog({
         currentSeriesEntries,
         chosenPrimarySeries,
       ),
-      // Only a split that really changed the title is a choice worth recording (the same rule
-      // as the server's MetadataRefreshApplier), and only when the title itself is applied. An
-      // applied title with the toggle off is an explicit decision to stop splitting.
-      titleSplit: !keys.has("bookName")
-        ? "none"
-        : !splitTitleOnColonEnabled
-          ? "unsplit"
-          : bookName !== (searchResult.bookName ?? "")
-            ? "split"
-            : "none",
+      titleSplit: titleSplitOutcome({
+        bookNameApplied: keys.has("bookName"),
+        splitEnabled: splitTitleOnColonEnabled,
+        titleChanged: bookName !== (searchResult.bookName ?? ""),
+      }),
     };
   };
 
