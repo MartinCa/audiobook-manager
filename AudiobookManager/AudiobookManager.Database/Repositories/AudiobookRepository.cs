@@ -232,22 +232,21 @@ public class AudiobookRepository : IAudiobookRepository
 
             // The OR is built as an expression tree: a closure-captured list's Any(Contains(column))
             // is not something EF Core reliably translates on SQLite.
-            var param = System.Linq.Expressions.Expression.Parameter(typeof(Audiobook), "a");
-            var column = System.Linq.Expressions.Expression.Property(param, nameof(Audiobook.Qualifiers));
+            var param = Expression.Parameter(typeof(Audiobook), "a");
+            var column = Expression.Property(param, nameof(Audiobook.Qualifiers));
             var contains = typeof(string).GetMethod(nameof(string.Contains), new[] { typeof(string) })!;
-            System.Linq.Expressions.Expression? any = wantsNone
-                ? System.Linq.Expressions.Expression.Equal(column, System.Linq.Expressions.Expression.Constant(string.Empty))
+            Expression? any = wantsNone
+                ? Expression.Equal(column, Expression.Constant(string.Empty))
                 : null;
             foreach (var token in tokens)
             {
-                var match = System.Linq.Expressions.Expression.Call(
-                    column, contains, System.Linq.Expressions.Expression.Constant(token));
-                any = any is null ? match : System.Linq.Expressions.Expression.OrElse(any, match);
+                var match = Expression.Call(column, contains, Expression.Constant(token));
+                any = any is null ? match : Expression.OrElse(any, match);
             }
 
             // Only NoQualifier plus unknown keys -> still a valid (possibly empty) predicate.
-            any ??= System.Linq.Expressions.Expression.Constant(false);
-            query = query.Where(System.Linq.Expressions.Expression.Lambda<Func<Audiobook, bool>>(any, param));
+            any ??= Expression.Constant(false);
+            query = query.Where(Expression.Lambda<Func<Audiobook, bool>>(any, param));
         }
 
         if (filter.MinDurationInSeconds is not null)
