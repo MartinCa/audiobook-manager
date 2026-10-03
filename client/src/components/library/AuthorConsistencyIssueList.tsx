@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, RefreshCw } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { ActionButton } from "@/components/action-button";
 import { Card } from "@/components/ui/card";
 import type { PageSizeOption } from "@/constants/paging";
 import { SectionPager } from "./SectionPager";
@@ -47,7 +47,6 @@ export function AuthorConsistencyIssueList() {
       notifications.error(handleApiError(err).message);
       void queryClient.invalidateQueries({ queryKey: queryKeys.authorConsistencyIssues.all() });
     },
-    onSettled: () => setRetryingAuthorId(null),
   });
 
   const totalCount = pageData?.totalCount ?? 0;
@@ -87,20 +86,16 @@ export function AuthorConsistencyIssueList() {
                     Failed {formatDateTime(item.detectedAt)}
                   </div>
                 </div>
-                <Button
+                <ActionButton
                   size="sm"
                   variant="outline"
                   className="h-7 shrink-0 self-end text-xs sm:self-center"
-                  disabled={retryMutation.isPending && retryingAuthorId === item.personId}
+                  icon={RefreshCw}
+                  status={retryingAuthorId === item.personId ? retryMutation.status : "idle"}
                   onClick={() => retryMutation.mutate(item.personId)}
                 >
-                  {retryMutation.isPending && retryingAuthorId === item.personId ? (
-                    <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />
-                  ) : (
-                    <RefreshCw className="mr-1.5 h-3 w-3" />
-                  )}
                   Retry
-                </Button>
+                </ActionButton>
               </div>
               <p className="text-destructive text-xs break-words">{item.errorMessage}</p>
             </Card>

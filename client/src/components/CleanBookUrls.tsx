@@ -3,6 +3,7 @@ import { useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Link2, Loader2, Sparkles } from "lucide-react";
+import { ActionButton } from "@/components/action-button";
 import { Button } from "@/components/ui/button";
 import { LinkButton } from "./LinkButton";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -219,18 +220,16 @@ export function CleanBookUrls() {
               >
                 Clear
               </Button>
-              <Button
+              <ActionButton
                 size="sm"
-                disabled={selectedIds.size === 0 || applyMutation.isPending}
+                variant="default"
+                icon={Sparkles}
+                status={applyMutation.status}
+                disabled={selectedIds.size === 0}
                 onClick={() => applyMutation.mutate(Array.from(selectedIds))}
               >
-                {applyMutation.isPending ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <Sparkles className="mr-2 h-4 w-4" />
-                )}
                 Clean {selectedIds.size} URL{selectedIds.size === 1 ? "" : "s"}
-              </Button>
+              </ActionButton>
               <Button
                 size="sm"
                 variant="outline"

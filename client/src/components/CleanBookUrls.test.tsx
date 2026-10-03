@@ -152,6 +152,25 @@ describe("CleanBookUrls", () => {
     });
   });
 
+  it("tints the clean button as failed and toasts when applying rejects", async () => {
+    vi.mocked(urlCleanupApi.apply).mockRejectedValue(new Error("boom"));
+    renderComponent();
+
+    const applyButton = await screen.findByRole("button", { name: /clean 1 url/i });
+    fireEvent.click(applyButton);
+
+    await waitFor(() => {
+      expect(notifications.error).toHaveBeenCalledWith("boom");
+    });
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /clean 1 url/i })).toHaveAttribute(
+        "data-status",
+        "error",
+      );
+    });
+    expect(notifications.success).not.toHaveBeenCalled();
+  });
+
   it("excludes a book from apply when its checkbox is unchecked", async () => {
     renderComponent();
 

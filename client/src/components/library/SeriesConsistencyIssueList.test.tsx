@@ -119,5 +119,12 @@ describe("SeriesConsistencyIssueList", () => {
     await userEvent.click(retryButton);
 
     await waitFor(() => expect(notifications.error).toHaveBeenCalled());
+    // The failed row keeps the error tint so the failure stays visible after the toast is gone.
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /retry/i })).toHaveAttribute(
+        "data-status",
+        "error",
+      ),
+    );
   });
 });
