@@ -222,8 +222,8 @@ importers:
         specifier: 8.0.6
         version: 8.0.6
       '@martinrun/frontend-config':
-        specifier: 0.3.0
-        version: 0.3.0(eslint@10.11.0(jiti@2.7.0)(supports-color@10.2.2))(prettier-plugin-tailwindcss@0.8.1(prettier@3.9.9))(prettier@3.9.9)(supports-color@10.2.2)(typescript@6.0.3)
+        specifier: 0.3.1
+        version: 0.3.1(eslint@10.11.0(jiti@2.7.0)(supports-color@10.2.2))(prettier-plugin-tailwindcss@0.8.1(prettier@3.9.9))(prettier@3.9.9)(supports-color@10.2.2)(typescript@6.0.3)
       '@tailwindcss/vite':
         specifier: 4.3.3
         version: 4.3.3(vite@8.3.1(@types/node@25.9.8)(jiti@2.7.0))
@@ -729,8 +729,8 @@ packages:
   '@keyv/serialize@1.1.1':
     resolution: {integrity: sha512-dXn3FZhPv0US+7dtJsIi2R+c7qWYiReoEh5zUntWCf4oSpMNib8FDhSoed6m3QyZdx5hK7iLFkYk3rNxwt8vTA==}
 
-  '@martinrun/frontend-config@0.3.0':
-    resolution: {integrity: sha512-d/dJ5PGu2eWKH3seAcCA96cowhUsxwDxURceH2Dvpo+xLNvWmZscOcmbr0wVv4AWp/EQ1WOQ92VRpGh6HbB8FQ==}
+  '@martinrun/frontend-config@0.3.1':
+    resolution: {integrity: sha512-OHu9QFYu4Pl6CV727aLxENvTmtGilTonVRFZUjdksZyfyJGkYVeYT3TcYZvtyWBPSQxEwnSocRaSjrLVrPm52Q==}
     peerDependencies:
       eslint: '>=9'
       prettier: '>=3'
@@ -3744,7 +3744,7 @@ snapshots:
 
   '@keyv/serialize@1.1.1': {}
 
-  '@martinrun/frontend-config@0.3.0(eslint@10.11.0(jiti@2.7.0)(supports-color@10.2.2))(prettier-plugin-tailwindcss@0.8.1(prettier@3.9.9))(prettier@3.9.9)(supports-color@10.2.2)(typescript@6.0.3)':
+  '@martinrun/frontend-config@0.3.1(eslint@10.11.0(jiti@2.7.0)(supports-color@10.2.2))(prettier-plugin-tailwindcss@0.8.1(prettier@3.9.9))(prettier@3.9.9)(supports-color@10.2.2)(typescript@6.0.3)':
     dependencies:
       '@eslint/js': 10.0.1(eslint@10.11.0(jiti@2.7.0)(supports-color@10.2.2))
       '@tanstack/eslint-plugin-query': 5.104.0(eslint@10.11.0(jiti@2.7.0)(supports-color@10.2.2))(supports-color@10.2.2)(typescript@6.0.3)
