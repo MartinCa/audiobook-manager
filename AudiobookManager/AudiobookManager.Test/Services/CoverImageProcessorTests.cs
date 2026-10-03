@@ -271,7 +271,7 @@ public class CoverImageProcessorTests
         var ex = Assert.ThrowsExactly<InvalidCoverImageException>(
             () => _processor.Normalize(notAnImage, "image/jpeg"));
 
-        StringAssert.Contains(ex.Message, "recognised image format");
+        StringAssert.Contains(ex.Message, "could not be read");
     }
 
     // A PNG signature is eight bytes, and format detection reads no further - so a truncated or

@@ -126,16 +126,10 @@ public class CoverImageProcessor : ICoverImageProcessor
 
         codec?.Dispose();
 
-        // Unimplemented/InvalidInput: the bytes do not match any container signature Skia
-        // recognises at all. Anything else - IncompleteInput, ErrorInInput, ... - means a real
-        // signature was recognised (e.g. a PNG's magic bytes) but the header or body past it could
-        // not be parsed, which is a corrupt file rather than an unrecognised one.
-        if (result is SKCodecResult.Unimplemented or SKCodecResult.InvalidInput)
-        {
-            throw new InvalidCoverImageException("The cover image is not in a recognised image format.");
-        }
-
-        throw new InvalidCoverImageException("The cover image could not be read.");
+        // Skia's result code is deliberately not inspected: it does not reliably separate "not an
+        // image" from "corrupt image" (SkiaSharp 4.153.1 reports IncompleteInput for both, where
+        // 4.153.0 reported Unimplemented/InvalidInput for the former), and both are refused alike.
+        throw new InvalidCoverImageException("The cover image could not be read as a supported image.");
     }
 
     private (byte[] Bytes, int Width, int Height) ToJpeg(SKCodec codec)
