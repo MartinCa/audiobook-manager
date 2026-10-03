@@ -45,7 +45,7 @@ interface UpcomingReleasesListProps {
 
 // Thrown when a row carries none of the identities the remove/dismiss endpoints accept, so the
 // button reports a failure instead of a success for a request that was never made.
-const NOT_REMOVABLE = "This release has no identity to remove it by.";
+const NOT_REMOVABLE = "This release cannot be removed because it has no stored identity.";
 
 function RemoveReleaseButton({ onRemove }: { onRemove: () => Promise<void> }) {
   const { status, run } = useAsyncAction(onRemove);

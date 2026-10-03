@@ -151,4 +151,41 @@ describe("AuthorConsistencyIssueList", () => {
     await waitFor(() => expect(browseApi.getAuthorConsistencyIssuesPage).toHaveBeenCalledTimes(2));
     expect(screen.getByRole("button", { name: /retry/i })).toHaveAttribute("data-status", "idle");
   });
+
+  it("keeps another row's pending state when an earlier retry succeeds", async () => {
+    const issue = (personId: number, authorName: string) => ({
+      id: personId,
+      personId,
+      authorName,
+      errorMessage: "The source returned an error.",
+      detectedAt: "2024-01-01T00:00:00Z",
+    });
+    vi.mocked(browseApi.getAuthorConsistencyIssuesPage).mockResolvedValue({
+      items: [issue(7, "Brandon Sanderson"), issue(8, "Patrick Rothfuss")],
+      totalCount: 2,
+    });
+    const resolvers: Record<number, () => void> = {};
+    vi.mocked(browseApi.refreshAuthor).mockImplementation(
+      (personId: number) =>
+        new Promise((resolve) => {
+          resolvers[personId] = () => resolve({ success: true, lastRefreshedAt: null });
+        }),
+    );
+
+    renderList();
+
+    const [first, second] = await screen.findAllByRole("button", { name: /retry/i });
+    if (!first || !second) throw new Error("expected two retry buttons");
+    await userEvent.click(first);
+    await userEvent.click(second);
+    await waitFor(() => expect(Object.keys(resolvers)).toHaveLength(2));
+
+    resolvers[7]?.();
+    await waitFor(() => expect(notifications.success).toHaveBeenCalled());
+
+    // Sanderson finished, but Rothfuss's retry is still in flight and must still show it.
+    const stillRunning = screen.getAllByRole("button", { name: /retry/i })[1];
+    expect(stillRunning).toHaveAttribute("data-status", "pending");
+    expect(stillRunning).toBeDisabled();
+  });
 });

@@ -36,10 +36,11 @@ export function AuthorConsistencyIssueList() {
   const retryMutation = useMutation({
     mutationFn: (personId: number) => browseApi.refreshAuthor(personId),
     onMutate: (personId) => setRetryingAuthorId(personId),
-    onSuccess: () => {
+    onSuccess: (_data, personId) => {
       // The row is removed on success; clearing the key keeps a later failure of the same author
-      // from rendering with this attempt's success status.
-      setRetryingAuthorId(null);
+      // from rendering with this attempt's success status. Only clear it if it is still this
+      // author: another row's retry may have started since, and its pending state must stay.
+      setRetryingAuthorId((current) => (current === personId ? null : current));
       notifications.success("Author roster refreshed successfully");
       void queryClient.invalidateQueries({ queryKey: queryKeys.authorConsistencyIssues.all() });
     },

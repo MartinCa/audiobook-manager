@@ -34,10 +34,11 @@ export function SeriesConsistencyIssueList() {
   const retryMutation = useMutation({
     mutationFn: (seriesName: string) => seriesApi.refreshSeries(seriesName),
     onMutate: (seriesName) => setRetryingSeriesName(seriesName),
-    onSuccess: () => {
+    onSuccess: (_data, seriesName) => {
       // The row is removed on success; clearing the key keeps a later failure of the same series
-      // from rendering with this attempt's success status.
-      setRetryingSeriesName(null);
+      // from rendering with this attempt's success status. Only clear it if it is still this
+      // series: another row's retry may have started since, and its pending state must stay.
+      setRetryingSeriesName((current) => (current === seriesName ? null : current));
       notifications.success("Series refreshed successfully");
       void queryClient.invalidateQueries({ queryKey: queryKeys.seriesConsistencyIssues.all() });
       void queryClient.invalidateQueries({ queryKey: queryKeys.seriesPending.all() });

@@ -475,7 +475,7 @@ describe("UpcomingReleasesList", () => {
     const failed = await screen.findByTitle("Could not remove");
     expect(failed).toHaveAttribute("data-status", "error");
     expect(notifications.error).toHaveBeenCalledWith(
-      "This release has no identity to remove it by.",
+      "This release cannot be removed because it has no stored identity.",
     );
     expect(notifications.success).not.toHaveBeenCalled();
     expect(upcomingReleasesApi.removeUpcomingRelease).not.toHaveBeenCalled();
