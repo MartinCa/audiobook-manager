@@ -18,7 +18,9 @@ import {
   Pencil,
   Trash2,
 } from "lucide-react";
+import { ActionButton } from "@/components/action-button";
 import { Button } from "@/components/ui/button";
+import { useAsyncAction } from "@/hooks/use-async-action";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -99,6 +101,29 @@ function MatchedSourceLink({
     </a>
   ) : (
     <span className="text-foreground font-semibold">{sourceName}</span>
+  );
+}
+
+function DeleteMappingButton({ id, onDelete }: { id: number; onDelete: () => Promise<void> }) {
+  const { status, run } = useAsyncAction(onDelete);
+
+  const handleClick = async () => {
+    const outcome = await run();
+    if (outcome.ok) notifications.success("Pattern removed");
+    else notifications.error(handleApiError(outcome.error).message);
+  };
+
+  return (
+    <ActionButton
+      variant="ghost"
+      size="icon"
+      className="text-destructive h-7 w-7"
+      icon={Trash2}
+      label={`Delete pattern ${id}`}
+      resultLabel={status === "success" ? "Pattern removed" : "Could not delete pattern"}
+      status={status}
+      onClick={() => void handleClick()}
+    />
   );
 }
 
@@ -586,13 +611,8 @@ export function SeriesDetail() {
   };
 
   const handleDeleteMapping = async (id: number) => {
-    try {
-      await seriesApi.deleteSeriesMapping(seriesName, id);
-      notifications.success("Pattern removed");
-      void queryClient.invalidateQueries({ queryKey: queryKeys.seriesMappings(seriesName) });
-    } catch (err: unknown) {
-      notifications.error(handleApiError(err).message);
-    }
+    await seriesApi.deleteSeriesMapping(seriesName, id);
+    void queryClient.invalidateQueries({ queryKey: queryKeys.seriesMappings(seriesName) });
   };
 
   // --- Series deletion: clears Series/SeriesPart on every owned book and removes the catalog
@@ -1309,17 +1329,7 @@ export function SeriesDetail() {
                       >
                         <Edit2 className="h-3.5 w-3.5" />
                       </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="text-destructive h-7 w-7"
-                        aria-label={`Delete pattern ${m.id}`}
-                        onClick={() => {
-                          void handleDeleteMapping(m.id);
-                        }}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
+                      <DeleteMappingButton id={m.id} onDelete={() => handleDeleteMapping(m.id)} />
                     </div>
                   </div>
                 ))}

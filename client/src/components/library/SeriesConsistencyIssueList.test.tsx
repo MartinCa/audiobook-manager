@@ -119,5 +119,78 @@ describe("SeriesConsistencyIssueList", () => {
     await userEvent.click(retryButton);
 
     await waitFor(() => expect(notifications.error).toHaveBeenCalled());
+    // The failed row keeps the error tint so the failure stays visible after the toast is gone.
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /retry/i })).toHaveAttribute(
+        "data-status",
+        "error",
+      ),
+    );
+  });
+
+  it("does not carry a success status onto a row that fails again after a successful retry", async () => {
+    // The list keeps returning the row, as if the series failed again straight after succeeding.
+    vi.mocked(seriesApi.getConsistencyIssuesPage).mockResolvedValue({
+      items: [
+        {
+          id: 1,
+          seriesId: 7,
+          seriesName: "Mistborn",
+          errorMessage: "The source returned an error.",
+          detectedAt: "2024-01-01T00:00:00Z",
+        },
+      ],
+      totalCount: 1,
+    });
+    vi.mocked(seriesApi.refreshSeries).mockResolvedValue({
+      success: true,
+      hasChanges: false,
+      changeCount: 0,
+    });
+
+    renderList();
+
+    await userEvent.click(await screen.findByRole("button", { name: /retry/i }));
+
+    await waitFor(() => expect(notifications.success).toHaveBeenCalled());
+    await waitFor(() => expect(seriesApi.getConsistencyIssuesPage).toHaveBeenCalledTimes(2));
+    expect(screen.getByRole("button", { name: /retry/i })).toHaveAttribute("data-status", "idle");
+  });
+
+  it("keeps another row's pending state when an earlier retry succeeds", async () => {
+    const issue = (id: number, seriesName: string) => ({
+      id,
+      seriesId: id,
+      seriesName,
+      errorMessage: "The source returned an error.",
+      detectedAt: "2024-01-01T00:00:00Z",
+    });
+    vi.mocked(seriesApi.getConsistencyIssuesPage).mockResolvedValue({
+      items: [issue(1, "Mistborn"), issue(2, "Stormlight")],
+      totalCount: 2,
+    });
+    const resolvers: Record<string, () => void> = {};
+    vi.mocked(seriesApi.refreshSeries).mockImplementation(
+      (name: string) =>
+        new Promise((resolve) => {
+          resolvers[name] = () => resolve({ success: true, hasChanges: false, changeCount: 0 });
+        }),
+    );
+
+    renderList();
+
+    const [first, second] = await screen.findAllByRole("button", { name: /retry/i });
+    if (!first || !second) throw new Error("expected two retry buttons");
+    await userEvent.click(first);
+    await userEvent.click(second);
+    await waitFor(() => expect(Object.keys(resolvers)).toHaveLength(2));
+
+    resolvers["Mistborn"]?.();
+    await waitFor(() => expect(notifications.success).toHaveBeenCalled());
+
+    // Mistborn finished, but Stormlight's retry is still in flight and must still show it.
+    const stillRunning = screen.getAllByRole("button", { name: /retry/i })[1];
+    expect(stillRunning).toHaveAttribute("data-status", "pending");
+    expect(stillRunning).toBeDisabled();
   });
 });

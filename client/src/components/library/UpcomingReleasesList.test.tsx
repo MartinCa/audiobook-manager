@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { UpcomingReleasesList } from "./UpcomingReleasesList";
 import { upcomingReleasesApi } from "@/services/api";
+import { notifications } from "@/lib/notifications";
 import type * as ApiModule from "@/services/api";
 import type { UpcomingRelease } from "@/types/UpcomingRelease";
 
@@ -213,6 +214,24 @@ describe("UpcomingReleasesList", () => {
     fireEvent.click(removeButton);
 
     await waitFor(() => expect(upcomingReleasesApi.removeUpcomingRelease).toHaveBeenCalledWith(1));
+  });
+
+  it("toasts and tints the remove button as failed when removal rejects", async () => {
+    vi.mocked(upcomingReleasesApi.getUpcomingReleases).mockResolvedValue({
+      count: 1,
+      total: 1,
+      items: [release()],
+    });
+    vi.mocked(upcomingReleasesApi.removeUpcomingRelease).mockRejectedValueOnce(new Error("boom"));
+
+    renderList();
+
+    fireEvent.click(await screen.findByTitle("Remove from upcoming releases"));
+
+    const failed = await screen.findByTitle("Could not remove");
+    expect(failed).toHaveAttribute("data-status", "error");
+    expect(notifications.error).toHaveBeenCalledWith("boom");
+    expect(notifications.success).not.toHaveBeenCalled();
   });
 
   // "Roster" rows have no backing UpcomingRelease row - removing one dismisses the roster entry
@@ -440,5 +459,52 @@ describe("UpcomingReleasesList", () => {
 
     expect(await screen.findByRole("heading", { name: "Upcoming Releases" })).toBeInTheDocument();
     expect(await screen.findByText("Network error")).toBeInTheDocument();
+  });
+
+  it("reports a failure instead of a removal when a legacy row has no id to delete by", async () => {
+    vi.mocked(upcomingReleasesApi.getUpcomingReleases).mockResolvedValue({
+      count: 1,
+      total: 1,
+      items: [release({ source: "Legacy", id: null })],
+    });
+
+    renderList();
+
+    fireEvent.click(await screen.findByTitle("Remove from upcoming releases"));
+
+    const failed = await screen.findByTitle("Could not remove");
+    expect(failed).toHaveAttribute("data-status", "error");
+    expect(notifications.error).toHaveBeenCalledWith(
+      "This release cannot be removed because it has no stored identity.",
+    );
+    expect(notifications.success).not.toHaveBeenCalled();
+    expect(upcomingReleasesApi.removeUpcomingRelease).not.toHaveBeenCalled();
+  });
+
+  it("reports a failure instead of a dismissal when a roster row carries no identity", async () => {
+    vi.mocked(upcomingReleasesApi.getUpcomingReleases).mockResolvedValue({
+      count: 1,
+      total: 1,
+      items: [
+        release({
+          source: "Roster",
+          id: null,
+          expectedBookId: null,
+          sourceName: "",
+          sourceBookId: null,
+          seriesName: null,
+          authorId: null,
+        }),
+      ],
+    });
+
+    renderList();
+
+    fireEvent.click(await screen.findByTitle("Remove from upcoming releases"));
+
+    const failed = await screen.findByTitle("Could not remove");
+    expect(failed).toHaveAttribute("data-status", "error");
+    expect(notifications.success).not.toHaveBeenCalled();
+    expect(upcomingReleasesApi.dismissRosterUpcomingRelease).not.toHaveBeenCalled();
   });
 });

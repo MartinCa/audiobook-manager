@@ -12,6 +12,7 @@ import {
   Ban,
   ListX,
 } from "lucide-react";
+import { ActionButton } from "@/components/action-button";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -28,6 +29,7 @@ import { queryKeys } from "@/lib/queryKeys";
 import { useSignalREvent } from "@/hooks/useSignalR";
 import { useOperationResync } from "@/hooks/useOperationResync";
 import { useClampedPage } from "@/hooks/useClampedPage";
+import { useAsyncAction } from "@/hooks/use-async-action";
 import { usePageSize } from "@/hooks/usePageSize";
 import { handleApiError } from "@/lib/api";
 import { notifications } from "@/lib/notifications";
@@ -46,13 +48,36 @@ interface AlignCompletePayload {
   totalFailed: number;
 }
 
+function IgnorePairButton({ value, onIgnore }: { value: string; onIgnore: () => Promise<void> }) {
+  const { status, run } = useAsyncAction(onIgnore);
+
+  const handleClick = async () => {
+    const outcome = await run();
+    if (outcome.ok) notifications.success(`"${value}" marked as not similar`);
+    else notifications.error(handleApiError(outcome.error).message);
+  };
+
+  return (
+    <ActionButton
+      size="icon-xs"
+      variant="ghost"
+      icon={Ban}
+      label={`Mark "${value}" as not similar to the rest of this group`}
+      resultLabel={
+        status === "success" ? `"${value}" marked as not similar` : "Could not mark as not similar"
+      }
+      status={status}
+      onClick={() => void handleClick()}
+    />
+  );
+}
+
 export function SimilarValues() {
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<"author" | "series">("author");
   const [selectedGroup, setSelectedGroup] = useState<SimilarValueGroup | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [ignoredDialogOpen, setIgnoredDialogOpen] = useState(false);
-  const [ignoringValue, setIgnoringValue] = useState<string | null>(null);
 
   // The detected groups are paged server-side: the clustering still runs over the whole
   // distinct-value set per request (detection is stateless by design), but only the requested
@@ -153,17 +178,9 @@ export function SimilarValues() {
   };
 
   const handleIgnorePair = async (value: string, group: SimilarValueGroup) => {
-    setIgnoringValue(value);
     const againstValues = group.candidates.map((c) => c.value).filter((v) => v !== value);
-    try {
-      await similarValuesApi.ignorePair(activeTab, value, againstValues);
-      notifications.success(`"${value}" marked as not similar`);
-      void queryClient.invalidateQueries({ queryKey: queryKeys.similarValues.all() });
-    } catch (err: unknown) {
-      notifications.error(handleApiError(err).message);
-    } finally {
-      setIgnoringValue(null);
-    }
+    await similarValuesApi.ignorePair(activeTab, value, againstValues);
+    void queryClient.invalidateQueries({ queryKey: queryKeys.similarValues.all() });
   };
 
   return (
@@ -302,21 +319,10 @@ export function SimilarValues() {
                           {cand.bookCount} {cand.bookCount === 1 ? "book" : "books"}
                         </div>
                       </div>
-                      <Button
-                        size="icon-xs"
-                        variant="ghost"
-                        aria-label={`Mark "${cand.value}" as not similar to the rest of this group`}
-                        disabled={ignoringValue === cand.value}
-                        onClick={() => {
-                          void handleIgnorePair(cand.value, group);
-                        }}
-                      >
-                        {ignoringValue === cand.value ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        ) : (
-                          <Ban className="h-3.5 w-3.5" />
-                        )}
-                      </Button>
+                      <IgnorePairButton
+                        value={cand.value}
+                        onIgnore={() => handleIgnorePair(cand.value, group)}
+                      />
                     </div>
                   ))}
                 </div>

@@ -1,6 +1,6 @@
 import * as React from "react";
 import { Toast as ToastPrimitive } from "@base-ui/react/toast";
-import { cn } from "cn";
+import { cn } from "@/lib/utils";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -187,9 +187,11 @@ function ToastList() {
   ));
 }
 
-function Toaster({ children, toastManager = toast, ...props }: ToastPrimitive.Provider.Props) {
+// `notifications` posts to the module-level `toast` manager, so <Toaster /> always renders that
+// one — a custom `toastManager` would silently drop every notification.
+function Toaster({ children, ...props }: Omit<ToastPrimitive.Provider.Props, "toastManager">) {
   return (
-    <ToastProvider toastManager={toastManager} {...props}>
+    <ToastProvider {...props} toastManager={toast}>
       {children}
       <ToastPortal>
         <ToastViewport>
@@ -200,7 +202,6 @@ function Toaster({ children, toastManager = toast, ...props }: ToastPrimitive.Pr
   );
 }
 
-const createToastManager = ToastPrimitive.createToastManager;
 const useToastManager = ToastPrimitive.useToastManager;
 
 export {
@@ -214,7 +215,6 @@ export {
   ToastProvider,
   ToastTitle,
   ToastViewport,
-  createToastManager,
   toast,
   useToastManager,
 };

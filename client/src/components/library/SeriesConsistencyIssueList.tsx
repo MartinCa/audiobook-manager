@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, RefreshCw } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { ActionButton } from "@/components/action-button";
 import { Card } from "@/components/ui/card";
 import type { PageSizeOption } from "@/constants/paging";
 import { SectionPager } from "./SectionPager";
@@ -34,7 +34,11 @@ export function SeriesConsistencyIssueList() {
   const retryMutation = useMutation({
     mutationFn: (seriesName: string) => seriesApi.refreshSeries(seriesName),
     onMutate: (seriesName) => setRetryingSeriesName(seriesName),
-    onSuccess: () => {
+    onSuccess: (_data, seriesName) => {
+      // The row is removed on success; clearing the key keeps a later failure of the same series
+      // from rendering with this attempt's success status. Only clear it if it is still this
+      // series: another row's retry may have started since, and its pending state must stay.
+      setRetryingSeriesName((current) => (current === seriesName ? null : current));
       notifications.success("Series refreshed successfully");
       void queryClient.invalidateQueries({ queryKey: queryKeys.seriesConsistencyIssues.all() });
       void queryClient.invalidateQueries({ queryKey: queryKeys.seriesPending.all() });
@@ -45,7 +49,6 @@ export function SeriesConsistencyIssueList() {
       notifications.error(handleApiError(err).message);
       void queryClient.invalidateQueries({ queryKey: queryKeys.seriesConsistencyIssues.all() });
     },
-    onSettled: () => setRetryingSeriesName(null),
   });
 
   const totalCount = pageData?.totalCount ?? 0;
@@ -85,20 +88,16 @@ export function SeriesConsistencyIssueList() {
                     Failed {formatDateTime(item.detectedAt)}
                   </div>
                 </div>
-                <Button
+                <ActionButton
                   size="sm"
                   variant="outline"
                   className="h-7 shrink-0 self-end text-xs sm:self-center"
-                  disabled={retryMutation.isPending && retryingSeriesName === item.seriesName}
+                  icon={RefreshCw}
+                  status={retryingSeriesName === item.seriesName ? retryMutation.status : "idle"}
                   onClick={() => retryMutation.mutate(item.seriesName)}
                 >
-                  {retryMutation.isPending && retryingSeriesName === item.seriesName ? (
-                    <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />
-                  ) : (
-                    <RefreshCw className="mr-1.5 h-3 w-3" />
-                  )}
                   Retry
-                </Button>
+                </ActionButton>
               </div>
               <p className="text-destructive text-xs break-words">{item.errorMessage}</p>
             </Card>

@@ -1,8 +1,8 @@
-import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, Trash2, ListX } from "lucide-react";
 import { AppDialog } from "@/components/AppDialog";
-import { Button } from "@/components/ui/button";
+import { ActionButton } from "@/components/action-button";
+import { useAsyncAction } from "@/hooks/use-async-action";
 import { similarValuesApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { handleApiError } from "@/lib/api";
@@ -20,13 +20,34 @@ interface IgnoredSimilarValuesDialogProps {
  * row per manual ignore), so it is loaded unpaged, same as the rest of this resource's small
  * per-kind lists.
  */
+function RemovePairButton({ onRemove }: { onRemove: () => Promise<void> }) {
+  const { status, run } = useAsyncAction(onRemove);
+
+  const handleClick = async () => {
+    const outcome = await run();
+    if (outcome.ok) notifications.success("Ignored pair removed");
+    else notifications.error(handleApiError(outcome.error).message);
+  };
+
+  return (
+    <ActionButton
+      size="icon-sm"
+      variant="ghost"
+      icon={Trash2}
+      label="Remove ignored pair"
+      resultLabel={status === "success" ? "Ignored pair removed" : "Could not remove ignored pair"}
+      status={status}
+      onClick={() => void handleClick()}
+    />
+  );
+}
+
 export function IgnoredSimilarValuesDialog({
   open,
   onOpenChange,
   valueType,
 }: IgnoredSimilarValuesDialogProps) {
   const queryClient = useQueryClient();
-  const [removingId, setRemovingId] = useState<number | null>(null);
 
   const { data: pairs, isLoading } = useQuery({
     queryKey: queryKeys.similarValues.ignoredPairs(valueType),
@@ -35,17 +56,10 @@ export function IgnoredSimilarValuesDialog({
   });
 
   const handleRemove = async (id: number) => {
-    setRemovingId(id);
-    try {
-      await similarValuesApi.removeIgnoredPair(valueType, id);
-      // Removing an ignored pair can let the two values re-cluster, so the detected groups must
-      // be re-split too - not just this dialog's own list.
-      void queryClient.invalidateQueries({ queryKey: queryKeys.similarValues.all() });
-    } catch (err: unknown) {
-      notifications.error(handleApiError(err).message);
-    } finally {
-      setRemovingId(null);
-    }
+    await similarValuesApi.removeIgnoredPair(valueType, id);
+    // Removing an ignored pair can let the two values re-cluster, so the detected groups must
+    // be re-split too - not just this dialog's own list.
+    void queryClient.invalidateQueries({ queryKey: queryKeys.similarValues.all() });
   };
 
   return (
@@ -77,21 +91,7 @@ export function IgnoredSimilarValuesDialog({
                 <div className="text-foreground font-medium break-words">{pair.valueA}</div>
                 <div className="text-muted-foreground break-words">{pair.valueB}</div>
               </div>
-              <Button
-                size="icon-sm"
-                variant="ghost"
-                aria-label="Remove ignored pair"
-                disabled={removingId === pair.id}
-                onClick={() => {
-                  void handleRemove(pair.id);
-                }}
-              >
-                {removingId === pair.id ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Trash2 className="h-4 w-4" />
-                )}
-              </Button>
+              <RemovePairButton onRemove={() => handleRemove(pair.id)} />
             </li>
           ))}
         </ul>
