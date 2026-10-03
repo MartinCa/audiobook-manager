@@ -4,13 +4,12 @@
  * This file is the visual identity shared across projects. Change it here and
  * every project picks it up on the next `shadcn add MartinCa/frontend-kit/theme`.
  *
+ * The accent (--primary, --sidebar-primary) is the amber theme of the `b18OWG`
+ * preset; everything else is the neutral base colour.
+ *
  * The canonical source of these values is the shadcn preset (see SETUP.md);
  * this file exists so projects that were not scaffolded from the preset can
  * still be brought into line.
- *
- * --primary/--primary-foreground are trialing the "b18OWG" preset's orange accent (was
- * the "b1PzeK" preset's blue) ahead of porting it to frontend-kit itself; every other
- * token here still matches the current frontend-kit theme.
  */
 
 @layer base {
@@ -44,6 +43,9 @@
     --border: oklch(0.922 0 0);
     --input: oklch(0.922 0 0);
     --ring: oklch(0.708 0 0);
+
+    --sidebar-primary: oklch(0.666 0.179 58.318);
+    --sidebar-primary-foreground: oklch(0.987 0.022 95.277);
 
     /* Status tokens. Every project displays health somewhere; keep them shared. */
     --status-ok: oklch(0.65 0.16 150);
@@ -80,6 +82,9 @@
     --border: oklch(1 0 0 / 10%);
     --input: oklch(1 0 0 / 15%);
     --ring: oklch(0.556 0 0);
+
+    --sidebar-primary: oklch(0.769 0.188 70.08);
+    --sidebar-primary-foreground: oklch(0.279 0.077 45.635);
 
     --status-ok: oklch(0.7 0.15 150);
     --status-warn: oklch(0.8 0.15 85);
