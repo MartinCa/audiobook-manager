@@ -1071,6 +1071,24 @@ describe("SeriesDetail", () => {
     });
   });
 
+  it("toasts and tints the delete-pattern button as failed when the API rejects", async () => {
+    vi.spyOn(seriesApi, "getSeriesDetail").mockResolvedValue(makeDetail([], 0));
+    vi.spyOn(seriesApi, "getSeriesMappings").mockResolvedValue([
+      { id: 5, regex: "^mistborn.*$", warnAboutPart: false },
+    ]);
+    vi.spyOn(seriesApi, "deleteSeriesMapping").mockRejectedValue(new Error("boom"));
+
+    renderWithProviders();
+
+    await screen.findByText("^mistborn.*$");
+    fireEvent.click(screen.getByRole("button", { name: "Delete pattern 5" }));
+
+    const failed = await screen.findByRole("button", { name: "Could not delete pattern" });
+    expect(failed).toHaveAttribute("data-status", "error");
+    expect(notifications.error).toHaveBeenCalledWith("boom");
+    expect(notifications.success).not.toHaveBeenCalledWith("Pattern removed");
+  });
+
   // --- Series deletion (fire-and-forget over SignalR) ---
 
   it("toasts a successful series deletion from the completion event", async () => {

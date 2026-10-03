@@ -2,7 +2,8 @@ import type { ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertCircle, CalendarClock, ExternalLink, Loader2, X } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { ActionButton } from "@/components/action-button";
+import { useAsyncAction } from "@/hooks/use-async-action";
 import { PAGE_SIZE } from "@/constants/paging";
 import { upcomingReleasesApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
@@ -42,6 +43,29 @@ interface UpcomingReleasesListProps {
   sectionTitle?: ReactNode;
 }
 
+function RemoveReleaseButton({ onRemove }: { onRemove: () => Promise<void> }) {
+  const { status, run } = useAsyncAction(onRemove);
+
+  const handleClick = async () => {
+    const outcome = await run();
+    if (outcome.ok) notifications.success("Removed from upcoming releases");
+    else notifications.error(handleApiError(outcome.error).message);
+  };
+
+  return (
+    <ActionButton
+      variant="ghost"
+      size="icon"
+      className="text-muted-foreground hover:text-destructive h-7 w-7 shrink-0"
+      icon={X}
+      label="Remove from upcoming releases"
+      resultLabel={status === "success" ? "Removed from upcoming releases" : "Could not remove"}
+      status={status}
+      onClick={() => void handleClick()}
+    />
+  );
+}
+
 export function UpcomingReleasesList({
   authorId,
   seriesId,
@@ -72,37 +96,33 @@ export function UpcomingReleasesList({
   // UPCOMING_RELEASES_DESIGN.md): the stable expected-book id, then the source's book id, and
   // only as the legacy fallback by series name+position or author id plus title.
   const handleRemove = async (release: UpcomingRelease) => {
-    try {
-      if (release.source === "Legacy") {
-        if (release.id == null) return;
-        await upcomingReleasesApi.removeUpcomingRelease(release.id);
-      } else if (release.expectedBookId != null) {
-        await upcomingReleasesApi.dismissRosterUpcomingRelease({
-          expectedBookId: release.expectedBookId,
-        });
-      } else if (release.sourceName && release.sourceBookId) {
-        await upcomingReleasesApi.dismissRosterUpcomingRelease({
-          sourceName: release.sourceName,
-          sourceBookId: release.sourceBookId,
-        });
-      } else if (release.seriesName) {
-        await upcomingReleasesApi.dismissRosterUpcomingRelease({
-          seriesName: release.seriesName,
-          seriesPosition: release.seriesPosition ?? undefined,
-          title: release.title,
-        });
-      } else if (release.authorId != null) {
-        await upcomingReleasesApi.dismissRosterUpcomingRelease({
-          authorId: release.authorId,
-          title: release.title,
-        });
-      } else {
-        return;
-      }
-      await queryClient.invalidateQueries({ queryKey: queryKeys.upcomingReleases.all() });
-    } catch (err: unknown) {
-      notifications.error(handleApiError(err).message);
+    if (release.source === "Legacy") {
+      if (release.id == null) return;
+      await upcomingReleasesApi.removeUpcomingRelease(release.id);
+    } else if (release.expectedBookId != null) {
+      await upcomingReleasesApi.dismissRosterUpcomingRelease({
+        expectedBookId: release.expectedBookId,
+      });
+    } else if (release.sourceName && release.sourceBookId) {
+      await upcomingReleasesApi.dismissRosterUpcomingRelease({
+        sourceName: release.sourceName,
+        sourceBookId: release.sourceBookId,
+      });
+    } else if (release.seriesName) {
+      await upcomingReleasesApi.dismissRosterUpcomingRelease({
+        seriesName: release.seriesName,
+        seriesPosition: release.seriesPosition ?? undefined,
+        title: release.title,
+      });
+    } else if (release.authorId != null) {
+      await upcomingReleasesApi.dismissRosterUpcomingRelease({
+        authorId: release.authorId,
+        title: release.title,
+      });
+    } else {
+      return;
     }
+    await queryClient.invalidateQueries({ queryKey: queryKeys.upcomingReleases.all() });
   };
 
   // A "Legacy" row is keyed by its row id; a "Roster" row by the stable expected-book id it
@@ -232,17 +252,7 @@ export function UpcomingReleasesList({
                   </div>
                 </div>
 
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="text-muted-foreground hover:text-destructive h-7 w-7 shrink-0"
-                  title="Remove from upcoming releases"
-                  onClick={() => {
-                    void handleRemove(release);
-                  }}
-                >
-                  <X className="h-4 w-4" />
-                </Button>
+                <RemoveReleaseButton onRemove={() => handleRemove(release)} />
               </div>
             ))}
           </div>

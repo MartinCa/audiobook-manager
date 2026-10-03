@@ -6,7 +6,12 @@ import { SignalREvents } from "@/constants/signalrEvents";
 import { SignalRContext } from "@/context/SignalRContext";
 import { RouterTestWrapper } from "@/test-utils/routerTestUtils";
 import { similarValuesApi } from "@/services/api";
+import { notifications } from "@/lib/notifications";
 import type { HubEventHandler, SignalRContextValue } from "@/context/SignalRContext";
+
+vi.mock("@/lib/notifications", () => ({
+  notifications: { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() },
+}));
 
 vi.mock("@/services/api", () => ({
   similarValuesApi: {
@@ -183,6 +188,22 @@ describe("SimilarValues", () => {
       expect(similarValuesApi.getSimilarAuthors).toHaveBeenCalledWith(0, 50);
     });
     expect(await screen.findByText(/Showing 1–50 of 60/)).toBeInTheDocument();
+  });
+
+  it("toasts and tints the not-similar button as failed when the API rejects", async () => {
+    vi.mocked(similarValuesApi.ignorePair).mockRejectedValue(new Error("boom"));
+    renderWithProviders(<SimilarValues />);
+
+    (
+      await screen.findByRole("button", {
+        name: 'Mark "J.K. Rowling" as not similar to the rest of this group',
+      })
+    ).click();
+
+    const failed = await screen.findByRole("button", { name: "Could not mark as not similar" });
+    expect(failed).toHaveAttribute("data-status", "error");
+    expect(notifications.error).toHaveBeenCalledWith("boom");
+    expect(notifications.success).not.toHaveBeenCalled();
   });
 
   it("marking a candidate as not similar calls the API with the rest of its group and refetches", async () => {
