@@ -35,6 +35,9 @@ export function SeriesConsistencyIssueList() {
     mutationFn: (seriesName: string) => seriesApi.refreshSeries(seriesName),
     onMutate: (seriesName) => setRetryingSeriesName(seriesName),
     onSuccess: () => {
+      // The row is removed on success; clearing the key keeps a later failure of the same series
+      // from rendering with this attempt's success status.
+      setRetryingSeriesName(null);
       notifications.success("Series refreshed successfully");
       void queryClient.invalidateQueries({ queryKey: queryKeys.seriesConsistencyIssues.all() });
       void queryClient.invalidateQueries({ queryKey: queryKeys.seriesPending.all() });

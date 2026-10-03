@@ -43,6 +43,10 @@ interface UpcomingReleasesListProps {
   sectionTitle?: ReactNode;
 }
 
+// Thrown when a row carries none of the identities the remove/dismiss endpoints accept, so the
+// button reports a failure instead of a success for a request that was never made.
+const NOT_REMOVABLE = "This release has no identity to remove it by.";
+
 function RemoveReleaseButton({ onRemove }: { onRemove: () => Promise<void> }) {
   const { status, run } = useAsyncAction(onRemove);
 
@@ -97,7 +101,7 @@ export function UpcomingReleasesList({
   // only as the legacy fallback by series name+position or author id plus title.
   const handleRemove = async (release: UpcomingRelease) => {
     if (release.source === "Legacy") {
-      if (release.id == null) return;
+      if (release.id == null) throw new Error(NOT_REMOVABLE);
       await upcomingReleasesApi.removeUpcomingRelease(release.id);
     } else if (release.expectedBookId != null) {
       await upcomingReleasesApi.dismissRosterUpcomingRelease({
@@ -120,7 +124,7 @@ export function UpcomingReleasesList({
         title: release.title,
       });
     } else {
-      return;
+      throw new Error(NOT_REMOVABLE);
     }
     await queryClient.invalidateQueries({ queryKey: queryKeys.upcomingReleases.all() });
   };

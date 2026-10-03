@@ -126,4 +126,29 @@ describe("AuthorConsistencyIssueList", () => {
       ),
     );
   });
+
+  it("does not carry a success status onto a row that fails again after a successful retry", async () => {
+    // The list keeps returning the row, as if the author failed again straight after succeeding.
+    vi.mocked(browseApi.getAuthorConsistencyIssuesPage).mockResolvedValue({
+      items: [
+        {
+          id: 1,
+          personId: 7,
+          authorName: "Brandon Sanderson",
+          errorMessage: "The source returned an error.",
+          detectedAt: "2024-01-01T00:00:00Z",
+        },
+      ],
+      totalCount: 1,
+    });
+    vi.mocked(browseApi.refreshAuthor).mockResolvedValue({ success: true, lastRefreshedAt: null });
+
+    renderList();
+
+    await userEvent.click(await screen.findByRole("button", { name: /retry/i }));
+
+    await waitFor(() => expect(notifications.success).toHaveBeenCalled());
+    await waitFor(() => expect(browseApi.getAuthorConsistencyIssuesPage).toHaveBeenCalledTimes(2));
+    expect(screen.getByRole("button", { name: /retry/i })).toHaveAttribute("data-status", "idle");
+  });
 });

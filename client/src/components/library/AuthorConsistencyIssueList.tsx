@@ -37,6 +37,9 @@ export function AuthorConsistencyIssueList() {
     mutationFn: (personId: number) => browseApi.refreshAuthor(personId),
     onMutate: (personId) => setRetryingAuthorId(personId),
     onSuccess: () => {
+      // The row is removed on success; clearing the key keeps a later failure of the same author
+      // from rendering with this attempt's success status.
+      setRetryingAuthorId(null);
       notifications.success("Author roster refreshed successfully");
       void queryClient.invalidateQueries({ queryKey: queryKeys.authorConsistencyIssues.all() });
     },

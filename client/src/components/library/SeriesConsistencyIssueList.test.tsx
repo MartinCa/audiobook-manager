@@ -127,4 +127,33 @@ describe("SeriesConsistencyIssueList", () => {
       ),
     );
   });
+
+  it("does not carry a success status onto a row that fails again after a successful retry", async () => {
+    // The list keeps returning the row, as if the series failed again straight after succeeding.
+    vi.mocked(seriesApi.getConsistencyIssuesPage).mockResolvedValue({
+      items: [
+        {
+          id: 1,
+          seriesId: 7,
+          seriesName: "Mistborn",
+          errorMessage: "The source returned an error.",
+          detectedAt: "2024-01-01T00:00:00Z",
+        },
+      ],
+      totalCount: 1,
+    });
+    vi.mocked(seriesApi.refreshSeries).mockResolvedValue({
+      success: true,
+      hasChanges: false,
+      changeCount: 0,
+    });
+
+    renderList();
+
+    await userEvent.click(await screen.findByRole("button", { name: /retry/i }));
+
+    await waitFor(() => expect(notifications.success).toHaveBeenCalled());
+    await waitFor(() => expect(seriesApi.getConsistencyIssuesPage).toHaveBeenCalledTimes(2));
+    expect(screen.getByRole("button", { name: /retry/i })).toHaveAttribute("data-status", "idle");
+  });
 });

@@ -460,4 +460,51 @@ describe("UpcomingReleasesList", () => {
     expect(await screen.findByRole("heading", { name: "Upcoming Releases" })).toBeInTheDocument();
     expect(await screen.findByText("Network error")).toBeInTheDocument();
   });
+
+  it("reports a failure instead of a removal when a legacy row has no id to delete by", async () => {
+    vi.mocked(upcomingReleasesApi.getUpcomingReleases).mockResolvedValue({
+      count: 1,
+      total: 1,
+      items: [release({ source: "Legacy", id: null })],
+    });
+
+    renderList();
+
+    fireEvent.click(await screen.findByTitle("Remove from upcoming releases"));
+
+    const failed = await screen.findByTitle("Could not remove");
+    expect(failed).toHaveAttribute("data-status", "error");
+    expect(notifications.error).toHaveBeenCalledWith(
+      "This release has no identity to remove it by.",
+    );
+    expect(notifications.success).not.toHaveBeenCalled();
+    expect(upcomingReleasesApi.removeUpcomingRelease).not.toHaveBeenCalled();
+  });
+
+  it("reports a failure instead of a dismissal when a roster row carries no identity", async () => {
+    vi.mocked(upcomingReleasesApi.getUpcomingReleases).mockResolvedValue({
+      count: 1,
+      total: 1,
+      items: [
+        release({
+          source: "Roster",
+          id: null,
+          expectedBookId: null,
+          sourceName: "",
+          sourceBookId: null,
+          seriesName: null,
+          authorId: null,
+        }),
+      ],
+    });
+
+    renderList();
+
+    fireEvent.click(await screen.findByTitle("Remove from upcoming releases"));
+
+    const failed = await screen.findByTitle("Could not remove");
+    expect(failed).toHaveAttribute("data-status", "error");
+    expect(notifications.success).not.toHaveBeenCalled();
+    expect(upcomingReleasesApi.dismissRosterUpcomingRelease).not.toHaveBeenCalled();
+  });
 });
