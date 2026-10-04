@@ -75,23 +75,18 @@ public static class TrackSpecialTagExtensions
     {
         track.WriteSpecialTag(SpecialTagField.Mp4SeriesPart, seriesPart);
 
-        if (seriesPart is not null && track.AudioFormat.Name == mp4Name)
+        // Assigning null to a raw Track string property is a silent no-op in ATL, so a part that is
+        // cleared (or non-numeric, which Movement Part cannot hold) has to be written as "" or the
+        // previous Movement Part survives and GetSeriesPart falls back to it.
+        if (track.AudioFormat.Name == mp4Name)
         {
-            var regexMatch = _mp4SeriesPartRegex.Match(seriesPart);
-            if (regexMatch.Success)
-            {
-                // Actually stored in Movement Part
-                track.SeriesPart = regexMatch.Captures.Single().Value;
-            }
-            else
-            {
-                track.SeriesPart = null;
-            }
+            var regexMatch = _mp4SeriesPartRegex.Match(seriesPart ?? "");
+            // Actually stored in Movement Part
+            track.SeriesPart = regexMatch.Success ? regexMatch.Value : "";
         }
-
         else
         {
-            track.SeriesPart = seriesPart;
+            track.SeriesPart = seriesPart ?? "";
         }
     }
 

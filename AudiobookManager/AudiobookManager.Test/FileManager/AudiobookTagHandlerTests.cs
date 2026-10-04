@@ -285,6 +285,42 @@ public class AudiobookTagHandlerTests
     }
 
     [TestMethod]
+    [DataRow(null)]
+    [DataRow("")]
+    [DataRow("Prequel")]
+    public void SaveAudiobookTagsToFile_ClearingSeriesPart_DoesNotLeaveThePreviousPartBehind(string? clearedPart)
+    {
+        var tempFile = CopyFixtureToTempFile();
+        var tempDir = Path.GetDirectoryName(tempFile)!;
+
+        try
+        {
+            Audiobook Build(string? part) => new Audiobook(
+                new List<Person> { new Person("Author") },
+                "Book",
+                2021,
+                new AudiobookFileInfo(tempFile, Path.GetFileName(tempFile), new FileInfo(tempFile).Length))
+            {
+                Series = "Main Series",
+                SeriesPart = part
+            };
+
+            _handler.SaveAudiobookTagsToFile(Build("1"));
+            Assert.AreEqual("1", _handler.ParseAudiobook(new FileInfo(tempFile)).SeriesPart);
+
+            _handler.SaveAudiobookTagsToFile(Build(clearedPart));
+
+            var reparsed = _handler.ParseAudiobook(new FileInfo(tempFile));
+            var expected = string.IsNullOrEmpty(clearedPart) ? null : clearedPart;
+            Assert.AreEqual(expected, reparsed.SeriesPart);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [TestMethod]
     public void SaveAudiobookTagsToFile_ReportsProgress()
     {
         var tempFile = CopyFixtureToTempFile();
