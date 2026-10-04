@@ -371,6 +371,12 @@ export function TagPreviewDialog({
           </Button>
           <Button
             variant="outline"
+            className="mt-4 w-full sm:mt-0 sm:w-auto"
+            onClick={handleApplyAll}
+          >
+            {showAutoSaveToggle && saveImmediately ? "Apply & Save All" : "Apply All"}
+          </Button>
+          <Button
             disabled={selected.size === 0}
             className="w-full sm:w-auto"
             onClick={handleApplySelected}
@@ -378,9 +384,6 @@ export function TagPreviewDialog({
             {showAutoSaveToggle && saveImmediately
               ? `Apply & Save Selected (${selected.size})`
               : `Apply Selected (${selected.size})`}
-          </Button>
-          <Button className="w-full sm:w-auto" onClick={handleApplyAll}>
-            {showAutoSaveToggle && saveImmediately ? "Apply & Save All" : "Apply All"}
           </Button>
         </div>
       </DialogContent>
