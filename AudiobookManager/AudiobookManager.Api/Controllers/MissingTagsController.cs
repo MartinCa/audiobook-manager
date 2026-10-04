@@ -53,7 +53,10 @@ public class MissingTagsController : ControllerBase
         [FromQuery] List<string>? languages = null,
         [FromQuery] int? minDurationInSeconds = null,
         [FromQuery] int? maxDurationInSeconds = null,
-        [FromQuery] List<string>? qualifiers = null)
+        [FromQuery] List<string>? qualifiers = null,
+        [FromQuery] DateTime? refreshedAfter = null,
+        [FromQuery] DateTime? refreshedBefore = null,
+        [FromQuery] bool? neverRefreshed = null)
     {
         if (page < 0)
         {
@@ -72,7 +75,7 @@ public class MissingTagsController : ControllerBase
             return this.InvalidRequest($"page and pageSize together may not skip more than {PagingLimits.MaxPageOffset} audiobooks.");
         }
 
-        var filter = new BookSummaryFilter(sources, genres, languages, minDurationInSeconds, maxDurationInSeconds, qualifiers);
+        var filter = new BookSummaryFilter(sources, genres, languages, minDurationInSeconds, maxDurationInSeconds, qualifiers, refreshedAfter, refreshedBefore, neverRefreshed);
         var (results, totalCount) = await _missingTagService.FindAudiobooksMissingTagsPageAsync(
             fields, search, (int)skip, pageSize, filter.IsEmpty ? null : filter);
 

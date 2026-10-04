@@ -260,6 +260,40 @@ describe("OwnedBookList", () => {
     expect(onFiltersChange).toHaveBeenCalledWith({ minDurationInSeconds: 600 });
   });
 
+  it("offers a Last refreshed date range and reports it through onFiltersChange", async () => {
+    const onFiltersChange = vi.fn();
+    renderList({ onFiltersChange });
+
+    fireEvent.click(screen.getByRole("button", { name: /Filters/ }));
+    fireEvent.change(await screen.findByLabelText("Last refreshed after"), {
+      target: { value: "2026-01-15" },
+    });
+
+    expect(onFiltersChange).toHaveBeenCalledWith({ refreshedAfter: "2026-01-15" });
+  });
+
+  it("offers a Never refreshed toggle that clears the date bounds", async () => {
+    const onFiltersChange = vi.fn();
+    renderList({
+      onFiltersChange,
+      filters: { refreshedAfter: "2026-01-15", refreshedBefore: "2026-02-01" },
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: "Never refreshed" }));
+
+    expect(onFiltersChange).toHaveBeenCalledWith({
+      refreshedAfter: undefined,
+      refreshedBefore: undefined,
+      neverRefreshed: true,
+    });
+  });
+
+  it("labels an active refreshed-date filter as a removable chip", async () => {
+    renderList({ filters: { refreshedAfter: "2026-01-15", refreshedBefore: "2026-02-01" } });
+
+    expect(await screen.findByText("Last refreshed: 2026-01-15 – 2026-02-01")).toBeInTheDocument();
+  });
+
   it("labels an active qualifier filter from the backend-served qualifier list and the None bucket", async () => {
     renderList({ filters: { qualifiers: ["abridged", "(none)"] } });
 

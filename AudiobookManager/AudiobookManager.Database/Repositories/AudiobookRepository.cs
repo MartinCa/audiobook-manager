@@ -259,6 +259,30 @@ public class AudiobookRepository : IAudiobookRepository
             query = query.Where(a => a.DurationInSeconds != null && a.DurationInSeconds <= filter.MaxDurationInSeconds);
         }
 
+        // Last metadata refresh (Audiobook.LastMetadataRefreshedAt, stamped only by a refresh from
+        // the matched source). Same semantics as the series/author filters: NeverRefreshed is
+        // true/false on the null-ness of the stamp, After is an inclusive lower bound, and Before
+        // is inclusive of the whole chosen calendar day (exclusive next-midnight upper bound).
+        if (filter.NeverRefreshed == true)
+        {
+            query = query.Where(a => a.LastMetadataRefreshedAt == null);
+        }
+        else if (filter.NeverRefreshed == false)
+        {
+            query = query.Where(a => a.LastMetadataRefreshedAt != null);
+        }
+
+        if (filter.RefreshedAfter is not null)
+        {
+            query = query.Where(a => a.LastMetadataRefreshedAt != null && a.LastMetadataRefreshedAt >= filter.RefreshedAfter);
+        }
+
+        if (filter.RefreshedBefore is not null)
+        {
+            var exclusiveUpperBound = filter.RefreshedBefore.Value.Date.AddDays(1);
+            query = query.Where(a => a.LastMetadataRefreshedAt != null && a.LastMetadataRefreshedAt < exclusiveUpperBound);
+        }
+
         return query;
     }
 

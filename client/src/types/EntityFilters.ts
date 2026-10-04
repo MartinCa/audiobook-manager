@@ -62,6 +62,11 @@ export interface BookListFilters {
   qualifiers?: string[];
   minDurationInSeconds?: number;
   maxDurationInSeconds?: number;
+  // Last metadata refresh (Audiobook.LastMetadataRefreshedAt) - same yyyy-MM-dd/neverRefreshed
+  // shape the series and author lists use.
+  refreshedAfter?: string;
+  refreshedBefore?: string;
+  neverRefreshed?: boolean;
 }
 
 /** Whether any filter field is actually set - lets a caller skip sending an empty filter object. */

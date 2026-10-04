@@ -424,6 +424,33 @@ describe("BookLibrary", () => {
     expect(screen.getByLabelText("Duration (minutes) minimum")).toHaveValue(10);
   });
 
+  it("sends a typed last-refreshed filter to the server", async () => {
+    renderWithRouter();
+    await screen.findByText("The Way of Kings");
+
+    fireEvent.click(screen.getByRole("button", { name: /Filters/ }));
+    fireEvent.change(screen.getByLabelText("Last refreshed after"), {
+      target: { value: "2026-01-15" },
+    });
+
+    await waitFor(() => {
+      expect(browseApi.getAudiobooks).toHaveBeenLastCalledWith(20, 0, {
+        refreshedAfter: "2026-01-15",
+      });
+    });
+  });
+
+  it("restores a last-refreshed filter from the URL's search params", async () => {
+    const { router } = renderWithRouter();
+    await screen.findByText("The Way of Kings");
+
+    await router.navigate({ to: "/library", search: { neverRefreshed: true } });
+
+    await waitFor(() => {
+      expect(browseApi.getAudiobooks).toHaveBeenLastCalledWith(20, 0, { neverRefreshed: true });
+    });
+  });
+
   it("shows skeleton loading rows while the library list loads", async () => {
     vi.mocked(browseApi.getAudiobooks).mockImplementation(() => new Promise(() => {}));
 

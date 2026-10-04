@@ -452,6 +452,9 @@ export interface paths {
                     minDurationInSeconds?: number;
                     maxDurationInSeconds?: number;
                     qualifiers?: string[];
+                    refreshedAfter?: string;
+                    refreshedBefore?: string;
+                    neverRefreshed?: boolean;
                 };
                 header?: never;
                 path?: never;
@@ -539,6 +542,9 @@ export interface paths {
                     minDurationInSeconds?: number;
                     maxDurationInSeconds?: number;
                     qualifiers?: string[];
+                    refreshedAfter?: string;
+                    refreshedBefore?: string;
+                    neverRefreshed?: boolean;
                 };
                 header?: never;
                 path?: never;
@@ -724,6 +730,9 @@ export interface paths {
                     minDurationInSeconds?: number;
                     maxDurationInSeconds?: number;
                     qualifiers?: string[];
+                    refreshedAfter?: string;
+                    refreshedBefore?: string;
+                    neverRefreshed?: boolean;
                 };
                 header?: never;
                 path: {
@@ -3019,6 +3028,9 @@ export interface paths {
                     minDurationInSeconds?: number;
                     maxDurationInSeconds?: number;
                     qualifiers?: string[];
+                    refreshedAfter?: string;
+                    refreshedBefore?: string;
+                    neverRefreshed?: boolean;
                 };
                 header?: never;
                 path?: never;
@@ -3691,6 +3703,9 @@ export interface paths {
                     minDurationInSeconds?: number;
                     maxDurationInSeconds?: number;
                     qualifiers?: string[];
+                    refreshedAfter?: string;
+                    refreshedBefore?: string;
+                    neverRefreshed?: boolean;
                 };
                 header?: never;
                 path?: never;

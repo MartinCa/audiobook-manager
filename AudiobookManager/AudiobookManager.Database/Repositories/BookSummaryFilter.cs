@@ -12,7 +12,10 @@ public record BookSummaryFilter(
     IReadOnlyCollection<string>? Languages = null,
     int? MinDurationInSeconds = null,
     int? MaxDurationInSeconds = null,
-    IReadOnlyCollection<string>? Qualifiers = null)
+    IReadOnlyCollection<string>? Qualifiers = null,
+    DateTime? RefreshedAfter = null,
+    DateTime? RefreshedBefore = null,
+    bool? NeverRefreshed = null)
 {
     /// <summary>
     /// Synthetic <see cref="Qualifiers"/> value for a book that carries no qualifier at all. It
@@ -33,5 +36,6 @@ public record BookSummaryFilter(
         (Genres is null || Genres.Count == 0) &&
         (Languages is null || Languages.Count == 0) &&
         (Qualifiers is null || Qualifiers.Count == 0) &&
-        MinDurationInSeconds is null && MaxDurationInSeconds is null;
+        MinDurationInSeconds is null && MaxDurationInSeconds is null &&
+        RefreshedAfter is null && RefreshedBefore is null && NeverRefreshed is null;
 }

@@ -11,6 +11,9 @@ const librarySearchSchema = z.object({
   qualifiers: z.array(z.string()).optional(),
   minDurationInSeconds: z.number().optional(),
   maxDurationInSeconds: z.number().optional(),
+  refreshedAfter: z.string().optional(),
+  refreshedBefore: z.string().optional(),
+  neverRefreshed: z.boolean().optional(),
 });
 
 export const Route = createFileRoute("/library/")({
