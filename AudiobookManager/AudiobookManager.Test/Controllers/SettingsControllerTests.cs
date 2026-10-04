@@ -508,6 +508,7 @@ public class SettingsControllerTests
     [TestMethod]
     [DataRow("Bogus")]
     [DataRow("42")]
+    [DataRow("1")] // a numeric string would otherwise parse to Compact
     public async Task UpdateLibrarySettings_UnknownSearchInitialsHandling_IsRefusedWithoutSaving(string value)
     {
         var service = SettingsServiceReturning(new Domain.LibrarySettings());

@@ -7,7 +7,7 @@
  *
  * This is the as-stored form only. The library's search-initials handling rewrites author
  * initials, and that lives solely on the backend (`POST /metadata-search/default-query`, see
- * `useDefaultMetadataSearchQuery`), so the client holds no copy of the formatting rules - this
+ * `useResolveDefaultMetadataSearchQuery`), so the client holds no copy of the formatting rules - this
  * helper is the query used while that request is in flight or when the setting is `AsStored`.
  *
  * Priority, highest to lowest, falling back to the next when the higher one is blank:

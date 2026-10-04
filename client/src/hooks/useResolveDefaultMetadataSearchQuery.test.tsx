@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { renderHook, waitFor } from "@testing-library/react";
+import { renderHook } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
-import { useDefaultMetadataSearchQuery } from "./useDefaultMetadataSearchQuery";
+import { useResolveDefaultMetadataSearchQuery } from "./useResolveDefaultMetadataSearchQuery";
 import { metadataSearchApi, settingsApi } from "@/services/api";
 import type { LibrarySettings, SearchInitialsHandling } from "@/types/LibrarySettings";
 
@@ -30,39 +30,35 @@ function settingsWith(handling: SearchInitialsHandling): LibrarySettings {
 
 const AUTHORS = ["George R. R. Martin"];
 const BOOK = "A Knight of the Seven Kingdoms";
+const AS_STORED = "George R. R. Martin - A Knight of the Seven Kingdoms";
 
-describe("useDefaultMetadataSearchQuery", () => {
+function resolver() {
+  return renderHook(() => useResolveDefaultMetadataSearchQuery(), { wrapper }).result.current;
+}
+
+describe("useResolveDefaultMetadataSearchQuery", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it("uses the as-stored query and never asks the server when handling is AsStored", async () => {
+  it("resolves the as-stored query and never asks the server when handling is AsStored", async () => {
     vi.mocked(settingsApi.getLibrarySettings).mockResolvedValue(settingsWith("AsStored"));
 
-    const { result } = renderHook(
-      () => useDefaultMetadataSearchQuery(AUTHORS, BOOK, "file.m4b", true),
-      { wrapper },
-    );
+    const query = await resolver()(AUTHORS, BOOK, "file.m4b");
 
-    await waitFor(() => expect(settingsApi.getLibrarySettings).toHaveBeenCalled());
-    expect(result.current).toBe("George R. R. Martin - A Knight of the Seven Kingdoms");
+    expect(query).toBe(AS_STORED);
     expect(metadataSearchApi.getDefaultQuery).not.toHaveBeenCalled();
   });
 
-  it("adopts the server-built query when the library rewrites initials", async () => {
+  it("resolves the server-built query when the library rewrites initials", async () => {
     vi.mocked(settingsApi.getLibrarySettings).mockResolvedValue(settingsWith("Compact"));
     vi.mocked(metadataSearchApi.getDefaultQuery).mockResolvedValue({
       query: "George R.R. Martin - A Knight of the Seven Kingdoms",
     });
 
-    const { result } = renderHook(
-      () => useDefaultMetadataSearchQuery(AUTHORS, BOOK, "file.m4b", true),
-      { wrapper },
-    );
+    const query = await resolver()(AUTHORS, BOOK, "file.m4b");
 
-    await waitFor(() =>
-      expect(result.current).toBe("George R.R. Martin - A Knight of the Seven Kingdoms"),
-    );
+    expect(query).toBe("George R.R. Martin - A Knight of the Seven Kingdoms");
     expect(metadataSearchApi.getDefaultQuery).toHaveBeenCalledWith({
       authors: AUTHORS,
       bookName: BOOK,
@@ -70,29 +66,17 @@ describe("useDefaultMetadataSearchQuery", () => {
     });
   });
 
-  it("does not ask the server while the dialog is closed", async () => {
-    vi.mocked(settingsApi.getLibrarySettings).mockResolvedValue(settingsWith("Compact"));
-
-    const { result } = renderHook(
-      () => useDefaultMetadataSearchQuery(AUTHORS, BOOK, "file.m4b", false),
-      { wrapper },
-    );
-
-    await waitFor(() => expect(settingsApi.getLibrarySettings).toHaveBeenCalled());
-    expect(metadataSearchApi.getDefaultQuery).not.toHaveBeenCalled();
-    expect(result.current).toBe("George R. R. Martin - A Knight of the Seven Kingdoms");
-  });
-
   it("falls back to the as-stored query when the server request fails", async () => {
     vi.mocked(settingsApi.getLibrarySettings).mockResolvedValue(settingsWith("Spaced"));
     vi.mocked(metadataSearchApi.getDefaultQuery).mockRejectedValue(new Error("boom"));
 
-    const { result } = renderHook(
-      () => useDefaultMetadataSearchQuery(AUTHORS, BOOK, "file.m4b", true),
-      { wrapper },
-    );
+    expect(await resolver()(AUTHORS, BOOK, "file.m4b")).toBe(AS_STORED);
+  });
 
-    await waitFor(() => expect(metadataSearchApi.getDefaultQuery).toHaveBeenCalled());
-    expect(result.current).toBe("George R. R. Martin - A Knight of the Seven Kingdoms");
+  it("falls back to the as-stored query when the settings cannot be read", async () => {
+    vi.mocked(settingsApi.getLibrarySettings).mockRejectedValue(new Error("boom"));
+
+    expect(await resolver()(AUTHORS, BOOK, "file.m4b")).toBe(AS_STORED);
+    expect(metadataSearchApi.getDefaultQuery).not.toHaveBeenCalled();
   });
 });

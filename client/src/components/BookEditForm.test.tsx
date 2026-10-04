@@ -1881,6 +1881,36 @@ describe("BookEditForm", () => {
   });
 });
 
+describe("BookEditForm default search query", () => {
+  it("opens the search dialog already seeded with the server-built query when the library rewrites initials", async () => {
+    const { settingsApi, metadataSearchApi } = await import("@/services/api");
+    vi.mocked(settingsApi.getLibrarySettings).mockResolvedValueOnce({
+      searchInitialsHandling: "Compact",
+    } as Awaited<ReturnType<typeof settingsApi.getLibrarySettings>>);
+    vi.mocked(metadataSearchApi.getDefaultQuery).mockResolvedValueOnce({
+      query: "George R.R. Martin - A Knight of the Seven Kingdoms",
+    });
+
+    renderWithProviders(
+      <BookEditForm
+        initialBook={{
+          ...initialBook,
+          authors: [{ name: "George R. R. Martin" }],
+          bookName: "A Knight of the Seven Kingdoms",
+        }}
+        onSave={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("Search Online Metadata"));
+
+    // The first thing the dialog ever shows is the final seed - it must not appear with the
+    // as-stored query and then be replaced, which would overwrite anything typed in between.
+    const searchInput = await screen.findByPlaceholderText("Search title, author, or paste URL...");
+    expect(searchInput).toHaveValue("George R.R. Martin - A Knight of the Seven Kingdoms");
+  });
+});
+
 describe("BookEditForm additional series", () => {
   const twoSeriesBook: Audiobook = {
     ...initialBook,

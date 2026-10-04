@@ -29,8 +29,8 @@ public class MetadataSearchController : ControllerBase
     /// <summary>
     /// The query the manual search dialog is seeded with. Built by the same
     /// <see cref="MetadataSearchQueryBuilder"/> the bulk search uses, with the library's
-    /// search-initials handling applied, so the client holds no copy of the rules. Declared
-    /// before the <c>{sourceName}</c> route so it is not read as a source name.
+    /// search-initials handling applied, so the client holds no copy of the rules. (POST, so it
+    /// cannot collide with the <c>GET {sourceName}</c> route.)
     /// </summary>
     [HttpPost("default-query")]
     public async Task<ActionResult<DefaultSearchQueryDto>> GetDefaultQuery([FromBody] DefaultSearchQueryRequestDto dto)

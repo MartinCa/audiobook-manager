@@ -50,7 +50,7 @@ import {
   splitQualifiers,
 } from "@/helpers/bookQualifiers";
 import { useBookQualifiers } from "@/hooks/useBookQualifiers";
-import { useDefaultMetadataSearchQuery } from "@/hooks/useDefaultMetadataSearchQuery";
+import { useResolveDefaultMetadataSearchQuery } from "@/hooks/useResolveDefaultMetadataSearchQuery";
 import { QualifiersField } from "@/components/fields/QualifiersField";
 import { notifications } from "@/lib/notifications";
 import type { Audiobook, AudiobookImage } from "@/types/Audiobook";
@@ -289,19 +289,10 @@ export function BookEditForm({
   };
   const [newPath, setNewPath] = useState<string | null>(null);
   const [searchDialogOpen, setSearchDialogOpen] = useState(false);
-  // Auto-opens once the first time autoOpenSearchDialog is true, not just on mount: BookDetail
-  // derives it from the route's search params, which can settle a render or two after this form
-  // itself mounts (the router commits the path and the validated search separately) - a
-  // mount-only effect would catch it as false and never open the dialog. The ref makes it
-  // one-shot regardless: once fired, a later parent re-render (or the value flickering) must not
-  // reopen a dialog the user already closed.
-  const autoOpenedSearchDialogRef = useRef(false);
-  useEffect(() => {
-    if (autoOpenSearchDialog && !autoOpenedSearchDialogRef.current) {
-      autoOpenedSearchDialogRef.current = true;
-      setSearchDialogOpen(true);
-    }
-  }, [autoOpenSearchDialog]);
+  // The dialog's seed is fixed at the moment it opens: BookSearchDialog re-seeds its input
+  // whenever initialQuery changes, so it must not change while the dialog is up.
+  const [searchSeed, setSearchSeed] = useState("");
+  const resolveDefaultSearchQuery = useResolveDefaultMetadataSearchQuery();
   const [saving, setSaving] = useState(false);
   const [showAllOptionalFields, setShowAllOptionalFields] = useState(false);
   // The cover isn't a react-hook-form field, so its own dirty tracking has to compare against the
@@ -317,6 +308,35 @@ export function BookEditForm({
     defaultValues: valuesFromBook(initialBook),
   });
 
+  // Opens the search dialog seeded with the default query. The seed is resolved first (the
+  // library's search-initials handling may need a server round trip) so it is already final when
+  // the dialog appears and cannot overwrite what the user types.
+  const openSearchDialog = useCallback(async () => {
+    const values = form.getValues();
+    setSearchSeed(
+      await resolveDefaultSearchQuery(
+        values.authors,
+        values.bookName,
+        initialBook.fileInfo?.fileName,
+      ),
+    );
+    setSearchDialogOpen(true);
+  }, [form, resolveDefaultSearchQuery, initialBook.fileInfo?.fileName]);
+
+  // Auto-opens once the first time autoOpenSearchDialog is true, not just on mount: BookDetail
+  // derives it from the route's search params, which can settle a render or two after this form
+  // itself mounts (the router commits the path and the validated search separately) - a
+  // mount-only effect would catch it as false and never open the dialog. The ref makes it
+  // one-shot regardless: once fired, a later parent re-render (or the value flickering) must not
+  // reopen a dialog the user already closed.
+  const autoOpenedSearchDialogRef = useRef(false);
+  useEffect(() => {
+    if (autoOpenSearchDialog && !autoOpenedSearchDialogRef.current) {
+      autoOpenedSearchDialogRef.current = true;
+      void openSearchDialog();
+    }
+  }, [autoOpenSearchDialog, openSearchDialog]);
+
   const { data: languagesRes } = useQuery({
     queryKey: queryKeys.languages(),
     queryFn: () => settingsApi.getLanguages(),
@@ -325,12 +345,6 @@ export function BookEditForm({
   const qualifierOptions = useBookQualifiers();
 
   const watchedValues = useWatch({ control: form.control });
-  const defaultSearchQuery = useDefaultMetadataSearchQuery(
-    watchedValues.authors,
-    watchedValues.bookName,
-    initialBook.fileInfo?.fileName,
-    searchDialogOpen,
-  );
 
   const coverIsDirty =
     cover?.base64Data !== lastSavedCover?.base64Data ||
@@ -850,7 +864,7 @@ export function BookEditForm({
         <Button
           type="button"
           variant="outline"
-          onClick={() => setSearchDialogOpen(true)}
+          onClick={() => void openSearchDialog()}
           className="w-full sm:w-auto"
         >
           <Search className="text-primary mr-2 h-4 w-4" />
@@ -1263,7 +1277,7 @@ export function BookEditForm({
         open={searchDialogOpen}
         onOpenChange={setSearchDialogOpen}
         onSelectResult={handleSelectSearchResult}
-        initialQuery={defaultSearchQuery}
+        initialQuery={searchSeed}
       />
 
       {cleanedPendingSearch && (

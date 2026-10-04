@@ -155,8 +155,8 @@ public class SettingsController : ControllerBase
         {
             searchInitialsHandling = current.SearchInitialsHandling;
         }
-        else if (!Enum.TryParse(dto.SearchInitialsHandling, ignoreCase: true, out searchInitialsHandling) ||
-            !Enum.IsDefined(searchInitialsHandling))
+        else if (!Enum.GetNames<SearchInitialsHandling>().Contains(dto.SearchInitialsHandling, StringComparer.OrdinalIgnoreCase) ||
+            !Enum.TryParse(dto.SearchInitialsHandling, ignoreCase: true, out searchInitialsHandling))
         {
             return this.InvalidRequest(
                 $"'{dto.SearchInitialsHandling}' is not a known search initials handling. Use one of: " +

@@ -773,7 +773,7 @@ a Hardcover book that `George R.R. Martin` finds. `LibrarySettings.SearchInitial
 query only: `MetadataSearchQueryBuilder.Build` applies it (via `InitialsSpacingFormatter`, always
 dotted) and is the one implementation, used by the bulk search (`PendingOnlineMatchService`) and by
 `POST api/metadata-search/default-query`, which seeds the manual dialog through
-`useDefaultMetadataSearchQuery`. **The frontend holds no copy of the formatting rules**; its
+`useResolveDefaultMetadataSearchQuery` (resolved before the dialog opens, so the seed never changes under the user). **The frontend holds no copy of the formatting rules**; its
 `buildDefaultMetadataSearchQuery` is only the as-stored fallback. Text a user types into the search
 box is never rewritten, and the setting never touches stored names, tags or paths.
 
