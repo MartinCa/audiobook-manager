@@ -137,6 +137,15 @@ export function TagPreviewDialog({
   // off — and reset to off — for every new flow: it is never remembered across dialog opens, so
   // it is reset alongside `selected` whenever a new search result is shown, exactly like that
   // state already is.
+  // The language diff depends on the served default, which can arrive after the first seed; when
+  // it does, a newly changed language joins the selection (once - later toggles are the user's).
+  const [seededWithLanguages, setSeededWithLanguages] = useState(Boolean(langData));
+  if (langData && !seededWithLanguages) {
+    setSeededWithLanguages(true);
+    if (changedFieldKeys.includes("language")) {
+      setSelected((prev) => new Set(prev).add("language"));
+    }
+  }
   const [dontSaveAutomatically, setDontSaveAutomatically] = useState(false);
 
   // Update selected when fields change

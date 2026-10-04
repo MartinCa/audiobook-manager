@@ -58,7 +58,7 @@ public static class MetadataRefreshDiffer
         // otherwise a nothing-changed pair reads as "spa → (blank)". A book with no language at all
         // and a source that reports none proposes the default (English).
         add(MetadataRefreshFields.Language, Languages.Normalize(book.Language) ?? book.Language,
-            Languages.ResolveForApply(fetched.Language, book.Language));
+            Languages.ResolveForApply(fetched.Language, book.Language) ?? book.Language);
 
         add(MetadataRefreshFields.Rating, book.Rating, fetched.Rating?.ToString(System.Globalization.CultureInfo.InvariantCulture));
         add(MetadataRefreshFields.Copyright, book.Copyright, fetched.Copyright);
@@ -108,7 +108,7 @@ public static class MetadataRefreshDiffer
         add(MetadataRefreshFields.Description, book.Description, snapshot.Description);
 
         add(MetadataRefreshFields.Language, Languages.Normalize(book.Language) ?? book.Language,
-            Languages.ResolveForApply(snapshot.Language, book.Language));
+            Languages.ResolveForApply(snapshot.Language, book.Language) ?? book.Language);
 
         add(MetadataRefreshFields.Rating, book.Rating, snapshot.Rating);
         add(MetadataRefreshFields.Copyright, book.Copyright, snapshot.Copyright);

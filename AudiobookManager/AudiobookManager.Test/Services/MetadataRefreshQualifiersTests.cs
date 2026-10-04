@@ -125,8 +125,10 @@ public class MetadataRefreshQualifiersTests
     [DataRow(null, null, "en")]
     [DataRow(null, "da", "da")]
     [DataRow("Dansk", null, "da")]
-    public void ApplyFields_Language_DefaultsToEnglishOnlyWhenNeitherSideHasOne(
-        string? sourceLanguage, string? bookLanguage, string expected)
+    [DataRow("French", null, null)]
+    [DataRow("French", "da", "da")]
+    public void ApplyFields_Language_DefaultsToEnglishOnlyWhenNeitherSideReportsOne(
+        string? sourceLanguage, string? bookLanguage, string? expected)
     {
         var book = new AudiobookManager.Domain.Audiobook(
             new List<ScrapingPerson> { new("A") }, "The Test Book", 2010, new AudiobookFileInfo("/x.m4b", "x.m4b", 1))

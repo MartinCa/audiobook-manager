@@ -377,6 +377,13 @@ describe("useMetadataFieldDiffs language default", () => {
     expect(field.changed).toBe(false);
   });
 
+  it("does not relabel a book English when the source reports a language the app does not manage", () => {
+    const field = diff({}, "French");
+
+    expect(field.newValue).toBe("");
+    expect(field.changed).toBe(false);
+  });
+
   it("prefers the source's language over the default", () => {
     expect(diff({}, "Dansk").newValue).toBe("Danish");
   });

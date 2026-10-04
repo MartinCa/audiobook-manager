@@ -233,6 +233,17 @@ public class MetadataRefreshDifferTests
     }
 
     [TestMethod]
+    public void Diff_UnrecognizedSourceLanguage_OnBookWithNone_IsNotRelabelledEnglish()
+    {
+        var book = Book(language: null);
+        var fetched = Fetched(r => r.Language = "French");
+
+        var diffs = MetadataRefreshDiffer.Diff(book, fetched, Domain.InitialsSpacing.Spaced, Domain.InitialsPunctuation.Dotted).ToList();
+
+        Assert.AreEqual(0, diffs.Count);
+    }
+
+    [TestMethod]
     public void Diff_NoLanguageOnSource_KeepsTheBooksOwnLanguage()
     {
         var book = Book(language: "da");

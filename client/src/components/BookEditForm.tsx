@@ -648,11 +648,13 @@ export function BookEditForm({
       form.setValue("publisher", result.publisher ?? "", { shouldDirty: true });
     }
     if (selectedFields.has("language")) {
-      // A source that reports no language keeps the book's own; a book with none gets the served
-      // default (English), since sources often omit it.
+      // Mirrors the diff table (useMetadataFieldDiffs): a source that reports no language keeps
+      // the book's own, and a book with none gets the served default (English). A language the
+      // app does not manage is left alone, never written raw or relabelled English.
+      const currentLang = form.getValues("language");
       const normalizedLang =
         normalizeLanguage(result.language, languages) ??
-        (result.language?.trim() || form.getValues("language") || languagesRes?.defaultCode);
+        (currentLang || (result.language?.trim() ? "" : languagesRes?.defaultCode));
       if (normalizedLang) form.setValue("language", normalizedLang, { shouldDirty: true });
     }
     if (selectedFields.has("rating")) {

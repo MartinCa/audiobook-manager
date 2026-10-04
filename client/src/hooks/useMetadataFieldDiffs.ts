@@ -155,9 +155,13 @@ export function useMetadataFieldDiffs(
 
     const currentLanguage = normalizeLanguage(cur.language, languages) ?? cur.language ?? "";
     // A source that reports no language leaves the book's own alone, except that a book with none
-    // at all gets the served default (English) - sources often omit it.
+    // at all gets the served default (English) - sources often omit it. A source that reports a
+    // language the app does not manage is left alone too, never relabelled English (the backend's
+    // `Languages.ResolveForApply` follows the same rule).
+    const sourceReportsLanguage = Boolean(res.language?.trim());
     const newLanguage =
-      normalizeLanguage(res.language, languages) ?? (currentLanguage || defaultLanguage);
+      normalizeLanguage(res.language, languages) ??
+      (currentLanguage || (sourceReportsLanguage ? "" : defaultLanguage));
 
     return [
       {

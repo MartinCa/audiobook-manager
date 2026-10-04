@@ -69,13 +69,15 @@ public static class Languages
     }
 
     /// <summary>
-    /// The language to record when online metadata is applied to a book. The source's own value
-    /// wins when it is a recognized language; otherwise the book keeps what it has (including an
-    /// unrecognized value it already carries), and a book with no language at all gets
-    /// <see cref="DefaultCode"/> - sources frequently omit the language, and most imports are
-    /// English.
+    /// The language to record when online metadata is applied to a book, or null when there is
+    /// nothing to record. A recognized source value wins. A source that reports a language this
+    /// app does not manage ("French") is left alone - the book keeps what it has, and is never
+    /// relabelled English, since that would write a wrong language into the m4b tag and
+    /// <c>metadata.opf</c>. Only a source that reports nothing at all, for a book that has no
+    /// language either, gets <see cref="DefaultCode"/> - sources frequently omit the language and
+    /// most imports are English.
     /// </summary>
-    public static string ResolveForApply(string? sourceLanguage, string? storedLanguage)
+    public static string? ResolveForApply(string? sourceLanguage, string? storedLanguage)
     {
         var fromSource = Normalize(sourceLanguage);
         if (fromSource != null)
@@ -88,7 +90,7 @@ public static class Languages
             return Normalize(storedLanguage) ?? storedLanguage;
         }
 
-        return DefaultCode;
+        return string.IsNullOrWhiteSpace(sourceLanguage) ? DefaultCode : null;
     }
 
     /// <summary>
