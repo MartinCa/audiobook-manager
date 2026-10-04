@@ -164,6 +164,19 @@ describe("BookDetail", () => {
     expect(screen.getByText(/An epic fantasy story\./)).toBeInTheDocument();
   });
 
+  it("keeps a minimum width on the header title so the action buttons wrap below it on mobile", async () => {
+    // jsdom has no layout engine, so the class is asserted instead of the wrapping itself. Without
+    // a minimum the title (flex-1, basis 0) never triggers a wrap and is squeezed to one
+    // character per line beside the Refresh/Unsaved/Done/Saving controls.
+    renderWithProviders();
+
+    await screen.findByText(/Brandon Sanderson — The Way of Kings/);
+
+    const title = screen.getByTestId("book-header-title");
+    expect(title).toHaveClass("min-w-[min(100%,18rem)]");
+    expect(title).not.toHaveClass("min-w-0");
+  });
+
   it("lists every series with its part and links, the primary first and marked", async () => {
     vi.mocked(browseApi.getAudiobookDetail).mockResolvedValue({
       ...sampleBookDetail,

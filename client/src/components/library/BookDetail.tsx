@@ -407,7 +407,7 @@ export function BookDetail({ mode }: BookDetailProps) {
       </div>
 
       <div className="border-border flex flex-wrap items-center justify-between gap-4 border-b pb-4">
-        <div className="min-w-0 flex-1">
+        <div className="min-w-[min(100%,18rem)] flex-1" data-testid="book-header-title">
           <h1 className="text-foreground text-2xl font-bold break-words">
             {bookDetail.authors.join(", ")} &mdash; {bookDetail.bookName}
             <BookQualifierBadges qualifiers={bookDetail.qualifiers} className="ml-2" />
@@ -423,7 +423,7 @@ export function BookDetail({ mode }: BookDetailProps) {
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
           {isEditMode && (
             <Button
               variant="outline"
