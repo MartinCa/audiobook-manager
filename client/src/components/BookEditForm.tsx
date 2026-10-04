@@ -292,6 +292,7 @@ export function BookEditForm({
   // The dialog's seed is fixed at the moment it opens: BookSearchDialog re-seeds its input
   // whenever initialQuery changes, so it must not change while the dialog is up.
   const [searchSeed, setSearchSeed] = useState("");
+  const [searchOpening, setSearchOpening] = useState(false);
   const resolveDefaultSearchQuery = useResolveDefaultMetadataSearchQuery();
   const [saving, setSaving] = useState(false);
   const [showAllOptionalFields, setShowAllOptionalFields] = useState(false);
@@ -313,14 +314,19 @@ export function BookEditForm({
   // the dialog appears and cannot overwrite what the user types.
   const openSearchDialog = useCallback(async () => {
     const values = form.getValues();
-    setSearchSeed(
-      await resolveDefaultSearchQuery(
-        values.authors,
-        values.bookName,
-        initialBook.fileInfo?.fileName,
-      ),
-    );
-    setSearchDialogOpen(true);
+    setSearchOpening(true);
+    try {
+      setSearchSeed(
+        await resolveDefaultSearchQuery(
+          values.authors,
+          values.bookName,
+          initialBook.fileInfo?.fileName,
+        ),
+      );
+      setSearchDialogOpen(true);
+    } finally {
+      setSearchOpening(false);
+    }
   }, [form, resolveDefaultSearchQuery, initialBook.fileInfo?.fileName]);
 
   // Auto-opens once the first time autoOpenSearchDialog is true, not just on mount: BookDetail
@@ -865,9 +871,14 @@ export function BookEditForm({
           type="button"
           variant="outline"
           onClick={() => void openSearchDialog()}
+          disabled={searchOpening}
           className="w-full sm:w-auto"
         >
-          <Search className="text-primary mr-2 h-4 w-4" />
+          {searchOpening ? (
+            <Loader2 className="text-primary mr-2 h-4 w-4 animate-spin" />
+          ) : (
+            <Search className="text-primary mr-2 h-4 w-4" />
+          )}
           Search Online Metadata
         </Button>
         {toolbarActions && (
