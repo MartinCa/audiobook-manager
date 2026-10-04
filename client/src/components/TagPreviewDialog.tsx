@@ -124,6 +124,7 @@ export function TagPreviewDialog({
     splitTitleOnColonEnabled,
     chosenPrimarySeries,
     qualifierOptions,
+    langData?.defaultCode,
   );
 
   const changedFieldKeys = useMemo(

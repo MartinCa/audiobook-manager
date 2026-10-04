@@ -119,6 +119,7 @@ export function useMetadataFieldDiffs(
   splitTitleOnColonEnabled: boolean = false,
   primarySeriesName?: string,
   qualifierOptions: BookQualifierOption[] = NO_QUALIFIER_OPTIONS,
+  defaultLanguage: string = "",
 ): FieldDiff[] {
   return useMemo((): FieldDiff[] => {
     const cur = currentInput;
@@ -153,7 +154,10 @@ export function useMetadataFieldDiffs(
       keys.map((key) => qualifierLabel(key, qualifierOptions)).join(", ");
 
     const currentLanguage = normalizeLanguage(cur.language, languages) ?? cur.language ?? "";
-    const newLanguage = normalizeLanguage(res.language, languages) ?? currentLanguage;
+    // A source that reports no language leaves the book's own alone, except that a book with none
+    // at all gets the served default (English) - sources often omit it.
+    const newLanguage =
+      normalizeLanguage(res.language, languages) ?? (currentLanguage || defaultLanguage);
 
     return [
       {
@@ -279,5 +283,6 @@ export function useMetadataFieldDiffs(
     splitTitleOnColonEnabled,
     primarySeriesName,
     qualifierOptions,
+    defaultLanguage,
   ]);
 }

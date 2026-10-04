@@ -119,6 +119,7 @@ export function PendingRefreshRowPanel({ audiobookId, onApplied }: PendingRefres
     splitTitleOnColonEnabled,
     chosenPrimarySeries,
     qualifierOptions,
+    langData?.defaultCode,
   );
 
   const sourceSeries = useMemo(

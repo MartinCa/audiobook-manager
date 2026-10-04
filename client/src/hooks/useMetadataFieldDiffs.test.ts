@@ -341,3 +341,43 @@ describe("useMetadataFieldDiffs qualifiers", () => {
     expect(field.changed).toBe(false);
   });
 });
+
+describe("useMetadataFieldDiffs language default", () => {
+  const languages = [
+    { code: "en", displayName: "English", aliases: ["english"] },
+    { code: "da", displayName: "Danish", aliases: ["dansk"] },
+  ];
+  const diff = (current: OrganizeAudiobookInput, sourceLanguage?: string, defaultLanguage = "en") =>
+    findField(
+      renderHook(() =>
+        useMetadataFieldDiffs(
+          current,
+          baseSearchResult({ language: sourceLanguage }),
+          languages,
+          false,
+          undefined,
+          undefined,
+          defaultLanguage,
+        ),
+      ).result.current,
+      "language",
+    );
+
+  it("proposes English when neither the book nor the source has a language", () => {
+    const field = diff({});
+
+    expect(field.newValue).toBe("English");
+    expect(field.changed).toBe(true);
+  });
+
+  it("keeps the book's own language when the source reports none", () => {
+    const field = diff({ language: "da" });
+
+    expect(field.newValue).toBe("Danish");
+    expect(field.changed).toBe(false);
+  });
+
+  it("prefers the source's language over the default", () => {
+    expect(diff({}, "Dansk").newValue).toBe("Danish");
+  });
+});
