@@ -69,6 +69,29 @@ public static class Languages
     }
 
     /// <summary>
+    /// The language to record when online metadata is applied to a book. The source's own value
+    /// wins when it is a recognized language; otherwise the book keeps what it has (including an
+    /// unrecognized value it already carries), and a book with no language at all gets
+    /// <see cref="DefaultCode"/> - sources frequently omit the language, and most imports are
+    /// English.
+    /// </summary>
+    public static string ResolveForApply(string? sourceLanguage, string? storedLanguage)
+    {
+        var fromSource = Normalize(sourceLanguage);
+        if (fromSource != null)
+        {
+            return fromSource;
+        }
+
+        if (!string.IsNullOrWhiteSpace(storedLanguage))
+        {
+            return Normalize(storedLanguage) ?? storedLanguage;
+        }
+
+        return DefaultCode;
+    }
+
+    /// <summary>
     /// Every lowercased spelling that folds to <paramref name="code"/>, so the client can fold a
     /// scraped or tagged value exactly the way <see cref="Normalize"/> does. Serving these rather
     /// than reimplementing them in TypeScript is what keeps the two from drifting - the endonym

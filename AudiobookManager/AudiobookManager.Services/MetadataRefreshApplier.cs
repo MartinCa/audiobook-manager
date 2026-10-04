@@ -120,7 +120,7 @@ public static class MetadataRefreshApplier
 
         if (fields.Contains(MetadataRefreshFields.Language))
         {
-            book.Language = Languages.Normalize(snapshot.Language) ?? snapshot.Language ?? book.Language;
+            book.Language = Languages.ResolveForApply(snapshot.Language, book.Language);
         }
 
         if (fields.Contains(MetadataRefreshFields.Rating))

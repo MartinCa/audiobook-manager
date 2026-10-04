@@ -77,6 +77,21 @@ public class LanguagesTests
     }
 
     [TestMethod]
+    [DataRow(null, null, "en")]
+    [DataRow("", "  ", "en")]
+    [DataRow("Klingonese", null, "en")]
+    [DataRow(null, "da", "da")]
+    [DataRow(null, "Danish", "da")]
+    [DataRow(null, "spa", "spa")]
+    [DataRow("Dansk", "en", "da")]
+    [DataRow("English", null, "en")]
+    public void ResolveForApply_DefaultsToEnglishOnlyWhenNeitherSideHasALanguage(
+        string? source, string? stored, string expected)
+    {
+        Assert.AreEqual(expected, Languages.ResolveForApply(source, stored));
+    }
+
+    [TestMethod]
     public void IsSupported_RejectsUnmanagedAndEmptyCodes()
     {
         Assert.IsFalse(Languages.IsSupported("de"));

@@ -376,7 +376,7 @@ public class MetadataRefreshServiceTests
     {
         var book = new Database.Models.Audiobook(
             200, "A Book", null, null, null, 2024,
-            null, null, null, null, "4.0", null, "https://example.com/book", null, null,
+            null, null, null, "en", "4.0", null, "https://example.com/book", null, null,
             "/library/book.m4b", "book.m4b", 1000);
         book.Authors = new List<AudiobookManager.Database.Models.Person> { new AudiobookManager.Database.Models.Person(default, "Author A") };
 
@@ -1133,7 +1133,7 @@ public class MetadataRefreshServiceTests
     {
         var book = new Database.Models.Audiobook(
             400, "Book Four", null, "Thursday Murder Club", "4", 2024,
-            null, null, null, null, null, null, "https://example.com/book", null, null,
+            null, null, null, "en", null, null, "https://example.com/book", null, null,
             "/library/book.m4b", "book.m4b", 1000);
         book.Authors = new List<Database.Models.Person> { new(default, "Author A") };
 
@@ -1189,7 +1189,7 @@ public class MetadataRefreshServiceTests
     {
         var book = new Database.Models.Audiobook(
             404, "The Thursday Murder Club", null, "Thursday Murder Club", "1", 2020,
-            null, null, null, null, null, null, "https://example.com/book", null, null,
+            null, null, null, "en", null, null, "https://example.com/book", null, null,
             "/library/book.m4b", "book.m4b", 1000);
         book.Authors = new List<Database.Models.Person> { new(default, "Richard Osman") };
 
@@ -1239,7 +1239,7 @@ public class MetadataRefreshServiceTests
     {
         var book = new Database.Models.Audiobook(
             401, "Book Five", null, "Old Series Name", "5", 2024,
-            null, null, null, null, null, null, "https://example.com/book", null, null,
+            null, null, null, "en", null, null, "https://example.com/book", null, null,
             "/library/book.m4b", "book.m4b", 1000);
         book.Authors = new List<Database.Models.Person> { new(default, "Author A") };
 

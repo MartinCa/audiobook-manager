@@ -55,9 +55,10 @@ public static class MetadataRefreshDiffer
         // than offering a diff to an unmanaged code. The fallbacks must be symmetric: when the
         // stored value is ALSO unrecognized (e.g. backfilled "spa" from an m4b tag), both sides
         // normalize to null, and the source fallback has to land on the stored value too -
-        // otherwise a nothing-changed pair reads as "spa → (blank)".
+        // otherwise a nothing-changed pair reads as "spa → (blank)". A book with no language at all
+        // and a source that reports none proposes the default (English).
         add(MetadataRefreshFields.Language, Languages.Normalize(book.Language) ?? book.Language,
-            Languages.Normalize(fetched.Language) ?? (Languages.Normalize(book.Language) ?? book.Language));
+            Languages.ResolveForApply(fetched.Language, book.Language));
 
         add(MetadataRefreshFields.Rating, book.Rating, fetched.Rating?.ToString(System.Globalization.CultureInfo.InvariantCulture));
         add(MetadataRefreshFields.Copyright, book.Copyright, fetched.Copyright);
@@ -107,7 +108,7 @@ public static class MetadataRefreshDiffer
         add(MetadataRefreshFields.Description, book.Description, snapshot.Description);
 
         add(MetadataRefreshFields.Language, Languages.Normalize(book.Language) ?? book.Language,
-            Languages.Normalize(snapshot.Language) ?? (Languages.Normalize(book.Language) ?? book.Language));
+            Languages.ResolveForApply(snapshot.Language, book.Language));
 
         add(MetadataRefreshFields.Rating, book.Rating, snapshot.Rating);
         add(MetadataRefreshFields.Copyright, book.Copyright, snapshot.Copyright);

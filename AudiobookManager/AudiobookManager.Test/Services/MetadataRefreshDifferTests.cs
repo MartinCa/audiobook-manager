@@ -220,6 +220,30 @@ public class MetadataRefreshDifferTests
     }
 
     [TestMethod]
+    public void Diff_NoLanguageOnBookOrSource_ProposesTheEnglishDefault()
+    {
+        var book = Book(language: null);
+        var fetched = Fetched(r => r.Language = null);
+
+        var diffs = MetadataRefreshDiffer.Diff(book, fetched, Domain.InitialsSpacing.Spaced, Domain.InitialsPunctuation.Dotted).ToList();
+
+        Assert.AreEqual(1, diffs.Count);
+        Assert.AreEqual("Language", diffs[0].Field);
+        Assert.AreEqual("en", diffs[0].SourceValue);
+    }
+
+    [TestMethod]
+    public void Diff_NoLanguageOnSource_KeepsTheBooksOwnLanguage()
+    {
+        var book = Book(language: "da");
+        var fetched = Fetched(r => r.Language = null);
+
+        var diffs = MetadataRefreshDiffer.Diff(book, fetched, Domain.InitialsSpacing.Spaced, Domain.InitialsPunctuation.Dotted).ToList();
+
+        Assert.AreEqual(0, diffs.Count);
+    }
+
+    [TestMethod]
     public void Diff_GenresCompareAsSets()
     {
         var book = Book();
