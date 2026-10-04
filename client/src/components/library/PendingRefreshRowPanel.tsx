@@ -119,6 +119,7 @@ export function PendingRefreshRowPanel({ audiobookId, onApplied }: PendingRefres
     splitTitleOnColonEnabled,
     chosenPrimarySeries,
     qualifierOptions,
+    langData?.defaultCode,
   );
 
   const sourceSeries = useMemo(
@@ -148,7 +149,9 @@ export function PendingRefreshRowPanel({ audiobookId, onApplied }: PendingRefres
   // before the book-detail query does, and computing the diff against currentInput={} (still
   // unloaded) would flag every snapshot field as "changed" - freezing that over-inclusive set
   // into `selected` the moment lastKeys stops being null, with no later re-sync.
-  if (bookDetail && searchResult && lastKeys === null) {
+  // And on langData: the language diff depends on the served default, so seeding before it
+  // arrives would freeze a `selected` set that never gains "language".
+  if (bookDetail && searchResult && langData && lastKeys === null) {
     setLastKeys(changedFieldKeys);
     setSelected(new Set(changedFieldKeys));
   }

@@ -647,10 +647,15 @@ export function BookEditForm({
     if (selectedFields.has("publisher")) {
       form.setValue("publisher", result.publisher ?? "", { shouldDirty: true });
     }
-    if (selectedFields.has("language") && result.language) {
+    if (selectedFields.has("language")) {
+      // Mirrors the diff table (useMetadataFieldDiffs): a source that reports no language keeps
+      // the book's own, and a book with none gets the served default (English). A language the
+      // app does not manage is left alone, never written raw or relabelled English.
+      const currentLang = form.getValues("language");
       const normalizedLang =
-        normalizeLanguage(result.language, languages) ?? result.language.trim();
-      form.setValue("language", normalizedLang, { shouldDirty: true });
+        normalizeLanguage(result.language, languages) ??
+        (currentLang || (result.language?.trim() ? "" : languagesRes?.defaultCode));
+      if (normalizedLang) form.setValue("language", normalizedLang, { shouldDirty: true });
     }
     if (selectedFields.has("rating")) {
       form.setValue("rating", result.rating != null ? String(result.rating) : "", {

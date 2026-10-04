@@ -122,6 +122,29 @@ public class MetadataRefreshQualifiersTests
     }
 
     [TestMethod]
+    [DataRow(null, null, "en")]
+    [DataRow(null, "da", "da")]
+    [DataRow("Dansk", null, "da")]
+    [DataRow("French", null, null)]
+    [DataRow("French", "da", "da")]
+    public void ApplyFields_Language_DefaultsToEnglishOnlyWhenNeitherSideReportsOne(
+        string? sourceLanguage, string? bookLanguage, string? expected)
+    {
+        var book = new AudiobookManager.Domain.Audiobook(
+            new List<ScrapingPerson> { new("A") }, "The Test Book", 2010, new AudiobookFileInfo("/x.m4b", "x.m4b", 1))
+        {
+            Language = bookLanguage,
+        };
+        var fetched = Fetched();
+        fetched.Language = sourceLanguage;
+        var snapshot = PendingRefreshPayload.FromSearchResult(fetched);
+
+        MetadataRefreshApplier.ApplyFields(book, snapshot, new HashSet<string> { MetadataRefreshFields.Language });
+
+        Assert.AreEqual(expected, book.Language);
+    }
+
+    [TestMethod]
     public void ApplyFields_WithoutTheQualifiersField_LeavesThemAlone()
     {
         var book = new AudiobookManager.Domain.Audiobook(
