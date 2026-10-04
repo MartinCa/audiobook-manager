@@ -451,6 +451,23 @@ describe("BookLibrary", () => {
     });
   });
 
+  it("upgrades a legacy date-only refreshed bound in the URL to the exact instants it used to mean", async () => {
+    const { router } = renderWithRouter();
+    await screen.findByText("The Way of Kings");
+
+    await router.navigate({
+      to: "/library",
+      search: { refreshedAfter: "2024-06-01", refreshedBefore: "2024-06-01" },
+    });
+
+    await waitFor(() => {
+      expect(browseApi.getAudiobooks).toHaveBeenLastCalledWith(20, 0, {
+        refreshedAfter: new Date(2024, 5, 1).toISOString(),
+        refreshedBefore: new Date(2024, 5, 2).toISOString(),
+      });
+    });
+  });
+
   it("shows skeleton loading rows while the library list loads", async () => {
     vi.mocked(browseApi.getAudiobooks).mockImplementation(() => new Promise(() => {}));
 

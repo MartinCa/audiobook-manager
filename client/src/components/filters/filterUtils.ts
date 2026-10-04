@@ -84,6 +84,35 @@ export function dateTimeLocalToIso(inputValue: string): string | undefined {
   return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
 }
 
+const DATE_ONLY = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+/**
+ * Upgrades a legacy date-only bound (`2024-06-01`, from a bookmarked/shared URL written when the
+ * filter had day granularity) to the exact UTC instant that preserves what it used to mean:
+ * `after` is the start of that local day, `before` the start of the *next* local day (the old
+ * filter included the whole chosen day). Anything that is not date-only passes through untouched,
+ * so a current ISO instant is never re-interpreted. Applied by the route search schemas, so the
+ * filter state only ever holds real instants.
+ */
+export function normalizeRefreshBound(
+  value: string | undefined,
+  bound: "after" | "before",
+): string | undefined {
+  const match = value === undefined ? null : DATE_ONLY.exec(value);
+  if (!match) {
+    return value;
+  }
+  const [, year, month, day] = match;
+  const startOfDay = new Date(Number(year), Number(month) - 1, Number(day));
+  if (Number.isNaN(startOfDay.getTime())) {
+    return value;
+  }
+  if (bound === "before") {
+    startOfDay.setDate(startOfDay.getDate() + 1);
+  }
+  return startOfDay.toISOString();
+}
+
 /** A stored instant for a chip label, in the same local format the rest of the UI shows. */
 function chipInstant(stored: unknown): string {
   return formatDateTime(String(stored)) || String(stored);

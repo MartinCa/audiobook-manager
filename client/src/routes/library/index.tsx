@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { z } from "zod";
+import { normalizeRefreshBound } from "@/components/filters/filterUtils";
 import BookLibrary from "@/components/BookLibrary";
 
 const librarySearchSchema = z.object({
@@ -11,8 +12,14 @@ const librarySearchSchema = z.object({
   qualifiers: z.array(z.string()).optional(),
   minDurationInSeconds: z.number().optional(),
   maxDurationInSeconds: z.number().optional(),
-  refreshedAfter: z.string().optional(),
-  refreshedBefore: z.string().optional(),
+  refreshedAfter: z
+    .string()
+    .optional()
+    .transform((v) => normalizeRefreshBound(v, "after")),
+  refreshedBefore: z
+    .string()
+    .optional()
+    .transform((v) => normalizeRefreshBound(v, "before")),
   neverRefreshed: z.boolean().optional(),
 });
 

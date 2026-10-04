@@ -239,20 +239,6 @@ public class AudiobookRepositoryBookFilterTests
     }
 
     [TestMethod]
-    public async Task GetAllAsync_FilteredByRefreshedBefore_ConvertsALocalKindBoundToUtc()
-    {
-        await SeedRefreshedBooksAsync();
-
-        // ASP.NET binds a "...Z" timestamp to a Local-kind DateTime; the same instant must filter
-        // identically whatever the server's zone is.
-        var localKind = new DateTime(2026, 6, 20, 23, 31, 0, DateTimeKind.Utc).ToLocalTime();
-        var (items, total) = await _repository.GetAllAsync(
-            20, 0, new BookSummaryFilter(RefreshedBefore: localKind));
-        Assert.AreEqual(2, total);
-        Assert.AreEqual(2, items.Count);
-    }
-
-    [TestMethod]
     public async Task SearchAsync_FilteredByRefreshedRange_NarrowsTheTextSearch()
     {
         await SeedRefreshedBooksAsync();

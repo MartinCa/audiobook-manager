@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { z } from "zod";
+import { normalizeRefreshBound } from "@/components/filters/filterUtils";
 import AuthorsList from "@/components/library/AuthorsList";
 
 const authorsSearchSchema = z.object({
@@ -11,8 +12,14 @@ const authorsSearchSchema = z.object({
   maxBookCount: z.number().optional(),
   hasMissingBooks: z.boolean().optional(),
   hasUpcomingBooks: z.boolean().optional(),
-  refreshedAfter: z.string().optional(),
-  refreshedBefore: z.string().optional(),
+  refreshedAfter: z
+    .string()
+    .optional()
+    .transform((v) => normalizeRefreshBound(v, "after")),
+  refreshedBefore: z
+    .string()
+    .optional()
+    .transform((v) => normalizeRefreshBound(v, "before")),
   neverRefreshed: z.boolean().optional(),
   sources: z.array(z.string()).optional(),
 });

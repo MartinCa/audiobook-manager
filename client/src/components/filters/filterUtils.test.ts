@@ -4,6 +4,7 @@ import {
   activeChips,
   dateTimeLocalToIso,
   isoToDateTimeLocal,
+  normalizeRefreshBound,
   type FilterFieldDef,
 } from "./filterUtils";
 
@@ -39,6 +40,25 @@ describe("dateTimeLocalToIso / isoToDateTimeLocal", () => {
       isoToDateTimeLocal(new Date("2024-01-01").toISOString()),
     );
     expect(isoToDateTimeLocal("2024-01-01")).not.toBe("");
+  });
+});
+
+describe("normalizeRefreshBound", () => {
+  it("turns a legacy date-only 'after' into the start of that local day", () => {
+    expect(normalizeRefreshBound("2024-06-01", "after")).toBe(new Date(2024, 5, 1).toISOString());
+  });
+
+  it("turns a legacy date-only 'before' into the start of the next local day, keeping the whole day included", () => {
+    expect(normalizeRefreshBound("2024-06-01", "before")).toBe(new Date(2024, 5, 2).toISOString());
+    // Month rollover.
+    expect(normalizeRefreshBound("2024-06-30", "before")).toBe(new Date(2024, 6, 1).toISOString());
+  });
+
+  it("leaves a current ISO instant and an absent value untouched", () => {
+    expect(normalizeRefreshBound("2026-01-15T10:30:00.000Z", "before")).toBe(
+      "2026-01-15T10:30:00.000Z",
+    );
+    expect(normalizeRefreshBound(undefined, "after")).toBeUndefined();
   });
 });
 
