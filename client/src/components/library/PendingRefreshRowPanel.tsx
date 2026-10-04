@@ -25,6 +25,13 @@ import { handleApiError } from "@/lib/api";
 import { notifications } from "@/lib/notifications";
 import type { TargetPathCheckResult } from "@/types/TargetPathCheck";
 
+/** The automated rules that write the source's value when nothing needs a person. */
+const APPLYING_AUTOMATED_RULES: ReadonlySet<string> = new Set([
+  "AlwaysOverwrite",
+  "FillBlanksOnly",
+  "OverwriteUnlessSourceEmpty",
+]);
+
 interface PendingRefreshRowPanelProps {
   audiobookId: number;
   /** Called once the apply (or a dismiss elsewhere) has gone through, so the row can collapse and its row-level data can be dropped from the list. */
@@ -255,13 +262,14 @@ export function PendingRefreshRowPanel({ audiobookId, onApplied }: PendingRefres
   }
 
   // Why an automated refresh would hold this book for review: the changed set has a field set to
-  // Ask me *and* a field whose own rule would otherwise have settled it. Without both, the hold is
+  // Ask me *and* a field whose own rule would otherwise have applied (Keep current never applies
+  // anything, so it does not count). Without both, the hold is
   // the default behaviour and says nothing about the user's settings (a manual Refresh lands here
   // too, so the wording is about what the rules would do, not about how the row arrived).
   const changedRules = changedFields.map((f) =>
     applyRules?.fields.find((r) => r.field === CLIENT_KEY_TO_BACKEND_FIELDS[f.key]?.[0]),
   );
-  const askMeLabels = changedRules.some((r) => r && r.automated !== "AskMe")
+  const askMeLabels = changedRules.some((r) => r && APPLYING_AUTOMATED_RULES.has(r.automated))
     ? changedRules.filter((r) => r?.automated === "AskMe").map((r) => r!.label)
     : [];
 

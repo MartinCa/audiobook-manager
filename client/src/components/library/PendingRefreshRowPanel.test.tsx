@@ -535,13 +535,27 @@ describe("PendingRefreshRowPanel", () => {
         payload: { ...pendingWithOnlyRatingDiffering.payload, publisher: "Acme Audio" },
       };
       await renderWithRules(
-        ratingRules("AlwaysSelect", "AskMe", "KeepCurrent"),
+        ratingRules("AlwaysSelect", "AskMe", "OverwriteUnlessSourceEmpty"),
         ratingAndPublisherChanged,
       );
 
       expect(
         await screen.findByText(/would hold this book for review because Rating is set to/i),
       ).toBeInTheDocument();
+    });
+
+    it("does not claim other fields would apply when the only other changed field is Keep current", async () => {
+      const ratingAndPublisherChanged: PendingMetadataRefresh = {
+        ...pendingWithOnlyRatingDiffering,
+        payload: { ...pendingWithOnlyRatingDiffering.payload, publisher: "Acme Audio" },
+      };
+      await renderWithRules(
+        ratingRules("AlwaysSelect", "AskMe", "KeepCurrent"),
+        ratingAndPublisherChanged,
+      );
+      await screen.findByRole("button", { name: /apply selected/i });
+
+      expect(screen.queryByText(/would hold this book for review/i)).not.toBeInTheDocument();
     });
 
     it("does not blame the user's settings when the only other customised field did not change", async () => {
