@@ -80,6 +80,19 @@ describe("MetadataApplyRulesCard", () => {
     expect(screen.getByText("Send the changeset to review.")).toBeInTheDocument();
   });
 
+  it("titles both selects of every field with visible text, not just an aria-label", async () => {
+    renderCard();
+    await screen.findByText("Authors");
+
+    // Per field: one title above each select (shown on narrow screens), plus the card description,
+    // the wide-screen column
+    // header and the legend heading. A bare aria-label would leave a phone with two unlabelled
+    // dropdowns per field.
+    const perFieldAndShared = rules.fields.length + 3;
+    expect(screen.getAllByText("When reviewing")).toHaveLength(perFieldAndShared);
+    expect(screen.getAllByText("When automated")).toHaveLength(perFieldAndShared);
+  });
+
   it("keeps Save disabled until a rule is changed", async () => {
     renderCard();
 
