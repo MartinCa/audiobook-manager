@@ -172,6 +172,10 @@ public class AudiobookService : IAudiobookService
 
         await progressAction("Started", 0);
 
+        // Before the path or any tag is derived, and in this shared pipeline rather than at each
+        // entry point, so organize and update cannot differ.
+        NormalizePersonNames(audiobook);
+
         // First, before the path or any tag is derived: those come from the primary series, and
         // the database mirrors whichever series is primary afterwards.
         audiobook.PromoteAdditionalSeriesIfNoPrimary();
@@ -404,6 +408,15 @@ public class AudiobookService : IAudiobookService
         var genres = audiobook.Genres.Select(name => genresByName[name]).ToList();
 
         return (authors, narrators, genres);
+    }
+
+    // A person named "A, B" cannot survive the comma-joined tag: the file reads back as two people
+    // and the round-trip verification fails on every save. Whatever put the combined name here
+    // (a scrape, an old database row), split it before the tags, path and rows are built from it.
+    private static void NormalizePersonNames(Audiobook audiobook)
+    {
+        audiobook.Authors = AudiobookTagHandler.SplitCommaJoinedNames(audiobook.Authors);
+        audiobook.Narrators = AudiobookTagHandler.SplitCommaJoinedNames(audiobook.Narrators);
     }
 
     public async Task<Audiobook> InsertAudiobook(Audiobook audiobook)

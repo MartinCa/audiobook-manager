@@ -1,6 +1,7 @@
 using AudiobookManager.Api.Async;
 using AudiobookManager.Api.Dtos;
 using AudiobookManager.Domain;
+using AudiobookManager.FileManager;
 using AudiobookManager.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
@@ -496,8 +497,8 @@ public class AudiobookController : ControllerBase
     {
         // The client splits free-text author/narrator/genre fields, so blank entries reach us for
         // an empty field. Drop them here rather than persisting Person/Genre rows with no name.
-        var authors = CleanNames(dto.Authors).Select(a => new Person(a)).ToList();
-        var narrators = CleanNames(dto.Narrators).Select(n => new Person(n)).ToList();
+        var authors = AudiobookTagHandler.SplitCommaJoinedNames(CleanNames(dto.Authors).Select(a => new Person(a)));
+        var narrators = AudiobookTagHandler.SplitCommaJoinedNames(CleanNames(dto.Narrators).Select(n => new Person(n)));
         var fileInfo = new AudiobookFileInfo(dto.FilePath, dto.FileName, dto.SizeInBytes);
 
         // Every client-supplied cover comes through here - organize, save, and the two path
