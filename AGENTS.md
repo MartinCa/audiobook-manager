@@ -100,7 +100,7 @@ Local hooks are installed automatically by `pnpm install` (the `prepare` script 
 
 **AI agents**: do not install the lefthook binary yourself — it is included in the OpenCode image. If `lefthook` is not on PATH, report this to the user and ask whether to install it.
 
-Hooks come from the shared `MartinCa/lefthook-configs` fragments pinned at `v2.1.0` in `lefthook.yml` (a thin `remotes:` config). `remotes:` configs merge *over* `lefthook.yml`, so this repo's monorepo adaptation lives in `lefthook-local.yml` (the one layer that overrides remotes): it adds `root: "client/"` to the shared `lint-ts`/`format-ts`/`test-ts` commands so they run inside `client/`, while inheriting the fragment's globs and `stage_fixed` handling.
+Hooks come from the shared `MartinCa/lefthook-configs` fragments pinned at `v2.1.0` in `lefthook.yml` (a thin `remotes:` config). `remotes:` configs merge _over_ `lefthook.yml`, so this repo's monorepo adaptation lives in `lefthook-local.yml` (the one layer that overrides remotes): it adds `root: "client/"` to the shared `lint-ts`/`format-ts`/`test-ts` commands so they run inside `client/`, while inheriting the fragment's globs and `stage_fixed` handling.
 
 - **pre-commit** — `lint-ts`/`format-ts` via ESLint `--fix` + Prettier `--write` on staged TS/TSX and Prettier on JSON/CSS/MD/JS/MJS/HTML, run from `client/` and re-staging fixed files; `lefthook-shared.yml` secret-scans the staged diff with `betterleaks` (blocks the commit on a leak) and audits staged `.github/workflows/*` files with `zizmor` (blocks on a finding).
 - **pre-push** — `test-ts` runs the Vitest suite (`vitest run`) on every push, from `client/`; a failing suite blocks the push.
@@ -110,7 +110,7 @@ Frontend lint/format are enforced both locally (these hooks) and in CI (the `lin
 
 Two hook tools must be on `PATH`: `betterleaks` (secret scan, install per its project README) and `zizmor` (workflow audit, install from zizmor.sh). If a tool is missing, `LEFTHOOK=0 git commit` skips the hooks entirely — a pragmatic escape hatch for restricted setups, not a way to dodge the gates.
 
-`lefthook-local.yml` is **intentionally checked in** as this repo's team-wide override: in a stock lefthook setup that file is the personal, gitignored override layer, but here it is the one layer that merges *over* the shared `remotes:` fragments, and it carries the repo-wide `root: "client/"` adaptation for the monorepo layout. It is not a personal override layer in this repo; do not use it for private changes.
+`lefthook-local.yml` is **intentionally checked in** as this repo's team-wide override: in a stock lefthook setup that file is the personal, gitignored override layer, but here it is the one layer that merges _over_ the shared `remotes:` fragments, and it carries the repo-wide `root: "client/"` adaptation for the monorepo layout. It is not a personal override layer in this repo; do not use it for private changes.
 
 ## Architecture
 
@@ -123,13 +123,14 @@ Two hook tools must be on `PATH`: `betterleaks` (secret scan, install per its pr
 - **FileManager** — File I/O operations: `AudiobookFileHandler` (static utility for path generation, file relocation, metadata/cover writing), `AudiobookTagHandler` (m4b tag parsing/writing via ATL library), `FileScanner` (directory scanning).
 - **Scraping** — Metadata scraping. Scrapers: `GoodreadsScraper` (AngleSharp HTML scraping), `AudibleScraper`, `HardcoverScraper` (GraphQL API, requires an API key). See "Adding a metadata source scraper" below. **Hardcover GraphQL schema reference**: `docs.hardcover.app` is often unreachable from sandboxed/CI environments (egress-blocked) — instead fetch the authoritative schema SDL directly from `https://raw.githubusercontent.com/hardcoverapp/hardcover-docs/main/schema.graphql` (mirrors the docs site, no auth needed) before guessing field names for a new Hardcover query (e.g. `series`, `series_by_pk`, `book_series`). Check that file first rather than trial-and-error against the live API.
 
-  All Hardcover HTTP traffic goes through the `"hardcover"` named client, whose `HardcoverRateLimitingHandler` (`Scraping/RateLimiting/`) enforces the limits for every call site: a shared singleton `TokenBucketRateLimiter` queues requests for the burst/per-minute budget (invariant: bucket capacity + per-minute refill must stay at or under the API's hard 60/min ceiling — validated at startup, throws on misconfiguration), and a persisted per-UTC-day counter (`hardcover_request_quota` table) is incremented and checked *before* each request, throwing `HardcoverDailyLimitExceededException` when the daily budget is spent. `HardcoverRetryHandler` sits *outside* the rate limiter so every retry re-acquires a token instead of bypassing it.
+  All Hardcover HTTP traffic goes through the `"hardcover"` named client, whose `HardcoverRateLimitingHandler` (`Scraping/RateLimiting/`) enforces the limits for every call site: a shared singleton `TokenBucketRateLimiter` queues requests for the burst/per-minute budget (invariant: bucket capacity + per-minute refill must stay at or under the API's hard 60/min ceiling — validated at startup, throws on misconfiguration), and a persisted per-UTC-day counter (`hardcover_request_quota` table) is incremented and checked _before_ each request, throwing `HardcoverDailyLimitExceededException` when the daily budget is spent. `HardcoverRetryHandler` sits _outside_ the rate limiter so every retry re-acquires a token instead of bypassing it.
 
-  **Hardcover API limitations** (see [docs.hardcover.app/api/getting-started/#limitations](https://docs.hardcover.app/api/getting-started/#limitations) — that page is often egress-blocked in sandboxed/CI environments, so this is a durable summary, not a substitute for checking the live page when reachable): these are *query-shape* restrictions, separate from and enforced independently of the request-count/rate limits above.
+  **Hardcover API limitations** (see [docs.hardcover.app/api/getting-started/#limitations](https://docs.hardcover.app/api/getting-started/#limitations) — that page is often egress-blocked in sandboxed/CI environments, so this is a durable summary, not a substitute for checking the live page when reachable): these are _query-shape_ restrictions, separate from and enforced independently of the request-count/rate limits above.
   - Pattern-matching filter operators are disabled server-side and return HTTP 403 (`"... operations are not permitted on this server"`) even though they still appear in the published schema types: `_like`, `_nlike`, `_ilike`, `_niregex`, `_nregex`, `_iregex`, `_regex`, `_nsimilar`, `_similar`. Never build a `where: { field: { _ilike: ... } }`-style query against Hardcover — fuzzy/partial/typo-tolerant name matching (e.g. series search) must go through the Typesense-backed `search()` query instead (`query_type` values documented at the URL above; see `HardcoverScraper.Search()`/`SearchSeries()` for the pattern).
   - General queries time out at 30 seconds; `search()` queries time out at 2 seconds.
   - Queries must not run in a browser — the API key has to stay server-side.
-- **Cover images** — Every cover supplied by a *client* goes through `ICoverImageProcessor`
+
+- **Cover images** — Every cover supplied by a _client_ goes through `ICoverImageProcessor`
   (`Services/Covers/`) before it becomes an `AudiobookImage`. **Invariant: never construct an
   `AudiobookImage` straight from request data.** The format is decided by inspecting the bytes
   (ImageSharp), not by the declared MIME type, so anything that is not a readable image is refused
@@ -137,7 +138,7 @@ Two hook tools must be on `PATH`: `betterleaks` (secret scan, install per its pr
   and a PNG already inside the caps is kept byte-for-byte (cover art is often flat artwork with
   lettering, which re-encoding visibly damages). `AudiobookController.MapToDomain` is the single
   place this happens — it serves organize, save, and both path-preview endpoints. Covers read back
-  *out* of an m4b by `AudiobookTagHandler` do not pass through it and are not re-encoded. The
+  _out_ of an m4b by `AudiobookTagHandler` do not pass through it and are not re-encoded. The
   client shrinks before uploading too (`client/src/lib/coverImage.ts`), but that is a
   bandwidth measure only: the server never trusts it.
 
@@ -163,7 +164,7 @@ Two hook tools must be on `PATH`: `betterleaks` (secret scan, install per its pr
   Two direct `fetch` calls exist outside the module by necessity (`CoverEditor` and
   `BookEditForm`, both fetching a cover blob from `metadata-search/proxy-image`): `lib/api.ts`
   parses every response as JSON, so a binary GET cannot go through it. They are reads, which the
-  guard does not cover, so they are unaffected — but a *write* must never be added this way.
+  guard does not cover, so they are unaffected — but a _write_ must never be added this way.
 
   **Invariant: an error response that carries a body carries RFC 9457
   `application/problem+json` — never a bare string.** The client reads an error body only when the
@@ -183,13 +184,14 @@ Two hook tools must be on `PATH`: `betterleaks` (secret scan, install per its pr
   A 500 never carries the exception message. `ProblemResults.UnexpectedError` returns a fixed
   sentence plus the `traceId`; the exception itself is logged with its context at the call site,
   and the traceId is what ties the two together. Exception text here routinely contains absolute
-  container paths and filesystem layout. 4xx detail *is* relayed — that is the message telling the
+  container paths and filesystem layout. 4xx detail _is_ relayed — that is the message telling the
   caller what to fix — so only raise 4xx exceptions with messages that are safe to show.
 
   Swagger UI's "Try it out" sets the header via a request interceptor configured in
   `Program.cs`, so the guard applies uniformly in development rather than being carved out for
   the environment it is developed in.
-- **Types**: `src/lib/api-types.ts` is generated from the backend's OpenAPI spec (`pnpm run generate-api-types`) and is vendored — never hand-edited. Most `src/types/*.ts` files are thin aliases over it (`type X = components["schemas"]["XDto"]`, or the narrowed `Require<Dto, "field1" | "field2">` form from `src/lib/dto.ts`) rather than independently hand-written interfaces. Every generated DTO property is optional *and* nullable regardless of what the C# type actually guarantees — Swashbuckle only populates the OpenAPI `required` array for types carrying explicit `[Required]` attributes, which in this codebase is only the request DTOs; this API's response DTOs are plain C# records, so their non-nullable positional properties get no such annotation and render as optional in `api-types.ts`. `Require<Dto, K>` restores that guarantee for the fields a type file's cited C# source confirms are non-nullable — re-check that source before widening a `Require<>` key list, the same way you'd re-check a hand-written type against the schema. A handful of `src/types/*.ts` files stay genuinely hand-written because they have no 1:1 wire counterpart (`Audiobook`/`AudiobookPerson` is the richer array-based editing-form model the flat DTO gets transformed to/from; `OrganizeAudiobookInput` is a client-only tag-preview shape; `PaginatedResult<T>` is a reusable generic where the backend emits one concrete schema per `T`) — each such file says so in a comment. `client/src/DESIGN.md` section 9 records this as the one remaining deviation from section 7's "never hand-write response interfaces," and why.
+
+- **Types**: `src/lib/api-types.ts` is generated from the backend's OpenAPI spec (`pnpm run generate-api-types`) and is vendored — never hand-edited. Most `src/types/*.ts` files are thin aliases over it (`type X = components["schemas"]["XDto"]`, or the narrowed `Require<Dto, "field1" | "field2">` form from `src/lib/dto.ts`) rather than independently hand-written interfaces. Every generated DTO property is optional _and_ nullable regardless of what the C# type actually guarantees — Swashbuckle only populates the OpenAPI `required` array for types carrying explicit `[Required]` attributes, which in this codebase is only the request DTOs; this API's response DTOs are plain C# records, so their non-nullable positional properties get no such annotation and render as optional in `api-types.ts`. `Require<Dto, K>` restores that guarantee for the fields a type file's cited C# source confirms are non-nullable — re-check that source before widening a `Require<>` key list, the same way you'd re-check a hand-written type against the schema. A handful of `src/types/*.ts` files stay genuinely hand-written because they have no 1:1 wire counterpart (`Audiobook`/`AudiobookPerson` is the richer array-based editing-form model the flat DTO gets transformed to/from; `OrganizeAudiobookInput` is a client-only tag-preview shape; `PaginatedResult<T>` is a reusable generic where the backend emits one concrete schema per `T`) — each such file says so in a comment. `client/src/DESIGN.md` section 9 records this as the one remaining deviation from section 7's "never hand-write response interfaces," and why.
 - **Real-time**: SignalR via `@microsoft/signalr` directly, wired through `SignalRProvider`/`SignalRContext` (`src/context/SignalRContext.ts`, `src/components/SignalRProvider.tsx`) and the `useSignalREvent`/`useSignalRReconnected` hooks (`src/hooks/useSignalR.ts`) — event names are plain strings matched against the backend's `IOrganize` interface, not typed tokens.
 - **Components** (`src/components/`): `BookOrganize.tsx` (organization workflow), `BookLibrary.tsx` (library management + scan), `LibraryConsistency.tsx` (consistency checking). Library sub-views in `components/library/`. Vendored shadcn/ui primitives live in `components/ui/` — do not hand-edit them (see `client/src/DESIGN.md` section 3).
 - **Routing**: TanStack Router, file-based under `src/routes/` (one file per route, `$param` for dynamic segments, `index.tsx` for a directory's exact path). `src/routeTree.gen.ts` is generated by the `@tanstack/router-plugin` Vite plugin and is vendored — commit it, never hand-edit it. Routing is **browser (path-based)**, not hash-based; `Program.cs` serves `MapFallbackToFile("index.html")` so a direct load or refresh on a nested route (e.g. `/library/book/42`) still resolves — if you ever change the routing mode, check that fallback is still needed/present.
@@ -253,11 +255,11 @@ never key a path-based `HashSet`/`Dictionary` with the default comparer.** Path 
 bitten this codebase repeatedly (the duplicate-detection self-match, the sidecar cleanup, the
 allowed-base check, the library scan's known-path set), because two things are easy to forget:
 paths need normalizing (`.`/`..`/`//`/mixed separators), and case-sensitivity is a property of the
-*file system*, not of the string. Use the helpers on `AudiobookFileHandler`:
+_file system_, not of the string. Use the helpers on `AudiobookFileHandler`:
 
 - `PathsEqual(a, b)` — do these denote the same file?
 - `PathStartsWith(path, prefix)` — is `path` inside `prefix`? This checks the **path boundary**, so
-  `/data/library-backup` is correctly *not* inside `/data/library`. A bare `StartsWith` here once
+  `/data/library-backup` is correctly _not_ inside `/data/library`. A bare `StartsWith` here once
   let `FileService.DeleteDirectory` — which deletes recursively — reach a sibling directory.
 - `PathComparison` / `PathComparer` — the `StringComparison`/`StringComparer` to hand to anything
   that compares or hashes paths itself (`ToHashSet`, `GroupBy`, `Distinct`, `OrderBy`).
@@ -295,9 +297,9 @@ its layer rather than comparing raw strings:
   followed by stripping combining marks).
 
 This is orthogonal to `NameNormalizer`/`SimilarityGrouper` (the similar-author/series duplicate
-*detection* feature) — that normalizer is intentionally accent-naive today (`"René"` and `"Rene"`
+_detection_ feature) — that normalizer is intentionally accent-naive today (`"René"` and `"Rene"`
 cluster only if close enough by edit distance, not because they're treated as equal), since it
-serves a different purpose (flagging likely-duplicate *stored* values) with its own thresholds
+serves a different purpose (flagging likely-duplicate _stored_ values) with its own thresholds
 tuned around that behavior. Don't assume fixing one fixes the other.
 
 ### Tag round-trip normalization must mirror the tag writer
@@ -341,7 +343,7 @@ treatment.
 to issue one statement per id. But they **bypass the change tracker**, which has two consequences:
 
 1. Rows this context already loaded stay in the identity map. SQLite reuses deleted rowids, so a
-   *newly inserted* row can be handed an id a ghost still holds, and EF resolves it back to the
+   _newly inserted_ row can be handed an id a ghost still holds, and EF resolves it back to the
    stale entity. After a set-based delete, detach the affected entries (see
    `ConsistencyIssueRepository.DetachTracked`), and read with `AsNoTracking()`.
 2. **Do not use them where the entity has an inverse navigation the caller holds.** The
@@ -380,8 +382,8 @@ work. Without it, two writers both read the same pre-move path, the first reloca
 the second writes tags to a path that no longer exists (or fails with a spurious "already exists").
 
 **There is exactly one per-audiobook gate, and it is shared by every path that mutates a book's
-files.** It used to be a private set on `AudiobookController`, which meant it excluded only *other
-saves*: a consistency resolve and a similar-value alignment rewrite the same files through the same
+files.** It used to be a private set on `AudiobookController`, which meant it excluded only _other
+saves_: a consistency resolve and a similar-value alignment rewrite the same files through the same
 service and were gated against neither the save endpoint nor each other (`resolve-by-type` has no
 lock of its own at all). The five entry points that take it are:
 
@@ -398,7 +400,7 @@ lock of its own at all). The five entry points that take it are:
   and the batch carries on.
 
 The gate is **non-reentrant**, so nothing below an entry point may take it again — in particular
-`AudiobookService.UpdateAudiobook` does *not*, because `ResolveTagMismatch` and the alignment
+`AudiobookService.UpdateAudiobook` does _not_, because `ResolveTagMismatch` and the alignment
 loops reach it while already holding it. A busy book fails just its own item: the bulk callers'
 per-item try/catch counts it and the batch carries on.
 
@@ -448,12 +450,13 @@ type (`AuthorSummaryRow`, `AuthorBookRef`) or a scalar query (`GetCoverFilePathA
 read-only query.
 
 Two caveats when moving work into SQL:
+
 - **Moving an `OrderBy` into SQL changes the collation.** SQLite's default is BINARY, i.e. by
   code point: `"Zadie"` sorts before `"alice"`, and every accented name lands after `"Z"`. That
   is the wrong order for anything a person reads — the autocomplete name lists
   (`GetAuthorNamesAsync`, `GetSeriesNamesAsync`) and the author-detail sections deliberately
   project in SQL but `Sort`/`OrderBy` in memory with `StringComparer.InvariantCulture`. Push the
-  *projection* down; keep presentation ordering in .NET unless the query is also paged (a paged
+  _projection_ down; keep presentation ordering in .NET unless the query is also paged (a paged
   query has to order in SQL — see below — so it gets BINARY order and there is no way around it).
 - **Blocking work does not belong on a request thread.** `DetectIssuesForAudiobook` is
   synchronous (an ATL parse of the whole m4b plus several file reads), so the single-book
@@ -461,9 +464,10 @@ Two caveats when moving work into SQL:
   already runs it on the thread pool.
 
 Two more rules for query shape:
+
 - **A paged query needs a total order.** `OrderBy(a => a.BookName)` is not one — books sharing a
   title have an undefined relative order, so the same row can appear on two pages while another is
-  skipped, and with `AsSplitQuery()` the `Skip`/`Take` runs in *each* query, so they can disagree
+  skipped, and with `AsSplitQuery()` the `Skip`/`Take` runs in _each_ query, so they can disagree
   about the page's contents. Always add `.ThenBy(a => a.Id)`.
 - **`ParseAudiobook(fileInfo, includeCoverData: false)`** for any caller that only needs to know
   whether a cover exists (the consistency check, the save round-trip verification, the library
@@ -483,7 +487,7 @@ seriesName` against fixed action paths (`api/series/detail`, `api/series/match`,
 `api/browse/series`, ...); `SeriesControllerTests` has a reflection guard that fails if any route
 template on either controller reintroduces `{seriesName}`.
 
-The frontend router (TanStack Router) is *not* affected - it decodes path params after matching,
+The frontend router (TanStack Router) is _not_ affected - it decodes path params after matching,
 so `/library/series/$seriesName` handles such a name correctly client-side - which is why the
 series was clickable but its API calls were not.
 
@@ -524,7 +528,7 @@ explicit `en`/`da` round-trip test in `AudiobookTagHandlerTests`.
 **Backfilling the language of existing books** (`LanguageBackfillService`, `POST
 api/missing-tags/backfill-language`) reads the tag already embedded in each m4b and writes only the
 database. A direct DB write is legitimate here, unlike for the fields the binding invariant covers:
-Language plays no part in `GenerateRelativeAudiobookPath`, and the value is being copied *out of*
+Language plays no part in `GenerateRelativeAudiobookPath`, and the value is being copied _out of_
 the file, so nothing can desync. A book whose file says `English` therefore becomes `en` in the
 database and shows up as a `TagMismatch` in the consistency check, where a bulk resolve rewrites
 the tag and `metadata.opf` — that sequence is intentional, and it is what keeps the backfill a read
@@ -559,7 +563,7 @@ Three rules keep it from desyncing:
   `BuildOpfContent`. A new writer of a book/series name must use them, not `BookName`/`Series`.
 - **A file is only ever split back into clean name + qualifiers for the qualifiers the book
   already stores.** `ParseAudiobook` is raw and never guesses; `BookQualifiers.ApplyExpected(parsed,
-  storedQualifiers)` reshapes a parse into the database's form, and only where a DB row is known
+storedQualifiers)` reshapes a parse into the database's form, and only where a DB row is known
   (the consistency detectors, the sidecar resolver, the save round-trip check, the post-relocation
   re-parse). It strips the exact canonical suffixes from the name - and from the series, which must
   carry the same set - or leaves the book untouched so the difference surfaces as a `TagMismatch`
@@ -583,13 +587,13 @@ Three rules keep it from desyncing:
 abridged edition is also marked by its format ("Abridged Audiobook"). `ScrapingService` is the one place
 a scraped result is cleaned (search, multi-source search, and details - so the refresh, bulk refresh and
 online matching all see the same thing): `QualifierIndicators.Extract` removes a bracketed group that
-*exactly* matches a configured per-source rule (`qualifier_indicator` table, seeded for Audible, edited
+_exactly_ matches a configured per-source rule (`qualifier_indicator` table, seeded for Audible, edited
 under Library Settings via `GET/PUT api/settings/qualifier-indicators`, which replaces the whole bounded
 list) and puts the qualifier in `MetadataSearchResult.Qualifiers`, merged with what the scraper read from
 structured data (`AudibleScraper.QualifiersFromFormat` - whole-word "abridged", never "Unabridged").
 The sources and qualifiers offered in that editor come from the backend; neither is hardcoded on the
 client. The pending-refresh snapshot (version 5) stores `Qualifiers`, and the refresh diff treats them as
-**additive only**: the `Qualifiers` field proposes the book's set *united with* the source's, never
+**additive only**: the `Qualifiers` field proposes the book's set _united with_ the source's, never
 removes one the book has, and is an optional, separately selectable field (`MetadataRefreshApplier`
 unions, `useMetadataFieldDiffs` mirrors it). Because the name is cleaned but the qualifier is optional, a
 book already filed with the suffix in its name shows a BookName diff next to the Qualifiers one.
@@ -628,15 +632,15 @@ so none of that code changed and Audiobookshelf sees exactly what it always did.
   `RemoveSeries`, `RenameSeries`, `PromoteAdditionalSeriesIfNoPrimary`), then save through
   `UpdateAudiobook` - the binding invariant below still applies, because a change of primary moves
   the file. Removing the primary promotes the next relation; renaming onto a series the book already
-  has merges the two. A book with additional series but no primary is promoted *before* the path and
+  has merges the two. A book with additional series but no primary is promoted _before_ the path and
   tags are built (`WriteTagsRelocateAndWriteSidecarsAsync`, and `MapToDomain` for the previews), so
   the file and the database can never disagree about which series is primary.
 - **Filling a roster slot never moves a book out of its primary series** (`SeriesService.ApplyMissingBookAsync`
   and the series-refresh `MissingBook` change): a book with no primary takes the series as primary,
   one that has a primary gains it as an additional series.
 - **Qualifiers stay on the primary only.** Additional series are stored clean and never suffixed.
-- **Series-keyed reads return one row per (book, series)**, with the part the book has *in that
-  series* - `SeriesOwnedKey`/`AuthorOwnedKey` are per pair, a standalone book (no relation rows)
+- **Series-keyed reads return one row per (book, series)**, with the part the book has _in that
+  series_ - `SeriesOwnedKey`/`AuthorOwnedKey` are per pair, a standalone book (no relation rows)
   still yields one key with no series, and `SeriesOwnedBookRow.PrimarySeries` lets the series page
   flag a book listed under an additional series. A `SeriesPartMismatch` issue names its series
   (`book_consistency_issues.series_name`) because one book can have one per series.
@@ -671,12 +675,51 @@ re-serializes byte-identically). `SeriesRelationSet` is the one implementation t
 `Audiobook.SplitTitleOnColon` on the domain model, `splitTitleOnColon` on the detail/save DTOs). Scrapers never split
 (see `TitleSplitter`); the user opts in, either with the toggle on an apply point (tag preview, pending refresh,
 bulk apply) or with "Split title at colon" on the edit form, and that choice sets the flag. From then on a refresh
-splits the source's title the same way *without being asked*: `MetadataRefreshDiffer` compares the book against the
+splits the source's title the same way _without being asked_: `MetadataRefreshDiffer` compares the book against the
 source's title split per the flag (so the stored split is never proposed as a diff) and `MetadataRefreshApplier`
-ORs the flag into the request's toggle. The applier only *records* the flag when the split actually changed the
+ORs the flag into the request's toggle. The applier only _records_ the flag when the split actually changed the
 applied title, so a bulk apply with the toggle on does not flag every book that has no colon. It is
 database-only bookkeeping (no tag, sidecar or path), carried through `FromDb` -> `UpdateAudiobook` like
 `Qualifiers`; the edit form's checkbox is the one way to turn it off again.
+
+### Online metadata apply rules (per field, interactive vs automated)
+
+**Invariant: how a differing field is handled when online metadata is applied is a per-field rule
+pair, resolved by `MetadataApplyRuleSet` (`AudiobookManager.Services`) - nothing else decides it.**
+Each field in `MetadataApplyRuleSet.Fields` (kept in step with `MetadataRefreshFields.All` by a
+test, minus the retired `SeriesPart`) has an `InteractiveApplyRule` (does a review a person
+confirms start with the field ticked: Always select / Never select / Select if empty / Select if
+source has value) and an `AutomatedApplyRule` (what an unattended run does: Ask me / Always
+overwrite / Fill blanks only / Overwrite unless source is empty / Keep current). The defaults -
+Always select, Ask me - are exactly the behaviour from before the rules existed. Both rules apply
+only to a field that actually differs. "Empty" is no text (a year of 0 included).
+
+- **Stored as one JSON column** (`library_settings.metadata_apply_rules_json`, null = all
+  defaults), written only through `ILibrarySettingsRepository.SetMetadataApplyRulesJsonAsync` (a
+  set-based update of that column, so `UpdateAsync` and this never clobber each other). Served and
+  saved over `GET`/`PUT api/settings/metadata-apply-rules` together with the option lists, their
+  explanatory text and the guard rails: **the frontend holds no list of fields or options** (same
+  rule as languages and scrapers); a PUT leaves out-of-body fields on their stored rules.
+- **Automated runs** are the bulk and scheduled refreshes only (`RunRefreshLoopAsync` calls
+  `RefreshAudiobookCoreAsync(automated: true)`); `RefreshAudiobookAsync`, the single-book Refresh,
+  is always a review. `Decide` returns "review" when _any_ differing field is Ask me - then
+  **nothing is applied for that book**, not even fields whose own rule would have applied, and the
+  changeset is stored pending as before. Otherwise `TryApplyAutomaticallyAsync` records the
+  snapshot and applies the chosen fields through `ApplyOneAsync` (save gate, `UpdateAudiobook`,
+  consistency recheck, pending cleanup), so the binding invariant above holds. Fields the rules
+  decline are dropped, not left pending. If that apply fails (path taken, book busy) the full
+  changeset stays pending for review rather than being lost. Bulk _online search_ only collects
+  candidates; picking one is a person's action that lands in the ordinary review.
+- **Guard rails:** `Always overwrite` is the only rule that can replace a value with an empty one,
+  so it is refused (`Validate` -> 400; `From` coerces a stored one back to Ask me) on the fields a
+  book cannot be without - Authors, Book name, Year - and allowed with a warning on Series (an empty
+  source would drop the series and move the file). Qualifiers are additive, so they cannot blank.
+- **The interactive half is evaluated on the client**, because the review dialogs compute their own
+  diffs: `isSelectedByDefault` in `helpers/metadataApplyRules.ts` is what runs. The server's
+  `MetadataApplyRuleSet.IsSelectedByDefault` is the canonical definition of the semantics and has no
+  production caller; it exists so tests can pin the two together, so change them in step. The cover
+  has no rule and stays selected when it changed. With the rules unloaded or unreachable a review
+  ticks everything that changed.
 
 ### Metadata sidecar files
 
@@ -718,17 +761,17 @@ name tags - see "Book qualifiers" above.)
 
 ### Similar author/series detection & bulk alignment
 
-Author names and series values are free text, so the same real-world value can end up recorded with small textual differences (`J.K. Rowling` vs `JK Rowling`, `Fantasy & Adventure` vs `Fantasy and Adventure`). This feature is computed, not persisted — there is no "issue" table like `ConsistencyIssue` — but the *grouping* is cached: `SimilarValueDetectionCache` (an in-memory TTL cache, invalidated by every alignment) stops a paged request from re-reading every distinct value and re-clustering the library once per page. Publish is **version-gated**: a compute that missed the cache and is still reading when an alignment invalidates cannot republish its pre-alignment groups for the TTL — the stale publish is dropped (`Set` takes the version captured at compute start and refuses if an invalidation intervened), and `Get` refuses any entry whose generation is stale. Book counts are never cached — they are re-read per page — so a stale slot can only delay group updates by the TTL, never show a wrong number. The same two-layer pattern backs the series detail's missing/ignored sections: `SeriesReconciliationCache` caches the per-series fuzzy roster reconciliation (computed once per series per change, not once per page request), invalidated by every roster write (match/refresh/ignore/omnibus toggle) and every book write that can change a book's `Series`/`SeriesPart`/`BookName` (`AudiobookService` and the one resolver that deletes directly). Both caches are **explicitly capacity-bounded**: `SeriesReconciliationCache` (capacity 1024, configurable for tests) LRU-evicts reconcile entries and prunes idle per-series version cells and single-flight gates when they overflow, the gates are *never disposed* (evicted = dereferenced, so no disposal race), and the version-check on publish and the invalidation bump run under the same lock so a stale publish can't slip through while an eviction is happening.
+Author names and series values are free text, so the same real-world value can end up recorded with small textual differences (`J.K. Rowling` vs `JK Rowling`, `Fantasy & Adventure` vs `Fantasy and Adventure`). This feature is computed, not persisted — there is no "issue" table like `ConsistencyIssue` — but the _grouping_ is cached: `SimilarValueDetectionCache` (an in-memory TTL cache, invalidated by every alignment) stops a paged request from re-reading every distinct value and re-clustering the library once per page. Publish is **version-gated**: a compute that missed the cache and is still reading when an alignment invalidates cannot republish its pre-alignment groups for the TTL — the stale publish is dropped (`Set` takes the version captured at compute start and refuses if an invalidation intervened), and `Get` refuses any entry whose generation is stale. Book counts are never cached — they are re-read per page — so a stale slot can only delay group updates by the TTL, never show a wrong number. The same two-layer pattern backs the series detail's missing/ignored sections: `SeriesReconciliationCache` caches the per-series fuzzy roster reconciliation (computed once per series per change, not once per page request), invalidated by every roster write (match/refresh/ignore/omnibus toggle) and every book write that can change a book's `Series`/`SeriesPart`/`BookName` (`AudiobookService` and the one resolver that deletes directly). Both caches are **explicitly capacity-bounded**: `SeriesReconciliationCache` (capacity 1024, configurable for tests) LRU-evicts reconcile entries and prunes idle per-series version cells and single-flight gates when they overflow, the gates are _never disposed_ (evicted = dereferenced, so no disposal race), and the version-check on publish and the invalidation bump run under the same lock so a stale publish can't slip through while an eviction is happening.
 
 - **Fuzzy matching** — `AudiobookManager.Services/Similarity/`: `NameNormalizer` (comparison-only normalization — lowercase, strip punctuation, merge initials — never written back to the DB), `LevenshteinDistance` (standalone edit-distance, no NuGet dependency), and `SimilarityGrouper` (clusters distinct values via normalized-equality or a length-scaled edit-distance threshold, using union-find with length-bucketed blocking). Thresholds live on `AudiobookManagerSettings`.
-- **Detection & alignment** — `ISimilarValueService`/`SimilarValueService`: `DetectSimilarAuthorsAsync()`/`DetectSimilarSeriesAsync()` read the *distinct values only* (`GetAuthorNamesAsync`/`GetSeriesNamesAsync` — never per-book reference rows). Those whole-set reads are an **input to a bounded, cached computation**, not a response; that is why they survived the removal of the flat name-list endpoints that once shared them, cluster them (once per cache slot), and fetch book counts just for the returned page's candidates (`GetAuthorBookCountsAsync`/`GetSeriesBookCountsAsync`); `AlignAuthorsAsync()`/`AlignSeriesAsync()` bulk-rewrite a chosen target value across all affected books and invalidate the detection cache. Alignment is **per-book**, wrapped in try/catch so one failure (e.g. a generated-path collision) never aborts the rest of the batch, and reports `(processed, total, succeeded, failed)` via a progress callback — mirroring `LibraryConsistencyService`'s bulk-resolve pattern.
+- **Detection & alignment** — `ISimilarValueService`/`SimilarValueService`: `DetectSimilarAuthorsAsync()`/`DetectSimilarSeriesAsync()` read the _distinct values only_ (`GetAuthorNamesAsync`/`GetSeriesNamesAsync` — never per-book reference rows). Those whole-set reads are an **input to a bounded, cached computation**, not a response; that is why they survived the removal of the flat name-list endpoints that once shared them, cluster them (once per cache slot), and fetch book counts just for the returned page's candidates (`GetAuthorBookCountsAsync`/`GetSeriesBookCountsAsync`); `AlignAuthorsAsync()`/`AlignSeriesAsync()` bulk-rewrite a chosen target value across all affected books and invalidate the detection cache. Alignment is **per-book**, wrapped in try/catch so one failure (e.g. a generated-path collision) never aborts the rest of the batch, and reports `(processed, total, succeeded, failed)` via a progress callback — mirroring `LibraryConsistencyService`'s bulk-resolve pattern.
 - **API** — `SimilarValuesController` (`api/similar-values`): `GET similar-authors`/`similar-series` (synchronous — DB read + in-memory clustering), `POST align` (fire-and-forget with SignalR progress, mirroring `ConsistencyController`), and the two **bounded** entry-time endpoints described below, `GET autocomplete` and `GET entry-status`. Both take `valueType` (`author`/`narrator`/`series`) plus the typed text in the query string and cap their result (`limit` 1–50 and 1–10 respectively). There are deliberately **no flat name-list endpoints**: `author-names`/`narrator-names`/`series-names` existed, grew with the library, and were removed once these replaced them — do not reintroduce a whole-list endpoint for a type-ahead.
 - **UI** — `SimilarValues.tsx`: review each group, pick a target value (existing candidate or free text), confirm, watch live progress.
 - **Entry-time duplicate prevention** — the Author/Narrator/Series fields (`components/fields/`) classify what the user is typing **server-side**, against bounded endpoints, rather than scanning a preloaded list of every existing value. Two pieces: `TagsInput`'s `suggestionsProvider` calls `similarValuesApi.getAutocomplete()` keyed by the typed query for the type-ahead dropdown, and `useEntryStatus` (debounced 250ms, cached by value in TanStack Query, never queried for a blank value) calls `similarValuesApi.getEntryStatus()` for the exact-existing / similar / new indicator `EntryStatusHint` renders. A classification query that fails surfaces as an explicit error rather than a silent "new" — an indicator that cannot reach the server must not claim certainty either way. The matching itself is the backend's (`SimilarValueService.GetEntryStatusAsync`, capped candidate prefilter and capped result), so the hint and the similar-values screen agree; `helpers/similarValueMatcher.ts` is now only the accent-folding/near-match helper for client-side list narrowing, not a second duplicate-detection implementation.
 - **Ignoring a pair ("Ben Winters" is not "Ed Winters")** — a user can mark two specific values within a detected group as explicitly not similar. `ignored_similar_value_pairs` (`Kind`/`ValueA`/`ValueB`, `ValueA < ValueB` by `StringComparer.Ordinal` so a pair is unordered, unique index on `(Kind, ValueA, ValueB)`) stores these; `SimilarValueService.IgnorePairAsync(kind, value, againstValues)` adds one row per `againstValues` entry (the UI passes the rest of the candidate's current group) and `RemoveIgnoredPairAsync`/`GetIgnoredPairsAsync` round out the CRUD, all behind `SimilarValuesController`'s `POST similar-values/ignore` / `DELETE similar-values/ignore/{id}` / `GET similar-values/ignored`. `GetOrComputeGroupsAsync` loads the kind's ignored pairs and passes them into `SimilarityGrouper.GroupSimilarValues` as `ignoredPairs`, which skips unioning that one edge directly — the two values can still end up in the same cluster transitively through a third value neither is ignored against, so ignoring a pair narrows the grouping rather than exiling either value from consideration. Both mutations invalidate the detection cache immediately, exactly like alignment. `SimilarValues.tsx` exposes this as a per-candidate "not similar" action plus a "Show ignored" dialog (`IgnoredSimilarValuesDialog.tsx`) listing and removing ignored pairs for the active tab.
 - **Series "the"-insensitivity** — `NameNormalizer.StripLeadingArticle` strips a leading `"the "` token from an already-normalized string. `SimilarityGrouper.GroupSimilarValues`'s `isSeries` flag (passed `true` only from the series detection call site, never for authors) runs an extra O(n) bucketing pass keyed on the stripped form, independent of the length-blocking loop, so `"The Mistborn Saga"` and `"Mistborn Saga"` group even though the edit distance (inserting `"The "`) and the length gap can both fall outside the normal thresholds. `SimilarValueService.ScoreSimilarMatches` applies the same rule for series-kind entry-status matches, for consistency between the detection screen and the entry-time "similar" indicator. This is series-only by construction — an author literally named "The Rock" is never affected, because `isSeries` is never passed for the author call site.
 
-**Binding invariant: no DB-only field updates for Author/Series/SeriesPart/Year/BookName/Qualifiers** (Series/SeriesPart here mean the primary series; see "Series relations" above for the additional ones, which are edited on the same domain object and saved through the same call). Any code path that changes `Author`, `Series`, `SeriesPart`, `Year`, `BookName`, or the qualifiers on a library audiobook — a single edit, a bulk operation, anything — must go through `AudiobookService.UpdateAudiobook` (directly, or per-book in a loop for bulk operations like `AlignAuthorsAsync`/`AlignSeriesAsync` above). Never write those fields to the database directly. This is required because `UpdateAudiobook` always rewrites the m4b tags, always recomputes the library path from the *entire* object and relocates the file (cleaning up stale sidecars) whenever that path differs from the current one, and always rewrites `desc.txt`/`reader.txt`/cover sidecars regardless of whether a relocation happened. A DB-only update would silently desync the file on disk from the database record. `LibraryConsistencyService.ResolveTagOrPathMismatch` handles both the `TagMismatch` and `WrongFilePath` consistency issue types through this same call for exactly this reason: a narrower `WrongFilePath` handler used to exist that re-parsed tags from the file itself (assuming they were already correct) and only moved it, then deleted every stored issue for the book on success — including a `TagMismatch` it had never actually fixed, so the issue silently reappeared on the next check. Resolving a wrong file path always goes through the full `UpdateAudiobook` now, so there is no "assume tags are fine" path left to desync from what actually got resolved.
+**Binding invariant: no DB-only field updates for Author/Series/SeriesPart/Year/BookName/Qualifiers** (Series/SeriesPart here mean the primary series; see "Series relations" above for the additional ones, which are edited on the same domain object and saved through the same call). Any code path that changes `Author`, `Series`, `SeriesPart`, `Year`, `BookName`, or the qualifiers on a library audiobook — a single edit, a bulk operation, anything — must go through `AudiobookService.UpdateAudiobook` (directly, or per-book in a loop for bulk operations like `AlignAuthorsAsync`/`AlignSeriesAsync` above). Never write those fields to the database directly. This is required because `UpdateAudiobook` always rewrites the m4b tags, always recomputes the library path from the _entire_ object and relocates the file (cleaning up stale sidecars) whenever that path differs from the current one, and always rewrites `desc.txt`/`reader.txt`/cover sidecars regardless of whether a relocation happened. A DB-only update would silently desync the file on disk from the database record. `LibraryConsistencyService.ResolveTagOrPathMismatch` handles both the `TagMismatch` and `WrongFilePath` consistency issue types through this same call for exactly this reason: a narrower `WrongFilePath` handler used to exist that re-parsed tags from the file itself (assuming they were already correct) and only moved it, then deleted every stored issue for the book on success — including a `TagMismatch` it had never actually fixed, so the issue silently reappeared on the next check. Resolving a wrong file path always goes through the full `UpdateAudiobook` now, so there is no "assume tags are fine" path left to desync from what actually got resolved.
 
 ### Renaming an author or series, and the source's name for an author
 
@@ -871,7 +914,7 @@ re-scan every group's full issue array on every render, once per group.
 `toPathPreviewDto` (only the fields `GenerateRelativeAudiobookPath` actually reads). The preview
 endpoints are called from a debounced keystroke watcher, so anything extra — the cover's base64
 payload, but also a multi-kilobyte description — is re-uploaded on every edit for a value the
-server ignores. Watchers that trigger those calls must also avoid *reading* the cover fields, or
+server ignores. Watchers that trigger those calls must also avoid _reading_ the cover fields, or
 they track them as reactive dependencies and retrigger on cover edits.
 
 ### Tailwind v4's theme registration comes from the shared b0 preset scaffold
@@ -905,6 +948,7 @@ simply absent from the compiled CSS, so the only symptom is a UI bug.** If somet
 vendored `components/ui/` layer looks visually broken and the classes look right, suspect the
 registration before the component choice. To audit, scaffold a throwaway reference project in
 a scratch directory with matching options
+
 ```bash
 npm create vite@latest . -- --template react-ts
 npm install tailwindcss @tailwindcss/vite
@@ -912,6 +956,7 @@ npm install tailwindcss @tailwindcss/vite
 # project's setup, then:
 npx shadcn@latest init -t vite -b base -p nova --pointer -y
 ```
+
 — and diff its generated `src/index.css` against `client/src/index.css`. Delete the scratch
 project when done; never run `shadcn init` for real against this repo — it would overwrite
 `components.json`, `index.css`, and every `ui/*.tsx` file.
@@ -923,11 +968,11 @@ viewport-safe bounds (`max-h-[90dvh]`, `overflow-y-auto`) — the trap is nestin
 scrollable box inside it. Three dialogs
 (`BookSearchDialog`, `SeriesMatchDialog`, `TagPreviewDialog`) individually reached for the
 simpler-looking `<DialogContent className="max-h-[85vh] overflow-y-auto">` instead, and then
-*also* wrapped their own list/table in a second `max-h-96 overflow-y-auto` box for a bounded
+_also_ wrapped their own list/table in a second `max-h-96 overflow-y-auto` box for a bounded
 look — producing two independently-scrolling regions nested inside each other, visibly two
 scrollbars. Fix: `<DialogContent className="flex max-h-[85vh] flex-col overflow-hidden">`, with
 the header as its own flex child, the scrollable content as a single `flex-1 overflow-y-auto`
-child, and any fixed action-button row as a sibling *after* that scrollable child (not inside
+child, and any fixed action-button row as a sibling _after_ that scrollable child (not inside
 it) so it stays pinned. A "bounded" list/table inside that body keeps its `rounded-md border`
 styling but drops its own `overflow-y-auto`/`max-h-*` — the outer body is the only scroll
 container now. If the content can also overflow horizontally (e.g. a wide table), give that one
@@ -943,7 +988,7 @@ shell.
   surface as unrelated per-feature failures instead — `FileScanner` throws
   `DirectoryNotFoundException`, so a bad import path 500'd the organize page and a bad library path
   500'd the library scan, while the consistency check quietly reported no orphans because it guards
-  with `Directory.Exists`. Only the database's *directory* is required; SQLite creates the file.
+  with `Directory.Exists`. Only the database's _directory_ is required; SQLite creates the file.
 - **`GET /api/metadata-search/proxy-image` is an unrestricted forwarding proxy** — a known,
   accepted limitation, documented on the action. It fetches any http(s) URL with no host allowlist
   and no private-address block. The app has no authentication and is meant for a trusted network;
@@ -973,6 +1018,7 @@ change is not complete until the tests covering it exist and pass.
   an explicit regression guard, since the cost of a silent regression there is high.
 
 Where tests live:
+
 - **Backend** — MSTest + Moq in `AudiobookManager/AudiobookManager.Test/`, mirroring the source
   layout (`Services/`, `Controllers/`, `FileManager/`, `Repositories/`, `Scraping/`). Test
   fixtures go in a `TestData/` folder next to the tests that use them.
@@ -983,6 +1029,7 @@ Where tests live:
   implement.
 
 Writing tests that actually catch regressions:
+
 - **Assert on the exact value, not a loose substring.** `toContain("Searching: A, B")` still
   passes when a third item is appended; `toEqual(["A", "B"])` does not. If unsure a test can
   fail, break the production code and confirm it goes red.

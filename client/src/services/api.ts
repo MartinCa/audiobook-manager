@@ -21,6 +21,7 @@ import type { EntryStatus } from "@/types/EntryStatus";
 import type { FailedOrganizeTask } from "@/types/FailedOrganizeTask";
 import type { BookQualifierOptions } from "@/types/BookQualifier";
 import type { QualifierIndicators } from "@/types/QualifierIndicator";
+import type { MetadataApplyRules, UpdateMetadataApplyRules } from "@/types/MetadataApplyRules";
 import type { LanguageOptions } from "@/types/Language";
 import type { LibrarySearchResult, LibrarySeriesHit } from "@/types/LibrarySearchResult";
 import type { LibrarySettings, UpdateLibrarySettings } from "@/types/LibrarySettings";
@@ -1032,6 +1033,12 @@ export const settingsApi = {
   // Replaces the whole rule set (it is small, and always read and written as one unit).
   updateQualifierIndicators: (indicators: QualifierIndicators["indicators"]) =>
     api.put<QualifierIndicators>("/settings/qualifier-indicators", { indicators }),
+
+  getMetadataApplyRules: () => api.get<MetadataApplyRules>("/settings/metadata-apply-rules"),
+
+  // A field left out keeps its stored rules.
+  updateMetadataApplyRules: (body: UpdateMetadataApplyRules) =>
+    api.put<MetadataApplyRules>("/settings/metadata-apply-rules", body),
 
   getLibrarySettings: () => api.get<LibrarySettings>("/settings/library"),
 

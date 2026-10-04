@@ -4846,6 +4846,70 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/settings/metadata-apply-rules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["MetadataApplyRulesDto"];
+                        "application/json": components["schemas"]["MetadataApplyRulesDto"];
+                        "text/json": components["schemas"]["MetadataApplyRulesDto"];
+                    };
+                };
+            };
+        };
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["UpdateMetadataApplyRulesDto"];
+                    "text/json": components["schemas"]["UpdateMetadataApplyRulesDto"];
+                    "application/*+json": components["schemas"]["UpdateMetadataApplyRulesDto"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["MetadataApplyRulesDto"];
+                        "application/json": components["schemas"]["MetadataApplyRulesDto"];
+                        "text/json": components["schemas"]["MetadataApplyRulesDto"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/settings/qualifier-indicators": {
         parameters: {
             query?: never;
@@ -6201,6 +6265,29 @@ export interface components {
             confidence?: number | null;
             includeOmnibusEditions?: boolean;
         };
+        MetadataApplyFieldDto: {
+            field?: string | null;
+            label?: string | null;
+            interactive?: string | null;
+            automated?: string | null;
+            alwaysOverwriteAllowed?: boolean;
+            alwaysOverwriteWarning?: string | null;
+        };
+        MetadataApplyOptionDto: {
+            key?: string | null;
+            label?: string | null;
+            description?: string | null;
+        };
+        MetadataApplyRuleInputDto: {
+            field?: string | null;
+            interactive?: string | null;
+            automated?: string | null;
+        };
+        MetadataApplyRulesDto: {
+            fields?: components["schemas"]["MetadataApplyFieldDto"][] | null;
+            interactiveOptions?: components["schemas"]["MetadataApplyOptionDto"][] | null;
+            automatedOptions?: components["schemas"]["MetadataApplyOptionDto"][] | null;
+        };
         MetadataMultiSearchDto: {
             sources?: string[] | null;
             q?: string | null;
@@ -6741,6 +6828,9 @@ export interface components {
             /** Format: int32 */
             defaultPageSize?: number | null;
             searchInitialsHandling?: string | null;
+        };
+        UpdateMetadataApplyRulesDto: {
+            rules?: components["schemas"]["MetadataApplyRuleInputDto"][] | null;
         };
         UrlCleanupPageDto: {
             items?: components["schemas"]["AudiobookUrlCleanupDto"][] | null;

@@ -520,4 +520,97 @@ public class SettingsControllerTests
         Assert.AreEqual(400, problem.StatusCode);
         service.Verify(s => s.UpdateLibrarySettings(It.IsAny<Domain.LibrarySettings>()), Times.Never);
     }
+
+    #region Metadata apply rules
+
+    [TestMethod]
+    public async Task GetMetadataApplyRules_ServesEveryFieldWithItsRulesAndTheExplainedOptions()
+    {
+        var service = new Mock<ISettingsService>();
+        service.Setup(s => s.GetMetadataApplyRules()).ReturnsAsync(MetadataApplyRuleSet.From(
+            new Dictionary<string, FieldApplyRule>
+            {
+                [MetadataRefreshFields.Description] = new(InteractiveApplyRule.SelectIfEmpty, AutomatedApplyRule.FillBlanksOnly),
+            }));
+        var controller = new SettingsController(service.Object, Mock.Of<IScheduledTaskService>(), Mock.Of<IQualifierIndicatorService>());
+
+        var ok = Assert.IsInstanceOfType<OkObjectResult>((await controller.GetMetadataApplyRules()).Result);
+        var dto = Assert.IsInstanceOfType<MetadataApplyRulesDto>(ok.Value);
+
+        CollectionAssert.AreEqual(MetadataApplyRuleSet.Fields.Select(f => f.Key).ToList(), dto.Fields.Select(f => f.Field).ToList());
+        var description = dto.Fields.Single(f => f.Field == MetadataRefreshFields.Description);
+        Assert.AreEqual("SelectIfEmpty", description.Interactive);
+        Assert.AreEqual("FillBlanksOnly", description.Automated);
+        Assert.AreEqual("AlwaysSelect", dto.Fields.Single(f => f.Field == MetadataRefreshFields.Narrators).Interactive);
+        Assert.IsFalse(dto.Fields.Single(f => f.Field == MetadataRefreshFields.Authors).AlwaysOverwriteAllowed);
+        Assert.IsFalse(dto.Fields.Single(f => f.Field == MetadataRefreshFields.BookName).AlwaysOverwriteAllowed);
+        Assert.IsFalse(dto.Fields.Single(f => f.Field == MetadataRefreshFields.Year).AlwaysOverwriteAllowed);
+        Assert.IsNotNull(dto.Fields.Single(f => f.Field == MetadataRefreshFields.Series).AlwaysOverwriteWarning);
+        Assert.AreEqual(4, dto.InteractiveOptions.Count);
+        Assert.AreEqual(5, dto.AutomatedOptions.Count);
+    }
+
+    [TestMethod]
+    public async Task UpdateMetadataApplyRules_PassesTheParsedRulesToTheService()
+    {
+        var service = new Mock<ISettingsService>();
+        service.Setup(s => s.UpdateMetadataApplyRules(It.IsAny<IReadOnlyDictionary<string, FieldApplyRule>>()))
+            .ReturnsAsync(MetadataApplyRuleSet.Defaults);
+        var controller = new SettingsController(service.Object, Mock.Of<IScheduledTaskService>(), Mock.Of<IQualifierIndicatorService>());
+
+        var result = await controller.UpdateMetadataApplyRules(new UpdateMetadataApplyRulesDto(
+            new[] { new MetadataApplyRuleInputDto("Description", "NeverSelect", "KeepCurrent") }));
+
+        Assert.IsInstanceOfType<OkObjectResult>(result.Result);
+        service.Verify(s => s.UpdateMetadataApplyRules(It.Is<IReadOnlyDictionary<string, FieldApplyRule>>(
+            r => r.Count == 1 && r["Description"] == new FieldApplyRule(InteractiveApplyRule.NeverSelect, AutomatedApplyRule.KeepCurrent))),
+            Times.Once);
+    }
+
+    [TestMethod]
+    public async Task UpdateMetadataApplyRules_AnUnknownOption_Is400ProblemAndNothingIsSaved()
+    {
+        var service = new Mock<ISettingsService>();
+        var controller = new SettingsController(service.Object, Mock.Of<IScheduledTaskService>(), Mock.Of<IQualifierIndicatorService>());
+
+        var result = await controller.UpdateMetadataApplyRules(new UpdateMetadataApplyRulesDto(
+            new[] { new MetadataApplyRuleInputDto("Description", "Sometimes", "KeepCurrent") }));
+
+        var objectResult = Assert.IsInstanceOfType<ObjectResult>(result.Result);
+        Assert.AreEqual(400, objectResult.StatusCode);
+        Assert.IsInstanceOfType<ProblemDetails>(objectResult.Value);
+        service.Verify(s => s.UpdateMetadataApplyRules(It.IsAny<IReadOnlyDictionary<string, FieldApplyRule>>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task UpdateMetadataApplyRules_ARepeatedField_Is400()
+    {
+        var controller = new SettingsController(Mock.Of<ISettingsService>(), Mock.Of<IScheduledTaskService>(), Mock.Of<IQualifierIndicatorService>());
+
+        var result = await controller.UpdateMetadataApplyRules(new UpdateMetadataApplyRulesDto(new[]
+        {
+            new MetadataApplyRuleInputDto("Description", "NeverSelect", "KeepCurrent"),
+            new MetadataApplyRuleInputDto("Description", "AlwaysSelect", "AskMe"),
+        }));
+
+        Assert.AreEqual(400, Assert.IsInstanceOfType<ObjectResult>(result.Result).StatusCode);
+    }
+
+    [TestMethod]
+    public async Task UpdateMetadataApplyRules_AServiceRefusal_IsRelayedAs400Problem()
+    {
+        var service = new Mock<ISettingsService>();
+        service.Setup(s => s.UpdateMetadataApplyRules(It.IsAny<IReadOnlyDictionary<string, FieldApplyRule>>()))
+            .ThrowsAsync(new ArgumentException("Authors cannot be set to \"Always overwrite\"."));
+        var controller = new SettingsController(service.Object, Mock.Of<IScheduledTaskService>(), Mock.Of<IQualifierIndicatorService>());
+
+        var result = await controller.UpdateMetadataApplyRules(new UpdateMetadataApplyRulesDto(
+            new[] { new MetadataApplyRuleInputDto("Authors", "AlwaysSelect", "AlwaysOverwrite") }));
+
+        var objectResult = Assert.IsInstanceOfType<ObjectResult>(result.Result);
+        Assert.AreEqual(400, objectResult.StatusCode);
+        StringAssert.Contains(Assert.IsInstanceOfType<ProblemDetails>(objectResult.Value).Detail!, "Always overwrite");
+    }
+
+    #endregion
 }

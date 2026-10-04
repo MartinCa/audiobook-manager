@@ -17,6 +17,7 @@ import { settingsApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { handleApiError } from "@/lib/api";
 import { notifications } from "@/lib/notifications";
+import { MetadataApplyRulesCard } from "@/components/settings/MetadataApplyRulesCard";
 import { QualifierIndicatorsCard } from "@/components/settings/QualifierIndicatorsCard";
 import { PAGE_SIZE_OPTIONS, type PageSizeOption } from "@/constants/paging";
 import type {
@@ -316,6 +317,8 @@ export function LibrarySettingsPage() {
           )}
         </CardContent>
       </Card>
+
+      <MetadataApplyRulesCard />
 
       <QualifierIndicatorsCard />
 

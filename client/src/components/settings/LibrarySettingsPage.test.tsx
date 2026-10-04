@@ -21,6 +21,10 @@ vi.mock("@/services/api", () => ({
     getQualifierIndicators: vi.fn().mockResolvedValue({ indicators: [] }),
     updateQualifierIndicators: vi.fn(),
     getBookQualifiers: vi.fn().mockResolvedValue({ qualifiers: [] }),
+    getMetadataApplyRules: vi
+      .fn()
+      .mockResolvedValue({ fields: [], interactiveOptions: [], automatedOptions: [] }),
+    updateMetadataApplyRules: vi.fn(),
   },
   metadataSearchApi: {
     getServices: vi.fn().mockResolvedValue([]),

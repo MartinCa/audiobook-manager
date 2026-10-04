@@ -1,4 +1,5 @@
 using AudiobookManager.Database.Repositories;
+using AudiobookManager.Domain;
 using AudiobookManager.Services;
 using Moq;
 using DbLibrarySettings = AudiobookManager.Database.Models.LibrarySettings;
@@ -92,4 +93,64 @@ public class SettingsServiceTests
                 "Domain and database enums must keep the same names so the stored integer means the same thing");
         }
     }
+
+    #region Metadata apply rules
+
+    private string? _savedRulesJson;
+
+    private void StoreRulesJson(string? json)
+    {
+        _savedRulesJson = json;
+        _librarySettingsRepository.Setup(r => r.GetOrCreateAsync())
+            .ReturnsAsync(() => new DbLibrarySettings { MetadataApplyRulesJson = _savedRulesJson });
+        _librarySettingsRepository.Setup(r => r.SetMetadataApplyRulesJsonAsync(It.IsAny<string?>()))
+            .Callback<string?>(j => _savedRulesJson = j)
+            .Returns(Task.CompletedTask);
+    }
+
+    [TestMethod]
+    public async Task GetMetadataApplyRules_NothingStored_IsAllDefaults()
+    {
+        StoreRulesJson(null);
+
+        var rules = await _service.GetMetadataApplyRules();
+
+        Assert.AreEqual(MetadataApplyRuleSet.DefaultRule, rules.Get(MetadataRefreshFields.Description));
+    }
+
+    [TestMethod]
+    public async Task UpdateMetadataApplyRules_KeepsTheRulesOfFieldsLeftOut()
+    {
+        StoreRulesJson(null);
+        await _service.UpdateMetadataApplyRules(new Dictionary<string, FieldApplyRule>
+        {
+            [MetadataRefreshFields.Description] = new(InteractiveApplyRule.NeverSelect, AutomatedApplyRule.KeepCurrent),
+        });
+
+        var rules = await _service.UpdateMetadataApplyRules(new Dictionary<string, FieldApplyRule>
+        {
+            [MetadataRefreshFields.Publisher] = new(InteractiveApplyRule.SelectIfEmpty, AutomatedApplyRule.FillBlanksOnly),
+        });
+
+        Assert.AreEqual(new FieldApplyRule(InteractiveApplyRule.NeverSelect, AutomatedApplyRule.KeepCurrent), rules.Get(MetadataRefreshFields.Description));
+        Assert.AreEqual(new FieldApplyRule(InteractiveApplyRule.SelectIfEmpty, AutomatedApplyRule.FillBlanksOnly), rules.Get(MetadataRefreshFields.Publisher));
+        var reread = await _service.GetMetadataApplyRules();
+        Assert.AreEqual(rules.Get(MetadataRefreshFields.Description), reread.Get(MetadataRefreshFields.Description));
+    }
+
+    [TestMethod]
+    public async Task UpdateMetadataApplyRules_AlwaysOverwriteOnARequiredField_IsRefusedAndNothingIsSaved()
+    {
+        StoreRulesJson(null);
+
+        await Assert.ThrowsExactlyAsync<ArgumentException>(() => _service.UpdateMetadataApplyRules(
+            new Dictionary<string, FieldApplyRule>
+            {
+                [MetadataRefreshFields.Year] = new(InteractiveApplyRule.AlwaysSelect, AutomatedApplyRule.AlwaysOverwrite),
+            }));
+
+        _librarySettingsRepository.Verify(r => r.SetMetadataApplyRulesJsonAsync(It.IsAny<string?>()), Times.Never);
+    }
+
+    #endregion
 }

@@ -29,3 +29,33 @@ public record UpdateLibrarySettingsDto(
     string? UpcomingReleasesCronSchedule,
     int? DefaultPageSize,
     string? SearchInitialsHandling = null);
+
+/// <summary>One selectable apply rule with the text the settings page explains it with.</summary>
+public record MetadataApplyOptionDto(string Key, string Label, string Description);
+
+/// <summary>
+/// One field's apply rules plus the guard rails the page needs: whether "Always overwrite" is
+/// allowed for it, and a warning to show when it is allowed but risky.
+/// </summary>
+public record MetadataApplyFieldDto(
+    string Field,
+    string Label,
+    string Interactive,
+    string Automated,
+    bool AlwaysOverwriteAllowed,
+    string? AlwaysOverwriteWarning);
+
+/// <summary>
+/// The per-field online-metadata apply rules together with the option lists, so the client holds no
+/// list of fields or options of its own.
+/// </summary>
+public record MetadataApplyRulesDto(
+    IReadOnlyList<MetadataApplyFieldDto> Fields,
+    IReadOnlyList<MetadataApplyOptionDto> InteractiveOptions,
+    IReadOnlyList<MetadataApplyOptionDto> AutomatedOptions);
+
+/// <summary>One field's rules in a PUT.</summary>
+public record MetadataApplyRuleInputDto(string Field, string Interactive, string Automated);
+
+/// <summary>The body of PUT api/settings/metadata-apply-rules. A field left out keeps its stored rules.</summary>
+public record UpdateMetadataApplyRulesDto(IReadOnlyList<MetadataApplyRuleInputDto> Rules);

@@ -14,6 +14,7 @@ public static class LibrarySettingsMapping
             UpcomingReleasesCronSchedule = dbModel.UpcomingReleasesCronSchedule,
             DefaultPageSize = dbModel.DefaultPageSize,
             SearchInitialsHandling = ToDomain(dbModel.SearchInitialsHandling),
+            MetadataApplyRules = MetadataApplyRuleSet.Deserialize(dbModel.MetadataApplyRulesJson),
         };
 
     public static Database.Models.InitialsSpacing ToDb(this Domain.InitialsSpacing domain) => domain switch

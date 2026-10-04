@@ -12,6 +12,8 @@ import { audiobookToOrganizeInput } from "@/helpers/organizeInput";
 import { useBookQualifiers } from "@/hooks/useBookQualifiers";
 import { pendingSnapshotToSearchResult } from "@/helpers/pendingMetadataRefresh";
 import { useMetadataFieldDiffs } from "@/hooks/useMetadataFieldDiffs";
+import { useMetadataApplyRules } from "@/hooks/useMetadataApplyRules";
+import { CLIENT_KEY_TO_BACKEND_FIELDS, defaultSelectedKeys } from "@/helpers/metadataApplyRules";
 import {
   allSeries,
   canonicalizeSeries,
@@ -23,24 +25,12 @@ import { handleApiError } from "@/lib/api";
 import { notifications } from "@/lib/notifications";
 import type { TargetPathCheckResult } from "@/types/TargetPathCheck";
 
-/** Maps a diff row's client-side key to the backend field name(s) MetadataRefreshFields defines; "series" is the whole set of a book's series with their parts and the primary. */
-const CLIENT_KEY_TO_BACKEND_FIELDS: Record<string, string[]> = {
-  authors: ["Authors"],
-  narrators: ["Narrators"],
-  bookName: ["BookName"],
-  subtitle: ["Subtitle"],
-  series: ["Series"],
-  year: ["Year"],
-  genres: ["Genres"],
-  description: ["Description"],
-  rating: ["Rating"],
-  publisher: ["Publisher"],
-  language: ["Language"],
-  copyright: ["Copyright"],
-  asin: ["Asin"],
-  www: ["Www"],
-  qualifiers: ["Qualifiers"],
-};
+/** The automated rules that write the source's value when nothing needs a person. */
+const APPLYING_AUTOMATED_RULES: ReadonlySet<string> = new Set([
+  "AlwaysOverwrite",
+  "FillBlanksOnly",
+  "OverwriteUnlessSourceEmpty",
+]);
 
 interface PendingRefreshRowPanelProps {
   audiobookId: number;
@@ -142,6 +132,13 @@ export function PendingRefreshRowPanel({ audiobookId, onApplied }: PendingRefres
     [allFields],
   );
   const changedFieldKeys = useMemo(() => changedFields.map((f) => f.key), [changedFields]);
+  // What a review starts with ticked: the changed fields, narrowed by each one's "when reviewing"
+  // rule (Library Settings). Apply All still applies every changed field.
+  const { rules: applyRules, ready: applyRulesReady } = useMetadataApplyRules();
+  const defaultKeys = useMemo(
+    () => defaultSelectedKeys(changedFields, applyRules),
+    [changedFields, applyRules],
+  );
 
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [lastKeys, setLastKeys] = useState<string[] | null>(null);
@@ -151,9 +148,10 @@ export function PendingRefreshRowPanel({ audiobookId, onApplied }: PendingRefres
   // into `selected` the moment lastKeys stops being null, with no later re-sync.
   // And on langData: the language diff depends on the served default, so seeding before it
   // arrives would freeze a `selected` set that never gains "language".
-  if (bookDetail && searchResult && langData && lastKeys === null) {
+  // And on the apply rules, which decide what starts ticked.
+  if (bookDetail && searchResult && langData && applyRulesReady && lastKeys === null) {
     setLastKeys(changedFieldKeys);
-    setSelected(new Set(changedFieldKeys));
+    setSelected(new Set(defaultKeys));
   }
 
   // Flipping the split toggle changes which fields are reported as changed (the split-off
@@ -162,7 +160,7 @@ export function PendingRefreshRowPanel({ audiobookId, onApplied }: PendingRefres
   const [lastSplitEnabled, setLastSplitEnabled] = useState(splitTitleOnColonEnabled);
   if (splitTitleOnColonEnabled !== lastSplitEnabled) {
     setLastSplitEnabled(splitTitleOnColonEnabled);
-    setSelected(new Set(changedFieldKeys));
+    setSelected(new Set(defaultKeys));
   }
 
   const toggleField = (key: string) => {
@@ -263,8 +261,28 @@ export function PendingRefreshRowPanel({ audiobookId, onApplied }: PendingRefres
     );
   }
 
+  // Why an automated refresh would hold this book for review: the changed set has a field set to
+  // Ask me *and* a field whose own rule would otherwise have applied (Keep current never applies
+  // anything, so it does not count). Without both, the hold is
+  // the default behaviour and says nothing about the user's settings (a manual Refresh lands here
+  // too, so the wording is about what the rules would do, not about how the row arrived).
+  const changedRules = changedFields.map((f) =>
+    applyRules?.fields.find((r) => r.field === CLIENT_KEY_TO_BACKEND_FIELDS[f.key]?.[0]),
+  );
+  const askMeLabels = changedRules.some((r) => r && APPLYING_AUTOMATED_RULES.has(r.automated))
+    ? changedRules.filter((r) => r?.automated === "AskMe").map((r) => r!.label)
+    : [];
+
   return (
     <div className="space-y-3 p-1">
+      {askMeLabels.length > 0 && (
+        <p className="text-muted-foreground text-xs">
+          An automated refresh would hold this book for review because {askMeLabels.join(", ")}{" "}
+          {askMeLabels.length === 1 ? "is" : "are"} set to{" "}
+          <span className="font-medium">Ask me</span> in Library Settings, even though other changed
+          fields have rules that would apply on their own.
+        </p>
+      )}
       <MetadataFieldDiffTable
         fields={changedFields}
         selected={selected}

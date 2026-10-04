@@ -177,6 +177,76 @@ public class SettingsController : ControllerBase
     }
 
     /// <summary>
+    /// How online metadata is applied, per field: whether a review starts with the field ticked
+    /// (interactive) and what an unattended run does with it (automated). Served together with the
+    /// option lists and the guard rails so the client holds none of them.
+    /// </summary>
+    [HttpGet("metadata-apply-rules")]
+    public async Task<ActionResult<MetadataApplyRulesDto>> GetMetadataApplyRules() =>
+        Ok(ToDto(await _settingsService.GetMetadataApplyRules()));
+
+    /// <summary>
+    /// Saves the rules for the fields in the body; fields left out keep their stored rules. A field
+    /// the rules do not cover, an unknown option, or "Always overwrite" on a required field
+    /// (author, book name, year) is refused.
+    /// </summary>
+    [HttpPut("metadata-apply-rules")]
+    public async Task<ActionResult<MetadataApplyRulesDto>> UpdateMetadataApplyRules([FromBody] UpdateMetadataApplyRulesDto dto)
+    {
+        if (dto?.Rules is null || dto.Rules.Any(r => r is null))
+        {
+            return this.InvalidRequest("Rules must be a list of per-field rules.");
+        }
+
+        var proposed = new Dictionary<string, FieldApplyRule>();
+        foreach (var rule in dto.Rules)
+        {
+            if (!Enum.TryParse<InteractiveApplyRule>(rule.Interactive, ignoreCase: false, out var interactive) ||
+                !Enum.IsDefined(interactive))
+            {
+                return this.InvalidRequest(
+                    $"'{rule.Interactive}' is not a known \"when reviewing\" rule. Use one of: " +
+                    $"{string.Join(", ", Enum.GetNames<InteractiveApplyRule>())}.");
+            }
+
+            if (!Enum.TryParse<AutomatedApplyRule>(rule.Automated, ignoreCase: false, out var automated) ||
+                !Enum.IsDefined(automated))
+            {
+                return this.InvalidRequest(
+                    $"'{rule.Automated}' is not a known \"when automated\" rule. Use one of: " +
+                    $"{string.Join(", ", Enum.GetNames<AutomatedApplyRule>())}.");
+            }
+
+            if (rule.Field is null || !proposed.TryAdd(rule.Field, new FieldApplyRule(interactive, automated)))
+            {
+                return this.InvalidRequest($"Each field may be given once; '{rule.Field}' is missing or repeated.");
+            }
+        }
+
+        try
+        {
+            return Ok(ToDto(await _settingsService.UpdateMetadataApplyRules(proposed)));
+        }
+        catch (ArgumentException ex)
+        {
+            // Raised only with messages written for the caller (an unknown field, a forbidden option).
+            return this.InvalidRequest(ex.Message);
+        }
+    }
+
+    private static MetadataApplyRulesDto ToDto(MetadataApplyRuleSet rules) =>
+        new(
+            MetadataApplyRuleSet.Fields.Select(f =>
+            {
+                var rule = rules.Get(f.Key);
+                return new MetadataApplyFieldDto(
+                    f.Key, f.Label, rule.Interactive.ToString(), rule.Automated.ToString(),
+                    f.AlwaysOverwriteAllowed, f.AlwaysOverwriteWarning);
+            }).ToList(),
+            MetadataApplyRuleSet.InteractiveOptions.Select(o => new MetadataApplyOptionDto(o.Key, o.Label, o.Description)).ToList(),
+            MetadataApplyRuleSet.AutomatedOptions.Select(o => new MetadataApplyOptionDto(o.Key, o.Label, o.Description)).ToList());
+
+    /// <summary>
     /// The per-source wordings that stand for a book qualifier ("[Dramatized Adaptation]" on
     /// Audible means dramatized). Applied to scraped titles, which then arrive clean with the
     /// qualifier set alongside - see <c>QualifierIndicators</c>.

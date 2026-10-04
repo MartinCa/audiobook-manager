@@ -153,6 +153,163 @@ public class MetadataRefreshServiceTests
             Times.Never);
     }
 
+    #region Automated apply rules
+
+    private static string RulesJson(params (string Field, InteractiveApplyRule Interactive, AutomatedApplyRule Automated)[] rules) =>
+        MetadataApplyRuleSet.From(rules.ToDictionary(r => r.Field, r => new FieldApplyRule(r.Interactive, r.Automated))).Serialize()!;
+
+    /// <summary>
+    /// A refreshable book whose only difference from the source is its description, wired for a
+    /// bulk run: the settings row (with the given rules), the book reads and the scraper.
+    /// </summary>
+    private void SetUpBulkRefreshWithOneDifference(string? rulesJson, out List<Domain.Audiobook> saved)
+    {
+        var book = Book("https://www.audible.com/pd/whatever");
+        book.Language = "en";
+        book.Authors = new List<AudiobookManager.Database.Models.Person> { new(default, "Author A") };
+        _audiobookRepository.Setup(r => r.GetByIdsWithIncludesAsync(It.IsAny<IReadOnlyList<long>>()))
+            .ReturnsAsync(new List<Database.Models.Audiobook> { book });
+        _audiobookRepository.Setup(r => r.GetByIdWithIncludesAsync(42)).ReturnsAsync(book);
+        _audiobookRepository.Setup(r => r.UpdateLastMetadataRefreshedAtAsync(42, It.IsAny<DateTime>())).Returns(Task.CompletedTask);
+        _librarySettingsRepository.Setup(r => r.GetOrCreateAsync())
+            .ReturnsAsync(new Database.Models.LibrarySettings { MetadataRefreshDelayMs = 0, MetadataApplyRulesJson = rulesJson });
+
+        var scraper = new Mock<IScraper>();
+        scraper.Setup(s => s.SupportsUrl(book.Www!)).Returns(true);
+        scraper.Setup(s => s.RequiresApiKey).Returns(false);
+        _scrapers = new[] { scraper.Object };
+        _scrapingService.Setup(s => s.GetBookDetails(book.Www!))
+            .ReturnsAsync(new MetadataSearchResult(book.Www!, "A Book")
+            {
+                Source = "Audible",
+                Year = 2024,
+                Description = "A new description",
+                Authors = new List<AudiobookManager.Domain.Person> { new("Author A") },
+                Narrators = new List<AudiobookManager.Domain.Person>(),
+                Genres = new List<string>(),
+            });
+
+        PendingMetadataRefresh? stored = null;
+        _pendingRepository.Setup(r => r.UpsertAsync(It.IsAny<PendingMetadataRefresh>()))
+            .Callback<PendingMetadataRefresh>(row => stored = row)
+            .ReturnsAsync((PendingMetadataRefresh row) => row);
+        _pendingRepository.Setup(r => r.GetByAudiobookIdAsync(42)).ReturnsAsync(() => stored);
+        _pendingRepository.Setup(r => r.DeleteByAudiobookIdAsync(42)).ReturnsAsync(true);
+
+        var savedBooks = new List<Domain.Audiobook>();
+        saved = savedBooks;
+        _audiobookService.Setup(s => s.UpdateAudiobook(42, It.IsAny<Domain.Audiobook>()))
+            .Callback<long, Domain.Audiobook, Func<string, int, Task>?>((_, a, _) => savedBooks.Add(a))
+            .ReturnsAsync((long _, Domain.Audiobook a, Func<string, int, Task>? _) => a);
+
+        var consistency = new Mock<ILibraryConsistencyService>();
+        consistency.Setup(s => s.RecheckAudiobookAsync(42)).ReturnsAsync(new List<Database.Models.BookConsistencyIssue>());
+        var provider = new Mock<IServiceProvider>();
+        provider.Setup(sp => sp.GetService(typeof(ILibraryConsistencyService))).Returns(consistency.Object);
+        var scope = new Mock<IServiceScope>();
+        scope.Setup(s => s.ServiceProvider).Returns(provider.Object);
+        _serviceScopeFactory.Setup(f => f.CreateScope()).Returns(scope.Object);
+    }
+
+    private IEnumerable<IScraper>? _scrapers;
+
+    private static Task NoProgress(int a, int b, int c, int d) => Task.CompletedTask;
+
+    [TestMethod]
+    public async Task BulkRefresh_FieldsOnOverwriteRules_AreAppliedWithoutReview()
+    {
+        // The description is the only difference, and its rule settles it without a person.
+        SetUpBulkRefreshWithOneDifference(
+            RulesJson((MetadataRefreshFields.Description, InteractiveApplyRule.AlwaysSelect, AutomatedApplyRule.OverwriteUnlessSourceEmpty)),
+            out var saved);
+
+        var result = await CreateService(_scrapers).RefreshSelectedAudiobooksAsync(new List<long> { 42 }, NoProgress);
+
+        Assert.AreEqual(1, result.Succeeded);
+        Assert.AreEqual(1, saved.Count, "the changeset was settled by the rules, so it was saved");
+        Assert.AreEqual("A new description", saved[0].Description);
+        _pendingRepository.Verify(r => r.DeleteByAudiobookIdAsync(42), Times.AtLeastOnce);
+    }
+
+    [TestMethod]
+    public async Task BulkRefresh_ADifferingFieldOnAskMe_HoldsTheWholeChangesetForReview_EvenIfOthersWouldApply()
+    {
+        // Year is Ask me (the default) and differs; the description rule alone would have applied.
+        SetUpBulkRefreshWithOneDifference(
+            RulesJson((MetadataRefreshFields.Description, InteractiveApplyRule.AlwaysSelect, AutomatedApplyRule.AlwaysOverwrite)),
+            out var saved);
+        var book = (await _audiobookRepository.Object.GetByIdWithIncludesAsync(42))!;
+        book.Year = 1999;
+
+        await CreateService(_scrapers).RefreshSelectedAudiobooksAsync(new List<long> { 42 }, NoProgress);
+
+        Assert.AreEqual(0, saved.Count, "nothing is applied once any Ask me field differs");
+        _pendingRepository.Verify(
+            r => r.UpsertAsync(It.Is<PendingMetadataRefresh>(p => p.AudiobookId == 42
+                && p.ChangedFieldsJson!.Contains("Description") && p.ChangedFieldsJson.Contains("Year"))),
+            Times.Once);
+    }
+
+    [TestMethod]
+    public async Task BulkRefresh_WithDefaultRules_GoesToReviewExactlyAsBefore()
+    {
+        SetUpBulkRefreshWithOneDifference(rulesJson: null, out var saved);
+
+        await CreateService(_scrapers).RefreshSelectedAudiobooksAsync(new List<long> { 42 }, NoProgress);
+
+        Assert.AreEqual(0, saved.Count);
+        _pendingRepository.Verify(r => r.UpsertAsync(It.IsAny<PendingMetadataRefresh>()), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task BulkRefresh_EveryDifferenceOnKeepCurrent_AppliesNothing_AndLeavesNothingPending()
+    {
+        SetUpBulkRefreshWithOneDifference(
+            RulesJson((MetadataRefreshFields.Description, InteractiveApplyRule.AlwaysSelect, AutomatedApplyRule.KeepCurrent)),
+            out var saved);
+
+        var result = await CreateService(_scrapers).RefreshSelectedAudiobooksAsync(new List<long> { 42 }, NoProgress);
+
+        Assert.AreEqual(1, result.Succeeded);
+        Assert.AreEqual(0, saved.Count);
+        _pendingRepository.Verify(r => r.UpsertAsync(It.IsAny<PendingMetadataRefresh>()), Times.Never);
+        _pendingRepository.Verify(r => r.DeleteByAudiobookIdAsync(42), Times.Once);
+        _audiobookRepository.Verify(r => r.UpdateLastMetadataRefreshedAtAsync(42, It.IsAny<DateTime>()), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task BulkRefresh_AnAutomaticApplyThatFails_LeavesTheChangesetPendingInsteadOfLosingIt()
+    {
+        SetUpBulkRefreshWithOneDifference(
+            RulesJson((MetadataRefreshFields.Description, InteractiveApplyRule.AlwaysSelect, AutomatedApplyRule.AlwaysOverwrite)),
+            out _);
+        _audiobookService.Setup(s => s.UpdateAudiobook(42, It.IsAny<Domain.Audiobook>()))
+            .ThrowsAsync(new InvalidOperationException("target exists"));
+
+        var result = await CreateService(_scrapers).RefreshSelectedAudiobooksAsync(new List<long> { 42 }, NoProgress);
+
+        Assert.AreEqual(1, result.Succeeded);
+        _pendingRepository.Verify(r => r.UpsertAsync(It.IsAny<PendingMetadataRefresh>()), Times.Once);
+        _pendingRepository.Verify(r => r.DeleteByAudiobookIdAsync(42), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task SingleBookRefresh_IgnoresTheAutomatedRules_AndAlwaysGoesToReview()
+    {
+        // A person pressed Refresh: they review the result whatever the unattended rules say.
+        SetUpBulkRefreshWithOneDifference(
+            RulesJson((MetadataRefreshFields.Description, InteractiveApplyRule.AlwaysSelect, AutomatedApplyRule.AlwaysOverwrite)),
+            out var saved);
+
+        var result = await CreateService(_scrapers).RefreshAudiobookAsync(42);
+
+        Assert.IsTrue(result.HasDifferences);
+        Assert.AreEqual(0, saved.Count);
+        _pendingRepository.Verify(r => r.UpsertAsync(It.IsAny<PendingMetadataRefresh>()), Times.Once);
+    }
+
+    #endregion
+
     #region RefreshSelectedAudiobooksAsync
 
     // Unlike the stale sweep - which only ever loads refreshable books - the user explicitly

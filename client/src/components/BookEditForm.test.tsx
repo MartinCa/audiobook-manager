@@ -23,6 +23,9 @@ vi.mock("@/services/api", () => ({
   settingsApi: {
     getLibrarySettings: vi.fn().mockResolvedValue({ searchInitialsHandling: "AsStored" }),
     getLanguages: vi.fn().mockResolvedValue({ languages: [] }),
+    getMetadataApplyRules: vi
+      .fn()
+      .mockResolvedValue({ fields: [], interactiveOptions: [], automatedOptions: [] }),
     getBookQualifiers: vi.fn().mockResolvedValue({
       qualifiers: [
         { key: "abridged", label: "Abridged", suffix: " (Abridged)" },
@@ -1838,6 +1841,52 @@ describe("BookEditForm", () => {
     expect(saved.bookName).toBe("Killing Floor");
     expect(saved.series).toBe("Jack Reacher");
     expect(saved.qualifiers).toEqual(["dramatized"]);
+  });
+
+  it("starts a field unticked in the review when its Library Settings rule is Never select", async () => {
+    const { metadataSearchApi, settingsApi } = await import("@/services/api");
+    vi.mocked(settingsApi.getMetadataApplyRules).mockResolvedValueOnce({
+      fields: [
+        {
+          field: "BookName",
+          label: "Book name",
+          interactive: "NeverSelect",
+          automated: "AskMe",
+          alwaysOverwriteAllowed: false,
+        },
+      ],
+      interactiveOptions: [],
+      automatedOptions: [],
+    });
+    vi.mocked(metadataSearchApi.searchMultiple).mockResolvedValueOnce({
+      results: [
+        {
+          url: "https://audible.com/pd/B09KDG66KL",
+          cleanUrl: "https://audible.com/pd/B09KDG66KL",
+          source: "Audible",
+          bookName: "A Different Title",
+          authors: [{ name: "Jane Author" }],
+          narrators: [],
+          series: [],
+          genres: [],
+        },
+      ],
+      sourceStatuses: [],
+    });
+
+    const onSave = vi.fn<(book: Audiobook) => Promise<void>>().mockResolvedValue(undefined);
+    renderWithProviders(<BookEditForm initialBook={initialBook} onSave={onSave} />);
+    await screen.findByRole("button", { name: "Dramatized" });
+
+    fireEvent.click(screen.getByText("Search Online Metadata"));
+    const searchInput = await screen.findByPlaceholderText("Search title, author, or paste URL...");
+    fireEvent.change(searchInput, { target: { value: "Different" } });
+    fireEvent.submit(searchInput.closest("form")!);
+    fireEvent.click(await screen.findByRole("button", { name: "Apply" }));
+
+    const bookNameRow = (await screen.findByText("Book Name")).closest("tr")!;
+    // The rules load asynchronously, so the review re-seeds once they arrive.
+    await waitFor(() => expect(within(bookNameRow).getByRole("checkbox")).not.toBeChecked());
   });
 
   it("keeps the qualifier a scraped series suffix stood for when only the series is applied", async () => {
