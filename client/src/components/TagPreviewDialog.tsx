@@ -160,11 +160,13 @@ export function TagPreviewDialog({
       setSelected((prev) => new Set(prev).add("language"));
     }
   }
-  // Likewise the rules: if they arrive after the first seed, the selection is re-seeded once.
+  // Likewise the rules: if they arrive after the first seed, the selection is re-seeded once -
+  // unless the user has already ticked or unticked something, which a late response must not undo.
   const [seededWithRules, setSeededWithRules] = useState(applyRulesReady);
+  const [selectionTouched, setSelectionTouched] = useState(false);
   if (applyRulesReady && !seededWithRules) {
     setSeededWithRules(true);
-    setSelected(new Set(defaultKeys));
+    if (!selectionTouched) setSelected(new Set(defaultKeys));
   }
   const [dontSaveAutomatically, setDontSaveAutomatically] = useState(false);
 
@@ -210,6 +212,7 @@ export function TagPreviewDialog({
   }
 
   const toggleField = (key: string) => {
+    setSelectionTouched(true);
     setSelected((prev) => {
       const next = new Set(prev);
       if (next.has(key)) {
@@ -222,6 +225,7 @@ export function TagPreviewDialog({
   };
 
   const toggleAll = () => {
+    setSelectionTouched(true);
     if (selected.size === changedFieldKeys.length) {
       setSelected(new Set());
     } else {
