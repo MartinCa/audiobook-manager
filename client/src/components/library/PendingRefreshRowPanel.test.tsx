@@ -203,6 +203,41 @@ describe("PendingRefreshRowPanel", () => {
     );
   });
 
+  // Regression: switching the split toggle on makes "subtitle" a changed field, but the selection
+  // was only seeded once, so the newly-split subtitle was shown as changed yet left unselected.
+  it("selects the subtitle when the split toggle is switched on", async () => {
+    vi.mocked(browseApi.getAudiobookDetail).mockResolvedValue({
+      ...bookDetailWithOnlyRatingDiffering,
+      rating: "4.5",
+    });
+    vi.mocked(metadataRefreshApi.getPendingForAudiobook).mockResolvedValue({
+      ...pendingWithOnlyRatingDiffering,
+      payload: { ...pendingWithOnlyRatingDiffering.payload, bookName: "Same Title: A Subtitle" },
+    });
+
+    renderPanel();
+
+    // Unsplit: the full title differs from the book's, nothing else does.
+    const applyButton = await screen.findByRole("button", { name: /apply selected/i });
+    expect(applyButton).toHaveTextContent("Apply Selected (1)");
+
+    fireEvent.click(
+      screen.getByRole("checkbox", {
+        name: "Split title into book name and subtitle at first colon",
+      }),
+    );
+
+    // Split: book name now matches, and the subtitle is a changed, selected field.
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /apply selected/i })).toHaveTextContent(
+        "Apply Selected (1)",
+      ),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /apply selected/i }));
+    await waitFor(() => expect(metadataRefreshApi.applyPending).toHaveBeenCalled());
+    expect(vi.mocked(metadataRefreshApi.applyPending).mock.lastCall?.[1]).toEqual(["Subtitle"]);
+  });
+
   describe("target path collision", () => {
     const collision = {
       targetPath: "/library/Author A/Same Title/Same Title.m4b",
