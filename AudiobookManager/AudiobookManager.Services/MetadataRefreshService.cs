@@ -108,10 +108,9 @@ public class MetadataRefreshService : IMetadataRefreshService
             var (spacing, punctuation) = await GetInitialsSettingsAsync();
             var differences = MetadataRefreshDiffer.Diff(book, fetched, spacing, punctuation).ToList();
 
-            var autoApplied = automated
-                ? await TryApplyAutomaticallyAsync(book, fetched, differences)
-                : null;
-            if (autoApplied is null)
+            var settledAutomatically = automated
+                && await TryApplyAutomaticallyAsync(book, fetched, differences);
+            if (!settledAutomatically)
             {
                 await RecordFetchedSnapshotAsync(book, fetched, differences);
             }
@@ -122,7 +121,6 @@ public class MetadataRefreshService : IMetadataRefreshService
                 HasDifferences = differences.Count > 0,
                 Differences = differences,
                 SourceName = fetched.Source,
-                AutoAppliedFields = autoApplied ?? Array.Empty<string>(),
             };
         }
         catch (HardcoverDailyLimitExceededException)
@@ -181,18 +179,18 @@ public class MetadataRefreshService : IMetadataRefreshService
     /// <summary>
     /// The automated half of the apply rules (see <see cref="MetadataApplyRuleSet"/>): settles a
     /// fetched changeset without a person when no differing field is set to Ask me, by applying the
-    /// fields their rules select and dropping the rest. Returns the fields it applied (possibly
-    /// none - every difference may be Keep current), or null when the changeset is not settled here
-    /// and must be recorded for review as usual: a field wants a person, or the apply itself failed
-    /// (the destination path is taken, the book is mid-save), in which case the full changeset is
-    /// left pending rather than lost.
+    /// fields their rules select and dropping the rest. Returns true when the changeset was settled
+    /// here (applied, or declined outright because every difference is Keep current, or recorded
+    /// pending because the apply itself failed - the destination path is taken, the book is
+    /// mid-save - so the full changeset is kept rather than lost), and false when it is not settled
+    /// and the caller must record it for review as usual because a field wants a person.
     /// </summary>
-    private async Task<IReadOnlyList<string>?> TryApplyAutomaticallyAsync(
+    private async Task<bool> TryApplyAutomaticallyAsync(
         Database.Models.Audiobook book, Scraping.Models.MetadataSearchResult fetched, List<MetadataRefreshDiff> differences)
     {
         if (differences.Count == 0)
         {
-            return null;
+            return false;
         }
 
         var rules = MetadataApplyRuleSet.From((await _librarySettingsRepository.GetOrCreateAsync()).ToDomain().MetadataApplyRules);
@@ -202,7 +200,7 @@ public class MetadataRefreshService : IMetadataRefreshService
             _logger.LogInformation(
                 "Metadata refresh for audiobook {AudiobookId} ('{Title}') needs review: {Fields} set to Ask me differ",
                 book.Id, book.BookName, string.Join(", ", decision.ReviewFields));
-            return null;
+            return false;
         }
 
         if (decision.FieldsToApply.Count == 0)
@@ -211,7 +209,7 @@ public class MetadataRefreshService : IMetadataRefreshService
             // review, so the book is simply up to date as far as these rules are concerned.
             await _pendingRepository.DeleteByAudiobookIdAsync(book.Id);
             await _audiobookRepository.UpdateLastMetadataRefreshedAtAsync(book.Id, DateTime.UtcNow);
-            return Array.Empty<string>();
+            return true;
         }
 
         // Recorded first so the apply runs the same path every other apply does (save gate, relocation,
@@ -220,9 +218,9 @@ public class MetadataRefreshService : IMetadataRefreshService
         try
         {
             var row = await _pendingRepository.GetByAudiobookIdAsync(book.Id);
-            if (row is not null && await ApplyOneAsync(row, decision.FieldsToApply.ToList()))
+            if (row is not null)
             {
-                return decision.FieldsToApply.ToList();
+                await ApplyOneAsync(row, decision.FieldsToApply.ToList());
             }
         }
         catch (Exception ex)
@@ -232,8 +230,8 @@ public class MetadataRefreshService : IMetadataRefreshService
                 book.Id, book.BookName);
         }
 
-        // Already recorded above, so the caller must not record it a second time.
-        return Array.Empty<string>();
+        // Recorded above, so the caller must not record it a second time.
+        return true;
     }
 
     public async Task<MetadataRefreshBatchResult> RefreshStaleAudiobooksAsync(

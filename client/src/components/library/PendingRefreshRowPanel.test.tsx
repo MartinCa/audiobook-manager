@@ -474,12 +474,13 @@ describe("PendingRefreshRowPanel", () => {
     });
   });
   describe("apply rules (when reviewing)", () => {
-    async function renderWithRules(rules: MetadataApplyRules) {
+    async function renderWithRules(
+      rules: MetadataApplyRules,
+      pending: PendingMetadataRefresh = pendingWithOnlyRatingDiffering,
+    ) {
       vi.mocked(settingsApi.getMetadataApplyRules).mockResolvedValue(rules);
       vi.mocked(browseApi.getAudiobookDetail).mockResolvedValue(bookDetailWithOnlyRatingDiffering);
-      vi.mocked(metadataRefreshApi.getPendingForAudiobook).mockResolvedValue(
-        pendingWithOnlyRatingDiffering,
-      );
+      vi.mocked(metadataRefreshApi.getPendingForAudiobook).mockResolvedValue(pending);
       vi.mocked(metadataRefreshApi.applyPending).mockClear();
       renderPanel();
       return screen.findByRole("button", { name: /apply selected/i });
@@ -528,18 +529,33 @@ describe("PendingRefreshRowPanel", () => {
       expect(applySelected).toHaveTextContent("Apply Selected (1)");
     });
 
-    it("says why the book was held for review once some field is set to apply on its own", async () => {
-      await renderWithRules(ratingRules("AlwaysSelect", "AskMe", "KeepCurrent"));
+    it("says an automated refresh would hold the book when an Ask me field and a self-settling field both changed", async () => {
+      const ratingAndPublisherChanged: PendingMetadataRefresh = {
+        ...pendingWithOnlyRatingDiffering,
+        payload: { ...pendingWithOnlyRatingDiffering.payload, publisher: "Acme Audio" },
+      };
+      await renderWithRules(
+        ratingRules("AlwaysSelect", "AskMe", "KeepCurrent"),
+        ratingAndPublisherChanged,
+      );
 
       expect(
-        await screen.findByText(/held for review because Rating is set to/i),
+        await screen.findByText(/would hold this book for review because Rating is set to/i),
       ).toBeInTheDocument();
+    });
+
+    it("does not blame the user's settings when the only other customised field did not change", async () => {
+      // Publisher is on Keep current but unchanged, so the book is held by the default alone.
+      await renderWithRules(ratingRules("AlwaysSelect", "AskMe", "KeepCurrent"));
+      await screen.findByRole("button", { name: /apply selected/i });
+
+      expect(screen.queryByText(/would hold this book for review/i)).not.toBeInTheDocument();
     });
 
     it("says nothing about review reasons while every field is on the default Ask me", async () => {
       await renderWithRules(ratingRules("AlwaysSelect"));
 
-      expect(screen.queryByText(/held for review because/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/would hold this book for review/i)).not.toBeInTheDocument();
     });
   });
 });

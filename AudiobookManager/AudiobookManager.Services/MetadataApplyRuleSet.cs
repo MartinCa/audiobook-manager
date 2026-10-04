@@ -121,7 +121,10 @@ public sealed class MetadataApplyRuleSet
         var resolved = new Dictionary<string, FieldApplyRule>();
         foreach (var field in Fields)
         {
-            var rule = stored is not null && stored.TryGetValue(field.Key, out var found) ? found : DefaultRule;
+            // A null value (hand-edited JSON such as {"Description":null}) reads as absent.
+            var rule = stored is not null && stored.TryGetValue(field.Key, out var found) && found is not null
+                ? found
+                : DefaultRule;
             if (!Enum.IsDefined(rule.Interactive))
             {
                 rule = rule with { Interactive = DefaultRule.Interactive };

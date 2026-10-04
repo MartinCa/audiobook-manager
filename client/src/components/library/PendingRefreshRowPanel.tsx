@@ -254,24 +254,25 @@ export function PendingRefreshRowPanel({ audiobookId, onApplied }: PendingRefres
     );
   }
 
-  // Why this book is waiting for a person: only worth saying once some field is set to apply on
-  // its own, because with every field on the default (Ask me) every book lands here.
-  const askMeLabels = applyRules?.fields.some((f) => f.automated !== "AskMe")
-    ? changedFields
-        .map((f) =>
-          applyRules.fields.find((r) => r.field === CLIENT_KEY_TO_BACKEND_FIELDS[f.key]?.[0]),
-        )
-        .filter((r) => r?.automated === "AskMe")
-        .map((r) => r!.label)
+  // Why an automated refresh would hold this book for review: the changed set has a field set to
+  // Ask me *and* a field whose own rule would otherwise have settled it. Without both, the hold is
+  // the default behaviour and says nothing about the user's settings (a manual Refresh lands here
+  // too, so the wording is about what the rules would do, not about how the row arrived).
+  const changedRules = changedFields.map((f) =>
+    applyRules?.fields.find((r) => r.field === CLIENT_KEY_TO_BACKEND_FIELDS[f.key]?.[0]),
+  );
+  const askMeLabels = changedRules.some((r) => r && r.automated !== "AskMe")
+    ? changedRules.filter((r) => r?.automated === "AskMe").map((r) => r!.label)
     : [];
 
   return (
     <div className="space-y-3 p-1">
       {askMeLabels.length > 0 && (
         <p className="text-muted-foreground text-xs">
-          Held for review because {askMeLabels.join(", ")} {askMeLabels.length === 1 ? "is" : "are"}{" "}
-          set to <span className="font-medium">Ask me</span> in Library Settings. Nothing from this
-          book was applied automatically.
+          An automated refresh would hold this book for review because {askMeLabels.join(", ")}{" "}
+          {askMeLabels.length === 1 ? "is" : "are"} set to{" "}
+          <span className="font-medium">Ask me</span> in Library Settings, even though other changed
+          fields have rules that would apply on their own.
         </p>
       )}
       <MetadataFieldDiffTable

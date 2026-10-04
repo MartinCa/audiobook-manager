@@ -179,6 +179,18 @@ public class MetadataApplyRuleSetTests
     }
 
     [TestMethod]
+    public void From_AStoredNullRule_IsTreatedAsAbsent_NotANullReference()
+    {
+        // Hand-edited or corrupted JSON such as {"Description":null} deserializes to a null value.
+        var stored = MetadataApplyRuleSet.Deserialize("{\"Description\":null,\"Publisher\":{\"interactive\":\"NeverSelect\",\"automated\":\"KeepCurrent\"}}");
+
+        var rules = MetadataApplyRuleSet.From(stored);
+
+        Assert.AreEqual(MetadataApplyRuleSet.DefaultRule, rules.Get(MetadataRefreshFields.Description));
+        Assert.AreEqual(new FieldApplyRule(InteractiveApplyRule.NeverSelect, AutomatedApplyRule.KeepCurrent), rules.Get(MetadataRefreshFields.Publisher));
+    }
+
+    [TestMethod]
     public void SerializeAndDeserialize_RoundTripTheRules()
     {
         var rules = MetadataApplyRuleSet.From(new Dictionary<string, FieldApplyRule>

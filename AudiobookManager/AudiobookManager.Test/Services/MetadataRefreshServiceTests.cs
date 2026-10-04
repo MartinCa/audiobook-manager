@@ -304,7 +304,6 @@ public class MetadataRefreshServiceTests
         var result = await CreateService(_scrapers).RefreshAudiobookAsync(42);
 
         Assert.IsTrue(result.HasDifferences);
-        Assert.AreEqual(0, result.AutoAppliedFields.Count);
         Assert.AreEqual(0, saved.Count);
         _pendingRepository.Verify(r => r.UpsertAsync(It.IsAny<PendingMetadataRefresh>()), Times.Once);
     }
