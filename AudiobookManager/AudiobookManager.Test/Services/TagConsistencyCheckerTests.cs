@@ -44,6 +44,20 @@ public class TagConsistencyCheckerTests
     }
 
     [TestMethod]
+    public void FindMismatches_AuthorsReadBackInADifferentOrder_AreNotReportedAsAMismatch()
+    {
+        // Reported from a deployed build: requested 'Yuji Oniki, Koushun Takami' but the file read
+        // back 'Koushun Takami, Yuji Oniki' and the save threw. FormatPersons already sorts, so
+        // this passes without any production change - it guards that order stays irrelevant.
+        var requested = MakeBook(authors: new[] { "Yuji Oniki", "Koushun Takami" });
+        var readBack = MakeBook(authors: new[] { "Koushun Takami", "Yuji Oniki" });
+
+        var mismatches = TagConsistencyChecker.FindMismatches(requested, readBack);
+
+        CollectionAssert.AreEqual(new List<string>(), mismatches.Select(m => m.Field).ToList());
+    }
+
+    [TestMethod]
     public void FindMismatches_RepeatedNarratorName_IsNotReportedAsAMismatch()
     {
         var requested = MakeBook(narrators: new[] { "A Narrator", "A Narrator" });
