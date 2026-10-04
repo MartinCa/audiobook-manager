@@ -226,6 +226,31 @@ public class AudiobookTagHandler : IAudiobookTagHandler
             .ToList();
     }
 
+    /// <summary>
+    /// Authors and narrators are written as one comma-joined tag and read back by splitting on
+    /// commas, so a single <see cref="Person"/> whose name contains a comma ("Yuji Oniki, Koushun
+    /// Takami" - a source that reports its contributors as one string) can never round-trip: the
+    /// file reads back as two people. Splits such names into one person each, so what is stored,
+    /// written and read back agree. Order is kept; blanks and repeats are dropped.
+    /// </summary>
+    public static List<Person> SplitCommaJoinedNames(IEnumerable<Person> persons)
+    {
+        var result = new List<Person>();
+        foreach (var person in persons)
+        {
+            var parts = ParsePersonsFromString(person.Name);
+            if (parts.Count == 1 && string.Equals(parts[0].Name, person.Name, StringComparison.Ordinal))
+            {
+                result.Add(person);
+                continue;
+            }
+
+            result.AddRange(parts.Select(p => new Person(p.Name) { Role = person.Role }));
+        }
+
+        return result.DistinctBy(p => p.Name, StringComparer.Ordinal).ToList();
+    }
+
     public static string GetStringFromListOfPersons(IEnumerable<Person> persons)
     {
         return string.Join(", ", persons.Select(x => x.Name).Distinct());

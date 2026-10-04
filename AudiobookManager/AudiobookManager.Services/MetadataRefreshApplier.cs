@@ -1,3 +1,4 @@
+using AudiobookManager.FileManager;
 using AudiobookManager.Domain;
 
 namespace AudiobookManager.Services;
@@ -28,12 +29,12 @@ public static class MetadataRefreshApplier
     {
         if (fields.Contains(MetadataRefreshFields.Authors))
         {
-            book.Authors = snapshot.Authors.Select(name => new Person(name)).ToList();
+            book.Authors = AudiobookTagHandler.SplitCommaJoinedNames(snapshot.Authors.Select(name => new Person(name)));
         }
 
         if (fields.Contains(MetadataRefreshFields.Narrators))
         {
-            book.Narrators = snapshot.Narrators.Select(name => new Person(name)).ToList();
+            book.Narrators = AudiobookTagHandler.SplitCommaJoinedNames(snapshot.Narrators.Select(name => new Person(name)));
         }
 
         // A book already recorded as split is split again without being asked: that is the point

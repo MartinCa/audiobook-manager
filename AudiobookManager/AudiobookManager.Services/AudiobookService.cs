@@ -406,8 +406,18 @@ public class AudiobookService : IAudiobookService
         return (authors, narrators, genres);
     }
 
+    // A person named "A, B" cannot survive the comma-joined tag: the file reads back as two people
+    // and the round-trip verification fails on every save. Whatever put the combined name here
+    // (a scrape, an old database row), split it before the tags, path and rows are built from it.
+    private static void NormalizePersonNames(Audiobook audiobook)
+    {
+        audiobook.Authors = AudiobookTagHandler.SplitCommaJoinedNames(audiobook.Authors);
+        audiobook.Narrators = AudiobookTagHandler.SplitCommaJoinedNames(audiobook.Narrators);
+    }
+
     public async Task<Audiobook> InsertAudiobook(Audiobook audiobook)
     {
+        NormalizePersonNames(audiobook);
         var (authors, narrators, genres) = await GetOrCreateAuthorsNarratorsGenres(audiobook);
 
         AudiobookDb dbAudiobook = new AudiobookDb(
@@ -461,6 +471,8 @@ public class AudiobookService : IAudiobookService
     public async Task<Audiobook> UpdateAudiobook(long id, Audiobook audiobook, Func<string, int, Task>? progressAction, bool metadataAppliedFromSearch)
     {
         progressAction ??= (_, _) => Task.CompletedTask;
+
+        NormalizePersonNames(audiobook);
 
         var existing = await _audiobookRepository.GetByIdWithIncludesAsync(id);
         if (existing == null)
