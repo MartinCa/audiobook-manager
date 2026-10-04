@@ -19,7 +19,11 @@ import { handleApiError } from "@/lib/api";
 import { notifications } from "@/lib/notifications";
 import { QualifierIndicatorsCard } from "@/components/settings/QualifierIndicatorsCard";
 import { PAGE_SIZE_OPTIONS, type PageSizeOption } from "@/constants/paging";
-import type { InitialsPunctuation, InitialsSpacing } from "@/types/LibrarySettings";
+import type {
+  InitialsPunctuation,
+  InitialsSpacing,
+  SearchInitialsHandling,
+} from "@/types/LibrarySettings";
 
 const INITIALS_SPACING_OPTIONS: { value: InitialsSpacing; label: string }[] = [
   { value: "Spaced", label: "Spaced (J. K. Rowling)" },
@@ -29,6 +33,12 @@ const INITIALS_SPACING_OPTIONS: { value: InitialsSpacing; label: string }[] = [
 const INITIALS_PUNCTUATION_OPTIONS: { value: InitialsPunctuation; label: string }[] = [
   { value: "Dotted", label: "Dotted (J. R. R. Tolkien)" },
   { value: "Undotted", label: "Undotted (J R R Tolkien)" },
+];
+
+const SEARCH_INITIALS_HANDLING_OPTIONS: { value: SearchInitialsHandling; label: string }[] = [
+  { value: "AsStored", label: "As stored (the name as it is in the library)" },
+  { value: "Compact", label: "Compact (George R.R. Martin)" },
+  { value: "Spaced", label: "Spaced (George R. R. Martin)" },
 ];
 
 const PAGE_SIZE_SELECT_OPTIONS: { value: PageSizeOption; label: string }[] = PAGE_SIZE_OPTIONS.map(
@@ -48,6 +58,8 @@ export function LibrarySettingsPage() {
     null,
   );
   const [defaultPageSize, setDefaultPageSize] = useState<PageSizeOption | null>(null);
+  const [searchInitialsHandling, setSearchInitialsHandling] =
+    useState<SearchInitialsHandling | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: queryKeys.librarySettings(),
@@ -61,6 +73,7 @@ export function LibrarySettingsPage() {
       upcomingReleasesEnabled: boolean;
       upcomingReleasesCronSchedule: string;
       defaultPageSize: number;
+      searchInitialsHandling: SearchInitialsHandling;
     }) => settingsApi.updateLibrarySettings(settings),
     onSuccess: () => {
       notifications.success("Library settings saved");
@@ -82,9 +95,16 @@ export function LibrarySettingsPage() {
   const currentCronSchedule =
     upcomingReleasesCronSchedule ?? data?.upcomingReleasesCronSchedule ?? "";
   const currentDefaultPageSize = defaultPageSize ?? data?.defaultPageSize ?? null;
+  const currentSearchInitialsHandling =
+    searchInitialsHandling ?? data?.searchInitialsHandling ?? null;
 
   const handleSave = () => {
-    if (!current || !currentPunctuation || !currentDefaultPageSize) {
+    if (
+      !current ||
+      !currentPunctuation ||
+      !currentDefaultPageSize ||
+      !currentSearchInitialsHandling
+    ) {
       return;
     }
     mutation.mutate({
@@ -93,6 +113,7 @@ export function LibrarySettingsPage() {
       upcomingReleasesEnabled: currentUpcomingReleasesEnabled,
       upcomingReleasesCronSchedule: currentCronSchedule,
       defaultPageSize: currentDefaultPageSize,
+      searchInitialsHandling: currentSearchInitialsHandling,
     });
   };
 
@@ -178,6 +199,39 @@ export function LibrarySettingsPage() {
                 <p className="text-muted-foreground text-xs">
                   Decides whether author initials carry a trailing period (J. R. R. Tolkien) or not
                   (J R R Tolkien).
+                </p>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="mb-1 block text-xs font-medium">Search initials handling</label>
+                <Select
+                  value={currentSearchInitialsHandling ?? undefined}
+                  onValueChange={(v) => {
+                    if (v != null) setSearchInitialsHandling(v);
+                  }}
+                  items={SEARCH_INITIALS_HANDLING_OPTIONS.map((o) => ({
+                    value: o.value,
+                    label: o.label,
+                  }))}
+                  disabled={mutation.isPending}
+                >
+                  <SelectTrigger className="w-full sm:w-72">
+                    <SelectValue placeholder="Select search initials handling" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {SEARCH_INITIALS_HANDLING_OPTIONS.map((o) => (
+                      <SelectItem key={o.value} value={o.value}>
+                        {o.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-muted-foreground text-xs">
+                  How author initials are written in the default online-metadata search, for both
+                  the manual search and the bulk search. Some sources only match one form (on
+                  Hardcover, &ldquo;George R.R. Martin&rdquo; finds books that &ldquo;George R. R.
+                  Martin&rdquo; misses). It never changes stored names, and text you type into the
+                  search box is sent as typed.
                 </p>
               </div>
 
@@ -273,6 +327,7 @@ export function LibrarySettingsPage() {
             !current ||
             !currentPunctuation ||
             !currentDefaultPageSize ||
+            !currentSearchInitialsHandling ||
             isLoading
           }
         >

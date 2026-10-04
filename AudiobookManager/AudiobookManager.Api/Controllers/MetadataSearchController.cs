@@ -11,16 +11,33 @@ public class MetadataSearchController : ControllerBase
 {
     private readonly IScrapingService _scrapingService;
     private readonly IHttpClientFactory _httpClientFactory;
+    private readonly ISettingsService _settingsService;
     private readonly ILogger<MetadataSearchController> _logger;
 
     public MetadataSearchController(
         IScrapingService scrapingService,
         IHttpClientFactory httpClientFactory,
+        ISettingsService settingsService,
         ILogger<MetadataSearchController> logger)
     {
         _scrapingService = scrapingService;
         _httpClientFactory = httpClientFactory;
+        _settingsService = settingsService;
         _logger = logger;
+    }
+
+    /// <summary>
+    /// The query the manual search dialog is seeded with. Built by the same
+    /// <see cref="MetadataSearchQueryBuilder"/> the bulk search uses, with the library's
+    /// search-initials handling applied, so the client holds no copy of the rules. (POST, so it
+    /// cannot collide with the <c>GET {sourceName}</c> route.)
+    /// </summary>
+    [HttpPost("default-query")]
+    public async Task<ActionResult<DefaultSearchQueryDto>> GetDefaultQuery([FromBody] DefaultSearchQueryRequestDto dto)
+    {
+        var settings = await _settingsService.GetLibrarySettings();
+        return Ok(new DefaultSearchQueryDto(MetadataSearchQueryBuilder.Build(
+            dto?.Authors, dto?.BookName, dto?.FileName, settings.SearchInitialsHandling)));
     }
 
     [HttpGet("{sourceName}")]

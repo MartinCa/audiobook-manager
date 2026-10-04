@@ -50,6 +50,7 @@ function makeSettings(overrides: Partial<LibrarySettings> = {}): LibrarySettings
     upcomingReleasesEnabled: true,
     upcomingReleasesCronSchedule: "0 3 * * *",
     defaultPageSize: 20,
+    searchInitialsHandling: "AsStored",
     ...overrides,
   };
 }
@@ -68,9 +69,55 @@ async function findPunctuationCombo() {
   return punctuation;
 }
 
+async function findSearchInitialsCombo() {
+  const combos = await screen.findAllByRole("combobox");
+  const combo = combos.find((c) => c.textContent?.match(/As stored|Compact|Spaced \(George/));
+  if (!combo) throw new Error("Expected the search initials combobox to be rendered");
+  return combo;
+}
+
 describe("LibrarySettingsPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it("defaults the search initials handling display to the stored value", async () => {
+    vi.mocked(settingsApi.getLibrarySettings).mockResolvedValue(
+      makeSettings({ searchInitialsHandling: "Compact" }),
+    );
+
+    renderPage();
+
+    expect(await findSearchInitialsCombo()).toHaveTextContent("Compact (George R.R. Martin)");
+  });
+
+  it("sends the chosen search initials handling on save", async () => {
+    const user = userEvent.setup();
+    vi.mocked(settingsApi.getLibrarySettings).mockResolvedValue(makeSettings());
+    vi.mocked(settingsApi.updateLibrarySettings).mockResolvedValue(
+      makeSettings({ searchInitialsHandling: "Compact" }),
+    );
+
+    renderPage();
+
+    await user.click(await findSearchInitialsCombo());
+    const option = (await screen.findAllByRole("option")).find(
+      (el) => el.textContent === "Compact (George R.R. Martin)",
+    );
+    expect(option).toBeDefined();
+    await user.click(option!);
+    await user.click(screen.getByRole("button", { name: /^Save$/ }));
+
+    await waitFor(() => {
+      expect(settingsApi.updateLibrarySettings).toHaveBeenCalledWith({
+        initialsSpacing: "Unspaced",
+        initialsPunctuation: "Dotted",
+        upcomingReleasesEnabled: true,
+        upcomingReleasesCronSchedule: "0 3 * * *",
+        defaultPageSize: 20,
+        searchInitialsHandling: "Compact",
+      });
+    });
   });
 
   it("loads and displays the current initials spacing and punctuation", async () => {
@@ -121,6 +168,7 @@ describe("LibrarySettingsPage", () => {
         upcomingReleasesEnabled: true,
         upcomingReleasesCronSchedule: "0 3 * * *",
         defaultPageSize: 20,
+        searchInitialsHandling: "AsStored",
       });
     });
     expect(notifications.success).toHaveBeenCalledWith("Library settings saved");
@@ -152,6 +200,7 @@ describe("LibrarySettingsPage", () => {
         upcomingReleasesEnabled: true,
         upcomingReleasesCronSchedule: "0 3 * * *",
         defaultPageSize: 20,
+        searchInitialsHandling: "AsStored",
       });
     });
     expect(notifications.success).toHaveBeenCalledWith("Library settings saved");
@@ -178,6 +227,7 @@ describe("LibrarySettingsPage", () => {
         upcomingReleasesEnabled: false,
         upcomingReleasesCronSchedule: "0 5 * * *",
         defaultPageSize: 20,
+        searchInitialsHandling: "AsStored",
       });
     });
   });

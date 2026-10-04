@@ -8,6 +8,10 @@ export type InitialsSpacing = "Spaced" | "Unspaced";
 // Mirrors Domain.InitialsPunctuation / Database.Models.InitialsPunctuation.
 export type InitialsPunctuation = "Dotted" | "Undotted";
 
+// Mirrors Domain.SearchInitialsHandling / Database.Models.SearchInitialsHandling: how author
+// initials are written in the default online-metadata search query.
+export type SearchInitialsHandling = "AsStored" | "Compact" | "Spaced";
+
 // Response shape of GET api/settings/library. The backend emits the enums as their name strings
 // ("Spaced"/"Unspaced", "Dotted"/"Undotted"), and PUT refusal is the only path a different value
 // could ever arrive by, so the wire strings are narrowed to the literals the selects can represent.
@@ -21,10 +25,15 @@ export type LibrarySettings = Require<
   | "upcomingReleasesEnabled"
   | "upcomingReleasesCronSchedule"
   | "defaultPageSize"
-> & { initialsSpacing: InitialsSpacing; initialsPunctuation: InitialsPunctuation };
+  | "searchInitialsHandling"
+> & {
+  initialsSpacing: InitialsSpacing;
+  initialsPunctuation: InitialsPunctuation;
+  searchInitialsHandling: SearchInitialsHandling;
+};
 
 // Body of PUT api/settings/library. initialsPunctuation/metadataRefreshDelayMs/
-// upcomingReleasesEnabled/upcomingReleasesCronSchedule/defaultPageSize are optional on the wire
+// upcomingReleasesEnabled/upcomingReleasesCronSchedule/defaultPageSize/searchInitialsHandling are optional on the wire
 // too - an omitted field keeps the stored value rather than resetting it (see
 // SettingsController.UpdateLibrarySettings).
 export type UpdateLibrarySettings = {
@@ -34,4 +43,5 @@ export type UpdateLibrarySettings = {
   upcomingReleasesEnabled?: boolean;
   upcomingReleasesCronSchedule?: string;
   defaultPageSize?: number;
+  searchInitialsHandling?: SearchInitialsHandling;
 };

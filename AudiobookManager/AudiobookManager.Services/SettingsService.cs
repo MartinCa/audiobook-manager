@@ -26,7 +26,8 @@ public class SettingsService : ISettingsService
             settings.MetadataRefreshDelayMs,
             settings.UpcomingReleasesEnabled,
             settings.UpcomingReleasesCronSchedule,
-            settings.DefaultPageSize);
+            settings.DefaultPageSize,
+            settings.SearchInitialsHandling.ToDb());
         return dbSettings.ToDomain();
     }
 }

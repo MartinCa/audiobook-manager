@@ -150,6 +150,19 @@ public class SettingsController : ControllerBase
                 $"{string.Join(", ", AllowedPageSizes)}.");
         }
 
+        SearchInitialsHandling searchInitialsHandling;
+        if (dto.SearchInitialsHandling is null)
+        {
+            searchInitialsHandling = current.SearchInitialsHandling;
+        }
+        else if (!Enum.GetNames<SearchInitialsHandling>().Contains(dto.SearchInitialsHandling, StringComparer.OrdinalIgnoreCase) ||
+            !Enum.TryParse(dto.SearchInitialsHandling, ignoreCase: true, out searchInitialsHandling))
+        {
+            return this.InvalidRequest(
+                $"'{dto.SearchInitialsHandling}' is not a known search initials handling. Use one of: " +
+                $"{string.Join(", ", Enum.GetNames<SearchInitialsHandling>())}.");
+        }
+
         var updated = await _settingsService.UpdateLibrarySettings(new Domain.LibrarySettings
         {
             InitialsSpacing = parsed,
@@ -158,6 +171,7 @@ public class SettingsController : ControllerBase
             UpcomingReleasesEnabled = upcomingReleasesEnabled,
             UpcomingReleasesCronSchedule = upcomingReleasesCronSchedule,
             DefaultPageSize = defaultPageSize,
+            SearchInitialsHandling = searchInitialsHandling,
         });
         return Ok(ToDto(updated));
     }
@@ -213,5 +227,6 @@ public class SettingsController : ControllerBase
             settings.MetadataRefreshDelayMs,
             settings.UpcomingReleasesEnabled,
             settings.UpcomingReleasesCronSchedule,
-            settings.DefaultPageSize);
+            settings.DefaultPageSize,
+            settings.SearchInitialsHandling.ToString());
 }

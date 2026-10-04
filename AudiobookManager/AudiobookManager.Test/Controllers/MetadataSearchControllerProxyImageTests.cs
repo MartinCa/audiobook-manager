@@ -50,6 +50,7 @@ public class MetadataSearchControllerProxyImageTests
         return new MetadataSearchController(
             new Mock<IScrapingService>().Object,
             factory.Object,
+            new Mock<AudiobookManager.Services.ISettingsService>().Object,
             new Mock<ILogger<MetadataSearchController>>().Object)
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() },
@@ -137,6 +138,7 @@ public class MetadataSearchControllerProxyImageTests
         var controller = new MetadataSearchController(
             new Mock<IScrapingService>().Object,
             factory.Object,
+            new Mock<AudiobookManager.Services.ISettingsService>().Object,
             new Mock<ILogger<MetadataSearchController>>().Object)
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() },

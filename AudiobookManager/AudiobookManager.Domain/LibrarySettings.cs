@@ -34,4 +34,10 @@ public class LibrarySettings
     /// size dropdown offers: 20, 50, or 100 (see <c>SettingsController.AllowedPageSizes</c>).
     /// </summary>
     public int DefaultPageSize { get; set; } = 20;
+
+    /// <summary>
+    /// How initials in author names are written in the default online-metadata search query.
+    /// See <see cref="SearchInitialsHandling"/>.
+    /// </summary>
+    public SearchInitialsHandling SearchInitialsHandling { get; set; } = SearchInitialsHandling.AsStored;
 }

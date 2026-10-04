@@ -24,6 +24,7 @@ public class MetadataSearchControllerGetBookDetailsTests
         return new MetadataSearchController(
             scrapingService.Object,
             new Mock<IHttpClientFactory>().Object,
+            new Mock<AudiobookManager.Services.ISettingsService>().Object,
             new Mock<ILogger<MetadataSearchController>>().Object)
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() },

@@ -465,4 +465,59 @@ public class SettingsControllerTests
 
         Assert.AreEqual(400, Assert.IsInstanceOfType<ObjectResult>(result.Result).StatusCode);
     }
+
+    private static Mock<ISettingsService> SettingsServiceReturning(Domain.LibrarySettings current)
+    {
+        var service = new Mock<ISettingsService>();
+        service.Setup(s => s.GetLibrarySettings()).ReturnsAsync(current);
+        service
+            .Setup(s => s.UpdateLibrarySettings(It.IsAny<Domain.LibrarySettings>()))
+            .ReturnsAsync((Domain.LibrarySettings s) => s);
+        return service;
+    }
+
+    private static SettingsController ControllerFor(Mock<ISettingsService> service) =>
+        new(service.Object, Mock.Of<IScheduledTaskService>(), Mock.Of<IQualifierIndicatorService>());
+
+    [TestMethod]
+    public async Task UpdateLibrarySettings_SearchInitialsHandling_IsPersistedAndServed()
+    {
+        var service = SettingsServiceReturning(new Domain.LibrarySettings());
+
+        var result = await ControllerFor(service).UpdateLibrarySettings(
+            new UpdateLibrarySettingsDto("Spaced", null, null, null, null, null, "Compact"));
+
+        var ok = Assert.IsInstanceOfType<OkObjectResult>(result.Result);
+        Assert.AreEqual("Compact", Assert.IsInstanceOfType<LibrarySettingsDto>(ok.Value).SearchInitialsHandling);
+        service.Verify(s => s.UpdateLibrarySettings(
+            It.Is<Domain.LibrarySettings>(v => v.SearchInitialsHandling == SearchInitialsHandling.Compact)), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task UpdateLibrarySettings_OmittedSearchInitialsHandling_KeepsTheStoredValue()
+    {
+        var service = SettingsServiceReturning(new Domain.LibrarySettings { SearchInitialsHandling = SearchInitialsHandling.Spaced });
+
+        var result = await ControllerFor(service).UpdateLibrarySettings(
+            new UpdateLibrarySettingsDto("Spaced", null, null, null, null, null));
+
+        var ok = Assert.IsInstanceOfType<OkObjectResult>(result.Result);
+        Assert.AreEqual("Spaced", Assert.IsInstanceOfType<LibrarySettingsDto>(ok.Value).SearchInitialsHandling);
+    }
+
+    [TestMethod]
+    [DataRow("Bogus")]
+    [DataRow("42")]
+    [DataRow("1")] // a numeric string would otherwise parse to Compact
+    public async Task UpdateLibrarySettings_UnknownSearchInitialsHandling_IsRefusedWithoutSaving(string value)
+    {
+        var service = SettingsServiceReturning(new Domain.LibrarySettings());
+
+        var result = await ControllerFor(service).UpdateLibrarySettings(
+            new UpdateLibrarySettingsDto("Spaced", null, null, null, null, null, value));
+
+        var problem = Assert.IsInstanceOfType<ObjectResult>(result.Result);
+        Assert.AreEqual(400, problem.StatusCode);
+        service.Verify(s => s.UpdateLibrarySettings(It.IsAny<Domain.LibrarySettings>()), Times.Never);
+    }
 }
