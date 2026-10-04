@@ -15,7 +15,13 @@ public class PendingOnlineMatchServiceTests
     private readonly Mock<IPendingOnlineMatchRepository> _repository = new();
     private readonly Mock<IScrapingService> _scrapingService = new();
     private readonly Mock<IMetadataRefreshService> _metadataRefreshService = new();
+    private readonly Mock<ISettingsService> _settingsService = new();
     private readonly Mock<ILogger<PendingOnlineMatchService>> _logger = new();
+
+    public PendingOnlineMatchServiceTests()
+    {
+        _settingsService.Setup(s => s.GetLibrarySettings()).ReturnsAsync(new AudiobookManager.Domain.LibrarySettings());
+    }
 
     private PendingOnlineMatchService CreateService() =>
         new(
@@ -23,6 +29,7 @@ public class PendingOnlineMatchServiceTests
             _repository.Object,
             _scrapingService.Object,
             _metadataRefreshService.Object,
+            _settingsService.Object,
             _logger.Object);
 
     private static Audiobook Book(long id, string? bookName, string fileName, params string[] authorNames)
@@ -38,6 +45,23 @@ public class PendingOnlineMatchServiceTests
     private static readonly Func<int, int, int, int, Task> NoopProgress = (_, _, _, _) => Task.CompletedTask;
 
     #region SearchSelectedAsync
+
+    [TestMethod]
+    public async Task SearchSelectedAsync_CompactSearchInitialsSetting_SearchesWithCompactAuthorInitials()
+    {
+        _settingsService.Setup(s => s.GetLibrarySettings()).ReturnsAsync(
+            new AudiobookManager.Domain.LibrarySettings { SearchInitialsHandling = AudiobookManager.Domain.SearchInitialsHandling.Compact });
+        var book = Book(9, "A Knight of the Seven Kingdoms", "some-file.m4b", "George R. R. Martin");
+        _audiobookRepository.Setup(r => r.GetByIdsWithIncludesAsync(It.IsAny<IReadOnlyList<long>>()))
+            .ReturnsAsync(new List<Audiobook> { book });
+        _scrapingService.Setup(s => s.SearchMultiple(It.IsAny<IEnumerable<string>>(), It.IsAny<string>()))
+            .ReturnsAsync(new MetadataMultiSourceSearchResult());
+
+        await CreateService().SearchSelectedAsync(new List<long> { 9 }, new List<string> { "Hardcover" }, NoopProgress);
+
+        _scrapingService.Verify(s => s.SearchMultiple(
+            It.IsAny<IEnumerable<string>>(), "George R.R. Martin - A Knight of the Seven Kingdoms"), Times.Once);
+    }
 
     [TestMethod]
     public async Task SearchSelectedAsync_BookHasATitle_SearchesWithBookNameNotFileName()

@@ -10,6 +10,7 @@ public class PendingOnlineMatchService : IPendingOnlineMatchService
     private readonly IPendingOnlineMatchRepository _repository;
     private readonly IScrapingService _scrapingService;
     private readonly IMetadataRefreshService _metadataRefreshService;
+    private readonly ISettingsService _settingsService;
     private readonly ILogger<PendingOnlineMatchService> _logger;
 
     public PendingOnlineMatchService(
@@ -17,12 +18,14 @@ public class PendingOnlineMatchService : IPendingOnlineMatchService
         IPendingOnlineMatchRepository repository,
         IScrapingService scrapingService,
         IMetadataRefreshService metadataRefreshService,
+        ISettingsService settingsService,
         ILogger<PendingOnlineMatchService> logger)
     {
         _audiobookRepository = audiobookRepository;
         _repository = repository;
         _scrapingService = scrapingService;
         _metadataRefreshService = metadataRefreshService;
+        _settingsService = settingsService;
         _logger = logger;
     }
 
@@ -33,6 +36,7 @@ public class PendingOnlineMatchService : IPendingOnlineMatchService
     {
         var books = await _audiobookRepository.GetByIdsWithIncludesAsync(audiobookIds);
         var booksById = books.ToDictionary(b => b.Id);
+        var initialsHandling = (await _settingsService.GetLibrarySettings()).SearchInitialsHandling;
 
         var (processed, succeeded, failed) = await BulkOperationRunner.RunAsync(
             audiobookIds,
@@ -46,9 +50,10 @@ public class PendingOnlineMatchService : IPendingOnlineMatchService
                 // Same precedence BookEditForm seeds BookSearchDialog's query with (author(s) -
                 // book name, falling back to book name, falling back to the on-disk file name) -
                 // the two flows must not drift, since the whole point of the bulk search is "what
-                // the interactive dialog would have searched for, run for many books at once".
+                // the interactive dialog would have searched for, run for many books at once". The initials
+                // handling is the library setting, read once for the whole batch.
                 var query = MetadataSearchQueryBuilder.Build(
-                    book.Authors.Select(a => a.Name), book.BookName, book.FileInfoFileName);
+                    book.Authors.Select(a => a.Name), book.BookName, book.FileInfoFileName, initialsHandling);
                 if (string.IsNullOrWhiteSpace(query))
                 {
                     throw new InvalidOperationException($"Audiobook {id} has no title or file name to search with.");

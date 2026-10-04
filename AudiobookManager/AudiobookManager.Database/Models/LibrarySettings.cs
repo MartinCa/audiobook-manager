@@ -56,6 +56,10 @@ public class LibrarySettings
     [Column("default_page_size")]
     public int DefaultPageSize { get; set; } = 20;
 
+    /// <summary>How initials in author names are written in the default metadata search query.</summary>
+    [Column("search_initials_handling")]
+    public SearchInitialsHandling SearchInitialsHandling { get; set; } = SearchInitialsHandling.AsStored;
+
     public LibrarySettings() { }
 
     public LibrarySettings(
@@ -65,7 +69,8 @@ public class LibrarySettings
         int metadataRefreshDelayMs = 1000,
         bool upcomingReleasesEnabled = true,
         string upcomingReleasesCronSchedule = "0 3 * * *",
-        int defaultPageSize = 20)
+        int defaultPageSize = 20,
+        SearchInitialsHandling searchInitialsHandling = SearchInitialsHandling.AsStored)
     {
         Id = id;
         InitialsSpacing = initialsSpacing;
@@ -74,5 +79,6 @@ public class LibrarySettings
         UpcomingReleasesEnabled = upcomingReleasesEnabled;
         UpcomingReleasesCronSchedule = upcomingReleasesCronSchedule;
         DefaultPageSize = defaultPageSize;
+        SearchInitialsHandling = searchInitialsHandling;
     }
 }

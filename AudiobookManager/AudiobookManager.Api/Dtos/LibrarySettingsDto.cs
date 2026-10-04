@@ -12,12 +12,13 @@ public record LibrarySettingsDto(
     int MetadataRefreshDelayMs,
     bool UpcomingReleasesEnabled,
     string UpcomingReleasesCronSchedule,
-    int DefaultPageSize);
+    int DefaultPageSize,
+    string SearchInitialsHandling);
 
 /// <summary>
 /// The body of PUT api/settings/library. <see cref="InitialsPunctuation"/>,
 /// <see cref="UpcomingReleasesEnabled"/>, <see cref="UpcomingReleasesCronSchedule"/> and
-/// <see cref="DefaultPageSize"/> are optional like <see cref="MetadataRefreshDelayMs"/>: an
+/// <see cref="DefaultPageSize"/> and <see cref="SearchInitialsHandling"/> are optional like <see cref="MetadataRefreshDelayMs"/>: an
 /// omitted field keeps the stored value rather than resetting it.
 /// </summary>
 public record UpdateLibrarySettingsDto(
@@ -26,4 +27,5 @@ public record UpdateLibrarySettingsDto(
     int? MetadataRefreshDelayMs,
     bool? UpcomingReleasesEnabled,
     string? UpcomingReleasesCronSchedule,
-    int? DefaultPageSize);
+    int? DefaultPageSize,
+    string? SearchInitialsHandling = null);

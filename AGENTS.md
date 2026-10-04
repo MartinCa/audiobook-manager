@@ -765,6 +765,18 @@ Adding a new source (or changing an existing one's name/availability) requires t
 
 `BookSearchDialog.tsx`'s single search field doubles as "add by URL": on submit, an absolute `http(s)` value goes straight to `metadataSearchApi.getBookDetails()` (skipping source selection entirely) instead of the multi-source search, so pasting a book URL from any configured source adds it directly. There is no separate "Add by URL" dialog/button.
 
+### The default search query: initials handling is a library setting
+
+Sources index author names in one form and tokenize the query, so `George R. R. Martin` can miss
+a Hardcover book that `George R.R. Martin` finds. `LibrarySettings.SearchInitialsHandling`
+(`AsStored` default, `Compact`, `Spaced`) decides how author initials are written in the **default**
+query only: `MetadataSearchQueryBuilder.Build` applies it (via `InitialsSpacingFormatter`, always
+dotted) and is the one implementation, used by the bulk search (`PendingOnlineMatchService`) and by
+`POST api/metadata-search/default-query`, which seeds the manual dialog through
+`useDefaultMetadataSearchQuery`. **The frontend holds no copy of the formatting rules**; its
+`buildDefaultMetadataSearchQuery` is only the as-stored fallback. Text a user types into the search
+box is never rewritten, and the setting never touches stored names, tags or paths.
+
 ## Frontend Patterns
 
 ### List endpoints must be bounded — no unbounded lists over the wire

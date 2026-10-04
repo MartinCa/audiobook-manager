@@ -2772,6 +2772,49 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/metadata-search/default-query": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["DefaultSearchQueryRequestDto"];
+                    "text/json": components["schemas"]["DefaultSearchQueryRequestDto"];
+                    "application/*+json": components["schemas"]["DefaultSearchQueryRequestDto"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["DefaultSearchQueryDto"];
+                        "application/json": components["schemas"]["DefaultSearchQueryDto"];
+                        "text/json": components["schemas"]["DefaultSearchQueryDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/metadata-search/{sourceName}": {
         parameters: {
             query?: never;
@@ -5983,6 +6026,14 @@ export interface components {
         BulkSelectionDto: {
             audiobookIds: number[];
         };
+        DefaultSearchQueryDto: {
+            query?: string | null;
+        };
+        DefaultSearchQueryRequestDto: {
+            authors?: string[] | null;
+            bookName?: string | null;
+            fileName?: string | null;
+        };
         DiscoveredAudiobookDto: {
             fullPath?: string | null;
             fileName?: string | null;
@@ -6136,6 +6187,7 @@ export interface components {
             upcomingReleasesCronSchedule?: string | null;
             /** Format: int32 */
             defaultPageSize?: number;
+            searchInitialsHandling?: string | null;
         };
         MatchAuthorDto: {
             sourceId?: string | null;
@@ -6688,6 +6740,7 @@ export interface components {
             upcomingReleasesCronSchedule?: string | null;
             /** Format: int32 */
             defaultPageSize?: number | null;
+            searchInitialsHandling?: string | null;
         };
         UrlCleanupPageDto: {
             items?: components["schemas"]["AudiobookUrlCleanupDto"][] | null;

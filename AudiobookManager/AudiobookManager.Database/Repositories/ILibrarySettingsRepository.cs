@@ -14,5 +14,6 @@ public interface ILibrarySettingsRepository
         int metadataRefreshDelayMs,
         bool upcomingReleasesEnabled,
         string upcomingReleasesCronSchedule,
-        int defaultPageSize);
+        int defaultPageSize,
+        SearchInitialsHandling searchInitialsHandling);
 }

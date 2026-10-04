@@ -1002,6 +1002,19 @@ export const metadataSearchApi = {
   getBookDetails: (path: string) =>
     api.post<MetadataSearchResult>("/metadata-search/details", { path }),
 
+  // The query the search dialog is seeded with, built server-side so the library's
+  // search-initials handling is applied by the one implementation the bulk search also uses.
+  getDefaultQuery: (book: {
+    authors: readonly string[] | undefined;
+    bookName: string | undefined;
+    fileName: string | undefined;
+  }) =>
+    api.post<{ query: string }>("/metadata-search/default-query", {
+      authors: book.authors,
+      bookName: book.bookName,
+      fileName: book.fileName,
+    }),
+
   getProxyImageUrl: (url: string) =>
     `/api/metadata-search/proxy-image?url=${encodeURIComponent(url)}`,
 };

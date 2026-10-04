@@ -21,6 +21,7 @@ vi.mock("@/services/api", () => ({
     getSeriesPartConflicts: vi.fn().mockResolvedValue({ conflicts: [], truncated: false }),
   },
   settingsApi: {
+    getLibrarySettings: vi.fn().mockResolvedValue({ searchInitialsHandling: "AsStored" }),
     getLanguages: vi.fn().mockResolvedValue({ languages: [] }),
     getBookQualifiers: vi.fn().mockResolvedValue({
       qualifiers: [
@@ -39,6 +40,7 @@ vi.mock("@/services/api", () => ({
     }),
   },
   metadataSearchApi: {
+    getDefaultQuery: vi.fn(),
     getServices: vi.fn().mockResolvedValue([{ name: "Goodreads", enabled: true }]),
     searchMultiple: vi.fn().mockResolvedValue({ results: [], sourceStatuses: [] }),
     getProxyImageUrl: vi.fn(

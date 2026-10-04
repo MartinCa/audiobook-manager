@@ -41,7 +41,6 @@ import {
   DEFAULT_COLLAPSED_FIELDS,
   type CollapsedField,
 } from "@/helpers/organizeAudiobookInput";
-import { buildDefaultMetadataSearchQuery } from "@/helpers/metadataSearchQuery";
 import { normalizeLanguage } from "@/helpers/languages";
 import {
   applyQualifiers,
@@ -51,6 +50,7 @@ import {
   splitQualifiers,
 } from "@/helpers/bookQualifiers";
 import { useBookQualifiers } from "@/hooks/useBookQualifiers";
+import { useDefaultMetadataSearchQuery } from "@/hooks/useDefaultMetadataSearchQuery";
 import { QualifiersField } from "@/components/fields/QualifiersField";
 import { notifications } from "@/lib/notifications";
 import type { Audiobook, AudiobookImage } from "@/types/Audiobook";
@@ -325,6 +325,12 @@ export function BookEditForm({
   const qualifierOptions = useBookQualifiers();
 
   const watchedValues = useWatch({ control: form.control });
+  const defaultSearchQuery = useDefaultMetadataSearchQuery(
+    watchedValues.authors,
+    watchedValues.bookName,
+    initialBook.fileInfo?.fileName,
+    searchDialogOpen,
+  );
 
   const coverIsDirty =
     cover?.base64Data !== lastSavedCover?.base64Data ||
@@ -1257,11 +1263,7 @@ export function BookEditForm({
         open={searchDialogOpen}
         onOpenChange={setSearchDialogOpen}
         onSelectResult={handleSelectSearchResult}
-        initialQuery={buildDefaultMetadataSearchQuery(
-          watchedValues.authors,
-          watchedValues.bookName,
-          initialBook.fileInfo?.fileName,
-        )}
+        initialQuery={defaultSearchQuery}
       />
 
       {cleanedPendingSearch && (
