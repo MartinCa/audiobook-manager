@@ -17,6 +17,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import {
   activeChips,
+  dateTimeLocalToIso,
+  isoToDateTimeLocal,
   toIntFilterValue,
   tristateValue,
   type FilterFieldDef,
@@ -212,44 +214,62 @@ export function EntityFilterBar({ fields, values, onChange }: EntityFilterBarPro
               <label className="text-muted-foreground text-xs font-semibold uppercase">
                 {field.label}
               </label>
-              <div className="flex flex-wrap items-center gap-1">
-                <div className="relative">
-                  <CalendarDays className="text-muted-foreground pointer-events-none absolute top-1/2 left-2 h-3.5 w-3.5 -translate-y-1/2" />
-                  <Input
-                    type="date"
-                    disabled={neverActive}
-                    value={
-                      values[field.afterKey] === undefined ? "" : String(values[field.afterKey])
-                    }
-                    onChange={(e) =>
-                      onChange({ ...values, [field.afterKey]: e.target.value || undefined })
-                    }
-                    className="w-36 pl-7 text-xs"
-                    aria-label={`${field.label} after`}
-                  />
+              <div className="flex flex-col gap-1 sm:flex-row sm:flex-wrap sm:items-center">
+                <div className="flex items-center gap-2">
+                  <span
+                    aria-hidden
+                    className="text-muted-foreground w-12 shrink-0 text-xs sm:hidden"
+                  >
+                    After
+                  </span>
+                  <div className="relative min-w-0 flex-1 sm:w-52 sm:flex-none">
+                    <CalendarDays className="text-muted-foreground pointer-events-none absolute top-1/2 left-2 h-3.5 w-3.5 -translate-y-1/2" />
+                    <Input
+                      type="datetime-local"
+                      disabled={neverActive}
+                      value={isoToDateTimeLocal(values[field.afterKey] as string | undefined)}
+                      onChange={(e) =>
+                        onChange({
+                          ...values,
+                          [field.afterKey]: dateTimeLocalToIso(e.target.value),
+                        })
+                      }
+                      className="w-full pl-7 text-xs"
+                      aria-label={`${field.label} after`}
+                    />
+                  </div>
                 </div>
-                <span className="text-muted-foreground text-xs">–</span>
-                <div className="relative">
-                  <CalendarDays className="text-muted-foreground pointer-events-none absolute top-1/2 left-2 h-3.5 w-3.5 -translate-y-1/2" />
-                  <Input
-                    type="date"
-                    disabled={neverActive}
-                    value={
-                      values[field.beforeKey] === undefined ? "" : String(values[field.beforeKey])
-                    }
-                    onChange={(e) =>
-                      onChange({ ...values, [field.beforeKey]: e.target.value || undefined })
-                    }
-                    className="w-36 pl-7 text-xs"
-                    aria-label={`${field.label} before`}
-                  />
+                <span className="text-muted-foreground hidden text-xs sm:inline">–</span>
+                <div className="flex items-center gap-2">
+                  <span
+                    aria-hidden
+                    className="text-muted-foreground w-12 shrink-0 text-xs sm:hidden"
+                  >
+                    Before
+                  </span>
+                  <div className="relative min-w-0 flex-1 sm:w-52 sm:flex-none">
+                    <CalendarDays className="text-muted-foreground pointer-events-none absolute top-1/2 left-2 h-3.5 w-3.5 -translate-y-1/2" />
+                    <Input
+                      type="datetime-local"
+                      disabled={neverActive}
+                      value={isoToDateTimeLocal(values[field.beforeKey] as string | undefined)}
+                      onChange={(e) =>
+                        onChange({
+                          ...values,
+                          [field.beforeKey]: dateTimeLocalToIso(e.target.value),
+                        })
+                      }
+                      className="w-full pl-7 text-xs"
+                      aria-label={`${field.label} before`}
+                    />
+                  </div>
                 </div>
                 {field.neverKey ? (
                   <Button
                     type="button"
                     size="sm"
                     variant={neverActive ? "default" : "outline"}
-                    className="h-8"
+                    className="h-8 self-start"
                     onClick={() =>
                       onChange({
                         ...values,
@@ -271,7 +291,11 @@ export function EntityFilterBar({ fields, values, onChange }: EntityFilterBarPro
       {chips.length > 0 && (
         <div className="flex flex-wrap items-center gap-1.5">
           {chips.map((chip) => (
-            <Badge key={chip.key} variant="secondary" className="gap-1 pr-1">
+            <Badge
+              key={chip.key}
+              variant="secondary"
+              className="h-auto max-w-full gap-1 pr-1 text-left whitespace-normal"
+            >
               {chip.label}
               <button
                 type="button"

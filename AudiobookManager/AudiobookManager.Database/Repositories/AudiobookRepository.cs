@@ -259,6 +259,30 @@ public class AudiobookRepository : IAudiobookRepository
             query = query.Where(a => a.DurationInSeconds != null && a.DurationInSeconds <= filter.MaxDurationInSeconds);
         }
 
+        // Last metadata refresh (Audiobook.LastMetadataRefreshedAt, stamped only by a refresh from
+        // the matched source). Same semantics as the series/author filters: NeverRefreshed is
+        // true/false on the null-ness of the stamp, After is an inclusive lower bound, and Before
+        // is an exclusive upper bound - both exact instants, so the range is [After, Before).
+        if (filter.NeverRefreshed == true)
+        {
+            query = query.Where(a => a.LastMetadataRefreshedAt == null);
+        }
+        else if (filter.NeverRefreshed == false)
+        {
+            query = query.Where(a => a.LastMetadataRefreshedAt != null);
+        }
+
+        if (filter.RefreshedAfter is not null)
+        {
+            query = query.Where(a => a.LastMetadataRefreshedAt != null && a.LastMetadataRefreshedAt >= RefreshBounds.ToUtc(filter.RefreshedAfter.Value));
+        }
+
+        if (filter.RefreshedBefore is not null)
+        {
+            var exclusiveUpperBound = RefreshBounds.ToUtc(filter.RefreshedBefore.Value);
+            query = query.Where(a => a.LastMetadataRefreshedAt != null && a.LastMetadataRefreshedAt < exclusiveUpperBound);
+        }
+
         return query;
     }
 
@@ -876,17 +900,14 @@ public class AudiobookRepository : IAudiobookRepository
 
         if (filter?.RefreshedAfter is not null)
         {
-            catalogNamesQuery = catalogNamesQuery.Where(s => s.LastRefreshedAt != null && s.LastRefreshedAt >= filter.RefreshedAfter);
+            catalogNamesQuery = catalogNamesQuery.Where(s => s.LastRefreshedAt != null && s.LastRefreshedAt >= RefreshBounds.ToUtc(filter.RefreshedAfter.Value));
         }
 
         DateTime? refreshedBeforeExclusive = null;
         if (filter?.RefreshedBefore is not null)
         {
-            // The UI sends a calendar date (day granularity), which model-binds to that day's
-            // midnight - a plain "<=" would exclude every refresh later that same day. Treat the
-            // bound as "before the day after", so the whole chosen day is included, symmetric
-            // with RefreshedAfter's inclusive ">=" against that day's midnight.
-            refreshedBeforeExclusive = filter.RefreshedBefore.Value.Date.AddDays(1);
+            // Exact instant, exclusive: the range is [RefreshedAfter, RefreshedBefore).
+            refreshedBeforeExclusive = RefreshBounds.ToUtc(filter.RefreshedBefore.Value);
             catalogNamesQuery = catalogNamesQuery.Where(s => s.LastRefreshedAt != null && s.LastRefreshedAt < refreshedBeforeExclusive);
         }
 

@@ -1,3 +1,4 @@
+import { formatDateTime } from "@/helpers/formatHelpers";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { ReactNode } from "react";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
@@ -258,6 +259,52 @@ describe("OwnedBookList", () => {
     fireEvent.change(minInput, { target: { value: "10" } });
 
     expect(onFiltersChange).toHaveBeenCalledWith({ minDurationInSeconds: 600 });
+  });
+
+  it("offers a Last refreshed date range and reports it through onFiltersChange", async () => {
+    const onFiltersChange = vi.fn();
+    renderList({ onFiltersChange });
+
+    fireEvent.click(screen.getByRole("button", { name: /Filters/ }));
+    fireEvent.change(await screen.findByLabelText("Last refreshed after"), {
+      target: { value: "2026-01-15T10:30" },
+    });
+
+    // The input is in the user's own zone; the filter state holds the exact UTC instant.
+    expect(onFiltersChange).toHaveBeenCalledWith({
+      refreshedAfter: new Date("2026-01-15T10:30").toISOString(),
+    });
+  });
+
+  it("offers a Never refreshed toggle that clears the date bounds", async () => {
+    const onFiltersChange = vi.fn();
+    renderList({
+      onFiltersChange,
+      filters: {
+        refreshedAfter: "2026-01-15T10:30:00.000Z",
+        refreshedBefore: "2026-02-01T08:00:00.000Z",
+      },
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: "Never refreshed" }));
+
+    expect(onFiltersChange).toHaveBeenCalledWith({
+      refreshedAfter: undefined,
+      refreshedBefore: undefined,
+      neverRefreshed: true,
+    });
+  });
+
+  it("labels an active refreshed-date filter as a removable chip", async () => {
+    const after = "2026-01-15T10:30:00.000Z";
+    const before = "2026-02-01T08:00:00.000Z";
+    renderList({ filters: { refreshedAfter: after, refreshedBefore: before } });
+
+    expect(
+      await screen.findByText(
+        `Last refreshed: ${formatDateTime(after)} – ${formatDateTime(before)}`,
+      ),
+    ).toBeInTheDocument();
   });
 
   it("labels an active qualifier filter from the backend-served qualifier list and the None bucket", async () => {

@@ -424,6 +424,50 @@ describe("BookLibrary", () => {
     expect(screen.getByLabelText("Duration (minutes) minimum")).toHaveValue(10);
   });
 
+  it("sends a typed last-refreshed filter to the server", async () => {
+    renderWithRouter();
+    await screen.findByText("The Way of Kings");
+
+    fireEvent.click(screen.getByRole("button", { name: /Filters/ }));
+    fireEvent.change(screen.getByLabelText("Last refreshed after"), {
+      target: { value: "2026-01-15T10:30" },
+    });
+
+    await waitFor(() => {
+      expect(browseApi.getAudiobooks).toHaveBeenLastCalledWith(20, 0, {
+        refreshedAfter: new Date("2026-01-15T10:30").toISOString(),
+      });
+    });
+  });
+
+  it("restores a last-refreshed filter from the URL's search params", async () => {
+    const { router } = renderWithRouter();
+    await screen.findByText("The Way of Kings");
+
+    await router.navigate({ to: "/library", search: { neverRefreshed: true } });
+
+    await waitFor(() => {
+      expect(browseApi.getAudiobooks).toHaveBeenLastCalledWith(20, 0, { neverRefreshed: true });
+    });
+  });
+
+  it("upgrades a legacy date-only refreshed bound in the URL to the exact instants it used to mean", async () => {
+    const { router } = renderWithRouter();
+    await screen.findByText("The Way of Kings");
+
+    await router.navigate({
+      to: "/library",
+      search: { refreshedAfter: "2024-06-01", refreshedBefore: "2024-06-01" },
+    });
+
+    await waitFor(() => {
+      expect(browseApi.getAudiobooks).toHaveBeenLastCalledWith(20, 0, {
+        refreshedAfter: new Date(2024, 5, 1).toISOString(),
+        refreshedBefore: new Date(2024, 5, 2).toISOString(),
+      });
+    });
+  });
+
   it("shows skeleton loading rows while the library list loads", async () => {
     vi.mocked(browseApi.getAudiobooks).mockImplementation(() => new Promise(() => {}));
 

@@ -162,6 +162,105 @@ public class AudiobookRepositoryBookFilterTests
         Assert.AreEqual("Long book", items.Single().BookName);
     }
 
+    private async Task<(string Never, string Old, string Recent)> SeedRefreshedBooksAsync()
+    {
+        var never = await SeedBookAsync("Never refreshed");
+        var old = await SeedBookAsync("Old refresh");
+        var recent = await SeedBookAsync("Recent refresh");
+        await _repository.UpdateLastMetadataRefreshedAtAsync(old.Id, new DateTime(2026, 1, 10, 12, 0, 0, DateTimeKind.Utc));
+        await _repository.UpdateLastMetadataRefreshedAtAsync(recent.Id, new DateTime(2026, 6, 20, 23, 30, 0, DateTimeKind.Utc));
+        return (never.BookName, old.BookName, recent.BookName);
+    }
+
+    [TestMethod]
+    public async Task GetAllAsync_FilteredByNeverRefreshed_SplitsOnTheRefreshStamp()
+    {
+        await SeedRefreshedBooksAsync();
+
+        var (never, neverTotal) = await _repository.GetAllAsync(
+            20, 0, new BookSummaryFilter(NeverRefreshed: true));
+        Assert.AreEqual(1, neverTotal);
+        Assert.AreEqual("Never refreshed", never.Single().BookName);
+
+        var (refreshed, refreshedTotal) = await _repository.GetAllAsync(
+            20, 0, new BookSummaryFilter(NeverRefreshed: false));
+        Assert.AreEqual(2, refreshedTotal);
+        CollectionAssert.AreEquivalent(
+            new[] { "Old refresh", "Recent refresh" }, refreshed.Select(a => a.BookName).ToList());
+    }
+
+    [TestMethod]
+    public async Task GetAllAsync_FilteredByRefreshedAfter_IsInclusiveAndExcludesNeverRefreshed()
+    {
+        await SeedRefreshedBooksAsync();
+
+        var (items, total) = await _repository.GetAllAsync(
+            20, 0, new BookSummaryFilter(RefreshedAfter: new DateTime(2026, 1, 10, 12, 0, 0, DateTimeKind.Utc)));
+
+        Assert.AreEqual(2, total);
+        CollectionAssert.AreEquivalent(
+            new[] { "Old refresh", "Recent refresh" }, items.Select(a => a.BookName).ToList());
+
+        var (later, laterTotal) = await _repository.GetAllAsync(
+            20, 0, new BookSummaryFilter(RefreshedAfter: new DateTime(2026, 2, 1)));
+        Assert.AreEqual(1, laterTotal);
+        Assert.AreEqual("Recent refresh", later.Single().BookName);
+    }
+
+    [TestMethod]
+    public async Task GetAllAsync_FilteredByRefreshedBefore_UsesTheExactInstantAsAnExclusiveBound()
+    {
+        await SeedRefreshedBooksAsync();
+
+        // "Recent refresh" is stamped 2026-06-20 23:30:00Z. A never-refreshed book never
+        // satisfies a date bound.
+        var (atStamp, atStampTotal) = await _repository.GetAllAsync(
+            20, 0, new BookSummaryFilter(RefreshedBefore: new DateTime(2026, 6, 20, 23, 30, 0, DateTimeKind.Utc)));
+        Assert.AreEqual(1, atStampTotal, "an exclusive bound excludes a refresh stamped exactly at it");
+        Assert.AreEqual("Old refresh", atStamp.Single().BookName);
+
+        var (afterStamp, afterStampTotal) = await _repository.GetAllAsync(
+            20, 0, new BookSummaryFilter(RefreshedBefore: new DateTime(2026, 6, 20, 23, 31, 0, DateTimeKind.Utc)));
+        Assert.AreEqual(2, afterStampTotal);
+        CollectionAssert.AreEquivalent(
+            new[] { "Old refresh", "Recent refresh" }, afterStamp.Select(a => a.BookName).ToList());
+    }
+
+    [TestMethod]
+    public async Task GetAllAsync_FilteredByRefreshedAfter_HonoursTimeOfDay()
+    {
+        await SeedRefreshedBooksAsync();
+
+        // "Old refresh" is stamped 2026-01-10 12:00:00Z: a bound a minute later excludes it.
+        var (items, total) = await _repository.GetAllAsync(
+            20, 0, new BookSummaryFilter(RefreshedAfter: new DateTime(2026, 1, 10, 12, 1, 0, DateTimeKind.Utc)));
+        Assert.AreEqual(1, total);
+        Assert.AreEqual("Recent refresh", items.Single().BookName);
+    }
+
+    [TestMethod]
+    public async Task SearchAsync_FilteredByRefreshedRange_NarrowsTheTextSearch()
+    {
+        await SeedRefreshedBooksAsync();
+
+        var (items, total) = await _repository.SearchAsync(
+            "refresh", 20, 0,
+            filter: new BookSummaryFilter(
+                RefreshedAfter: new DateTime(2026, 1, 1), RefreshedBefore: new DateTime(2026, 3, 1)));
+
+        Assert.AreEqual(1, total);
+        Assert.AreEqual("Old refresh", items.Single().BookName);
+    }
+
+    [TestMethod]
+    public void IsEmpty_FalseForAnyRefreshedField()
+    {
+        Assert.IsTrue(new BookSummaryFilter().IsEmpty);
+        Assert.IsFalse(new BookSummaryFilter(NeverRefreshed: true).IsEmpty);
+        Assert.IsFalse(new BookSummaryFilter(RefreshedAfter: DateTime.UtcNow).IsEmpty);
+        Assert.IsFalse(new BookSummaryFilter(RefreshedBefore: DateTime.UtcNow).IsEmpty);
+    }
+
     [TestMethod]
     public async Task GetAllAsync_FilteredByGenre_ReturnsOnlyMatchingBooks()
     {

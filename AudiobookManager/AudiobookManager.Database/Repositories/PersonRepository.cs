@@ -338,16 +338,13 @@ public class PersonRepository : IPersonRepository
 
         if (filter?.RefreshedAfter is not null)
         {
-            dbQuery = dbQuery.Where(p => p.LastRefreshedAt != null && p.LastRefreshedAt >= filter.RefreshedAfter);
+            dbQuery = dbQuery.Where(p => p.LastRefreshedAt != null && p.LastRefreshedAt >= RefreshBounds.ToUtc(filter.RefreshedAfter.Value));
         }
 
         if (filter?.RefreshedBefore is not null)
         {
-            // The UI sends a calendar date (day granularity), which model-binds to that day's
-            // midnight - a plain "<=" would exclude every refresh later that same day. Treat the
-            // bound as "before the day after", so the whole chosen day is included, symmetric
-            // with RefreshedAfter's inclusive ">=" against that day's midnight.
-            var exclusiveUpperBound = filter.RefreshedBefore.Value.Date.AddDays(1);
+            // Exact instant, exclusive: the range is [RefreshedAfter, RefreshedBefore).
+            var exclusiveUpperBound = RefreshBounds.ToUtc(filter.RefreshedBefore.Value);
             dbQuery = dbQuery.Where(p => p.LastRefreshedAt != null && p.LastRefreshedAt < exclusiveUpperBound);
         }
 

@@ -224,6 +224,14 @@ export function OwnedBookList({
         maxKey: "maxDurationInSeconds",
         unit: DURATION_FILTER_UNIT,
       },
+      {
+        type: "dateRange",
+        label: "Last refreshed",
+        afterKey: "refreshedAfter",
+        beforeKey: "refreshedBefore",
+        neverKey: "neverRefreshed",
+        neverLabel: "Never refreshed",
+      },
     ];
   }, [filterOptionsQuery.data, languagesQuery.data, qualifierOptions]);
 

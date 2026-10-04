@@ -1,3 +1,6 @@
+import { format } from "date-fns";
+import { formatDateTime } from "@/helpers/formatHelpers";
+
 /**
  * A single filter dimension the bar renders. Kept generic (no series/author-only concepts) so
  * the same component composes for the series list, the authors list and (per the product ask) a
@@ -55,6 +58,64 @@ export type FilterValueMap = Record<string, boolean | number | string | string[]
 
 export function tristateValue(v: boolean | number | string | string[] | undefined): string {
   return v === true ? "true" : v === false ? "false" : "any";
+}
+
+/**
+ * A dateRange field's value is an exact instant, stored in filter/URL state as a UTC ISO 8601
+ * string (unambiguous on the wire and in a shared link) but entered and shown in the user's own
+ * timezone by a `datetime-local` input. These two convert between the input's zone-less
+ * `yyyy-MM-ddTHH:mm` text and that stored form. A legacy date-only value (`2024-01-01`, from an
+ * older bookmarked URL) parses as UTC midnight, so it still displays and filters sensibly.
+ */
+export function isoToDateTimeLocal(stored: string | undefined): string {
+  if (!stored) {
+    return "";
+  }
+  const date = new Date(stored);
+  return Number.isNaN(date.getTime()) ? "" : format(date, "yyyy-MM-dd'T'HH:mm");
+}
+
+export function dateTimeLocalToIso(inputValue: string): string | undefined {
+  if (!inputValue) {
+    return undefined;
+  }
+  // A zone-less date-time string is read as local time, which is exactly what the input means.
+  const date = new Date(inputValue);
+  return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
+}
+
+const DATE_ONLY = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+/**
+ * Upgrades a legacy date-only bound (`2024-06-01`, from a bookmarked/shared URL written when the
+ * filter had day granularity) to the exact UTC instant that preserves what it used to mean:
+ * `after` is the start of that local day, `before` the start of the *next* local day (the old
+ * filter included the whole chosen day). Anything that is not date-only passes through untouched,
+ * so a current ISO instant is never re-interpreted. Applied by the route search schemas, so the
+ * filter state only ever holds real instants.
+ */
+export function normalizeRefreshBound(
+  value: string | undefined,
+  bound: "after" | "before",
+): string | undefined {
+  const match = value === undefined ? null : DATE_ONLY.exec(value);
+  if (!match) {
+    return value;
+  }
+  const [, year, month, day] = match;
+  const startOfDay = new Date(Number(year), Number(month) - 1, Number(day));
+  if (Number.isNaN(startOfDay.getTime())) {
+    return value;
+  }
+  if (bound === "before") {
+    startOfDay.setDate(startOfDay.getDate() + 1);
+  }
+  return startOfDay.toISOString();
+}
+
+/** A stored instant for a chip label, in the same local format the rest of the UI shows. */
+function chipInstant(stored: unknown): string {
+  return formatDateTime(String(stored)) || String(stored);
 }
 
 /**
@@ -149,10 +210,10 @@ export function activeChips(fields: FilterFieldDef[], values: FilterValueMap) {
       } else if (after !== undefined || before !== undefined) {
         const label =
           after !== undefined && before !== undefined
-            ? `${field.label}: ${String(after)} – ${String(before)}`
+            ? `${field.label}: ${chipInstant(after)} – ${chipInstant(before)}`
             : after !== undefined
-              ? `${field.label}: after ${String(after)}`
-              : `${field.label}: before ${String(before)}`;
+              ? `${field.label}: after ${chipInstant(after)}`
+              : `${field.label}: before ${chipInstant(before)}`;
         chips.push({
           key: field.afterKey,
           label,
