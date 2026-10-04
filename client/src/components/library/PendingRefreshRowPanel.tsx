@@ -156,6 +156,15 @@ export function PendingRefreshRowPanel({ audiobookId, onApplied }: PendingRefres
     setSelected(new Set(changedFieldKeys));
   }
 
+  // Flipping the split toggle changes which fields are reported as changed (the split-off
+  // "subtitle" becomes a change), so re-seed the selection from the new changed set - otherwise
+  // the newly-split subtitle shows as changed but stays unselected.
+  const [lastSplitEnabled, setLastSplitEnabled] = useState(splitTitleOnColonEnabled);
+  if (splitTitleOnColonEnabled !== lastSplitEnabled) {
+    setLastSplitEnabled(splitTitleOnColonEnabled);
+    setSelected(new Set(changedFieldKeys));
+  }
+
   const toggleField = (key: string) => {
     setSelected((prev) => {
       const next = new Set(prev);
