@@ -202,6 +202,17 @@ public static class MetadataRefreshDiffer
     }
 
     /// <summary>
+    /// The source's names as applying them would store them: <see cref="MetadataRefreshApplier"/>
+    /// splits a name that is really several comma-joined people, so the diff has to compare the
+    /// split form or a source reporting "A, B" as one person would diff against the stored
+    /// [A, B] on every fetch and the book would never leave the pending list.
+    /// </summary>
+    private static IEnumerable<string?> SplitCombinedNames(IEnumerable<string?> names) =>
+        AudiobookManager.FileManager.AudiobookTagHandler
+            .SplitCommaJoinedNames(names.Where(n => n is not null).Select(n => new Domain.Person(n!)))
+            .Select(p => (string?)p.Name);
+
+    /// <summary>
     /// Names are formatted to the library's configured <see cref="InitialsSpacing"/>/
     /// <see cref="InitialsPunctuation"/> convention BEFORE joining/deduping/sorting - not just a
     /// spacing fold. "Andrew R. Chow" (library, Dotted) vs "Andrew R Chow" (a source that omits
@@ -213,17 +224,6 @@ public static class MetadataRefreshDiffer
     /// the canonical form (consistent with how Genres already displays a sorted/deduped form
     /// rather than the literal scraped order).
     /// </summary>
-    /// <summary>
-    /// The source's names as applying them would store them: <see cref="MetadataRefreshApplier"/>
-    /// splits a name that is really several comma-joined people, so the diff has to compare the
-    /// split form or a source reporting "A, B" as one person would diff against the stored
-    /// [A, B] on every fetch and the book would never leave the pending list.
-    /// </summary>
-    private static IEnumerable<string?> SplitCombinedNames(IEnumerable<string?> names) =>
-        AudiobookManager.FileManager.AudiobookTagHandler
-            .SplitCommaJoinedNames(names.Where(n => n is not null).Select(n => new Domain.Person(n!)))
-            .Select(p => (string?)p.Name);
-
     private static string? JoinNames(IEnumerable<string?> names, Domain.InitialsSpacing spacing, Domain.InitialsPunctuation punctuation) =>
         JoinList(names.Select(n => string.IsNullOrWhiteSpace(n) ? n : InitialsSpacingFormatter.Format(n, spacing, punctuation)));
 
