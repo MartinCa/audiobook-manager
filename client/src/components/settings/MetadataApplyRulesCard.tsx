@@ -118,7 +118,16 @@ export function MetadataApplyRulesCard() {
           </div>
         ) : (
           <>
-            <div className="space-y-3">
+            {/* Column titles on wide screens; on a phone each select carries its own title instead. */}
+            <div
+              aria-hidden
+              className="text-muted-foreground hidden gap-2 text-xs font-semibold sm:flex"
+            >
+              <span className="w-32">Field</span>
+              <span className="w-56">When reviewing</span>
+              <span className="w-64">When automated</span>
+            </div>
+            <div className="space-y-5 sm:space-y-3">
               {data.fields.map((f) => {
                 const rule = effective(f);
                 const showWarning =
@@ -127,62 +136,72 @@ export function MetadataApplyRulesCard() {
                   <div key={f.field} className="space-y-1.5">
                     <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                       <span className="text-sm font-medium sm:w-32">{f.label}</span>
-                      <Select
-                        value={rule.interactive}
-                        onValueChange={(v) => {
-                          if (v != null) update(f, { interactive: v });
-                        }}
-                        items={data.interactiveOptions.map((o) => ({
-                          value: o.key,
-                          label: o.label,
-                        }))}
-                        disabled={mutation.isPending}
-                      >
-                        <SelectTrigger
-                          className="w-full sm:w-56"
-                          aria-label={`${f.label}: when reviewing`}
+                      <div className="space-y-1 sm:w-56">
+                        <span aria-hidden className="text-muted-foreground block text-xs sm:hidden">
+                          When reviewing
+                        </span>
+                        <Select
+                          value={rule.interactive}
+                          onValueChange={(v) => {
+                            if (v != null) update(f, { interactive: v });
+                          }}
+                          items={data.interactiveOptions.map((o) => ({
+                            value: o.key,
+                            label: o.label,
+                          }))}
+                          disabled={mutation.isPending}
                         >
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {data.interactiveOptions.map((o) => (
-                            <SelectItem key={o.key} value={o.key}>
-                              {o.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <Select
-                        value={rule.automated}
-                        onValueChange={(v) => {
-                          if (v != null) update(f, { automated: v });
-                        }}
-                        items={data.automatedOptions.map((o) => ({
-                          value: o.key,
-                          label: o.label,
-                        }))}
-                        disabled={mutation.isPending}
-                      >
-                        <SelectTrigger
-                          className="w-full sm:w-64"
-                          aria-label={`${f.label}: when automated`}
+                          <SelectTrigger
+                            className="w-full"
+                            aria-label={`${f.label}: when reviewing`}
+                          >
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {data.interactiveOptions.map((o) => (
+                              <SelectItem key={o.key} value={o.key}>
+                                {o.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-1 sm:w-64">
+                        <span aria-hidden className="text-muted-foreground block text-xs sm:hidden">
+                          When automated
+                        </span>
+                        <Select
+                          value={rule.automated}
+                          onValueChange={(v) => {
+                            if (v != null) update(f, { automated: v });
+                          }}
+                          items={data.automatedOptions.map((o) => ({
+                            value: o.key,
+                            label: o.label,
+                          }))}
+                          disabled={mutation.isPending}
                         >
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {data.automatedOptions.map((o) => (
-                            <SelectItem
-                              key={o.key}
-                              value={o.key}
-                              disabled={o.key === "AlwaysOverwrite" && !f.alwaysOverwriteAllowed}
-                            >
-                              {o.key === "AlwaysOverwrite" && !f.alwaysOverwriteAllowed
-                                ? `${o.label} (not available: required field)`
-                                : o.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                          <SelectTrigger
+                            className="w-full"
+                            aria-label={`${f.label}: when automated`}
+                          >
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {data.automatedOptions.map((o) => (
+                              <SelectItem
+                                key={o.key}
+                                value={o.key}
+                                disabled={o.key === "AlwaysOverwrite" && !f.alwaysOverwriteAllowed}
+                              >
+                                {o.key === "AlwaysOverwrite" && !f.alwaysOverwriteAllowed
+                                  ? `${o.label} (not available: required field)`
+                                  : o.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
                     </div>
                     {showWarning && (
                       <p role="alert" className="text-destructive text-xs sm:ml-32">
