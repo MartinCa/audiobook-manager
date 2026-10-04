@@ -430,12 +430,12 @@ describe("BookLibrary", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /Filters/ }));
     fireEvent.change(screen.getByLabelText("Last refreshed after"), {
-      target: { value: "2026-01-15" },
+      target: { value: "2026-01-15T10:30" },
     });
 
     await waitFor(() => {
       expect(browseApi.getAudiobooks).toHaveBeenLastCalledWith(20, 0, {
-        refreshedAfter: "2026-01-15",
+        refreshedAfter: new Date("2026-01-15T10:30").toISOString(),
       });
     });
   });

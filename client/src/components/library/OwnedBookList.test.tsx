@@ -1,3 +1,4 @@
+import { formatDateTime } from "@/helpers/formatHelpers";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { ReactNode } from "react";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
@@ -266,17 +267,23 @@ describe("OwnedBookList", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /Filters/ }));
     fireEvent.change(await screen.findByLabelText("Last refreshed after"), {
-      target: { value: "2026-01-15" },
+      target: { value: "2026-01-15T10:30" },
     });
 
-    expect(onFiltersChange).toHaveBeenCalledWith({ refreshedAfter: "2026-01-15" });
+    // The input is in the user's own zone; the filter state holds the exact UTC instant.
+    expect(onFiltersChange).toHaveBeenCalledWith({
+      refreshedAfter: new Date("2026-01-15T10:30").toISOString(),
+    });
   });
 
   it("offers a Never refreshed toggle that clears the date bounds", async () => {
     const onFiltersChange = vi.fn();
     renderList({
       onFiltersChange,
-      filters: { refreshedAfter: "2026-01-15", refreshedBefore: "2026-02-01" },
+      filters: {
+        refreshedAfter: "2026-01-15T10:30:00.000Z",
+        refreshedBefore: "2026-02-01T08:00:00.000Z",
+      },
     });
 
     fireEvent.click(await screen.findByRole("button", { name: "Never refreshed" }));
@@ -289,9 +296,15 @@ describe("OwnedBookList", () => {
   });
 
   it("labels an active refreshed-date filter as a removable chip", async () => {
-    renderList({ filters: { refreshedAfter: "2026-01-15", refreshedBefore: "2026-02-01" } });
+    const after = "2026-01-15T10:30:00.000Z";
+    const before = "2026-02-01T08:00:00.000Z";
+    renderList({ filters: { refreshedAfter: after, refreshedBefore: before } });
 
-    expect(await screen.findByText("Last refreshed: 2026-01-15 – 2026-02-01")).toBeInTheDocument();
+    expect(
+      await screen.findByText(
+        `Last refreshed: ${formatDateTime(after)} – ${formatDateTime(before)}`,
+      ),
+    ).toBeInTheDocument();
   });
 
   it("labels an active qualifier filter from the backend-served qualifier list and the None bucket", async () => {

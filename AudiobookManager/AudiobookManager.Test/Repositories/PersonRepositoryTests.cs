@@ -141,13 +141,10 @@ public class PersonRepositoryTests
         Assert.AreEqual("Unrefreshed Author", items.Single().Name);
     }
 
-    // Regression: the UI sends a calendar date (day granularity), which model-binds to that
-    // day's midnight. A plain "<=" against that midnight used to exclude every refresh later
-    // that same day, so picking "before 2024-06-01" silently dropped an author refreshed at
-    // 2024-06-01T15:00 - asymmetric with RefreshedAfter's inclusive ">=" against the same day's
-    // midnight, which does include the whole day.
+    // The bounds are exact instants (not calendar days): RefreshedBefore is exclusive, so an
+    // author refreshed at 15:30 is excluded by a 12:00 bound and included by a 16:00 one.
     [TestMethod]
-    public async Task GetAuthorSummariesPagedAsync_RefreshedBeforeFilter_IncludesRefreshesLaterThatSameDay()
+    public async Task GetAuthorSummariesPagedAsync_RefreshedBeforeFilter_UsesTheExactInstantAsAnExclusiveBound()
     {
         var sameDayLater = await SeedAuthorWithBooksAsync("Same Day Author", 1);
         sameDayLater.LastRefreshedAt = new DateTime(2024, 6, 1, 15, 30, 0, DateTimeKind.Utc);
@@ -155,12 +152,23 @@ public class PersonRepositoryTests
         nextDay.LastRefreshedAt = new DateTime(2024, 6, 2, 0, 0, 0, DateTimeKind.Utc);
         await _db.SaveChangesAsync();
 
-        var (items, total) = await _repository.GetAuthorSummariesPagedAsync(
+        var (before1200, total1200) = await _repository.GetAuthorSummariesPagedAsync(
             null, 10, 0,
-            filter: new AuthorSummaryFilter(RefreshedBefore: new DateTime(2024, 6, 1, 0, 0, 0, DateTimeKind.Utc)));
+            filter: new AuthorSummaryFilter(RefreshedBefore: new DateTime(2024, 6, 1, 12, 0, 0, DateTimeKind.Utc)));
+        Assert.AreEqual(0, total1200);
+        Assert.AreEqual(0, before1200.Count);
 
-        Assert.AreEqual(1, total);
-        Assert.AreEqual("Same Day Author", items.Single().Name);
+        var (before1600, total1600) = await _repository.GetAuthorSummariesPagedAsync(
+            null, 10, 0,
+            filter: new AuthorSummaryFilter(RefreshedBefore: new DateTime(2024, 6, 1, 16, 0, 0, DateTimeKind.Utc)));
+        Assert.AreEqual(1, total1600);
+        Assert.AreEqual("Same Day Author", before1600.Single().Name);
+
+        var (exact, exactTotal) = await _repository.GetAuthorSummariesPagedAsync(
+            null, 10, 0,
+            filter: new AuthorSummaryFilter(RefreshedBefore: new DateTime(2024, 6, 1, 15, 30, 0, DateTimeKind.Utc)));
+        Assert.AreEqual(0, exactTotal, "an exclusive bound excludes a refresh stamped exactly at it");
+        Assert.AreEqual(0, exact.Count);
     }
 
     [TestMethod]

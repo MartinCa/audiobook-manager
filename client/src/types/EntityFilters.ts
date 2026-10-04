@@ -1,9 +1,9 @@
 // Client-only shapes for EntityFilterBar - no 1:1 wire counterpart, mirroring how
 // OrganizeAudiobookInput documents its own reason in DESIGN.md section 9: these are the filter
 // query params SeriesController.GetSeries / BrowseController.GetAuthors accept, grouped for the
-// shared filter bar and the two list pages' route search schemas. Date bounds travel as
-// yyyy-MM-dd (a calendar date, matching formatHelpers' convention), not a full timestamp - the
-// filter only needs day granularity.
+// shared filter bar and the two list pages' route search schemas. Date bounds are exact
+// instants and travel as UTC ISO 8601 strings (the filter bar's datetime-local inputs convert
+// to/from the user's own timezone); refreshedAfter is inclusive, refreshedBefore exclusive.
 
 // The synthetic "Unsupported" bucket every "Matched source" filter offers (mirrors the backend's
 // AuthorSummaryFilter.UnsupportedSource/SeriesOverviewFilter.UnsupportedSource/
@@ -62,7 +62,7 @@ export interface BookListFilters {
   qualifiers?: string[];
   minDurationInSeconds?: number;
   maxDurationInSeconds?: number;
-  // Last metadata refresh (Audiobook.LastMetadataRefreshedAt) - same yyyy-MM-dd/neverRefreshed
+  // Last metadata refresh (Audiobook.LastMetadataRefreshedAt) - same instant/neverRefreshed
   // shape the series and author lists use.
   refreshedAfter?: string;
   refreshedBefore?: string;

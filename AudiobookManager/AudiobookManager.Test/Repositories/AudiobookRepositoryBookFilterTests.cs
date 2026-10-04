@@ -208,22 +208,48 @@ public class AudiobookRepositoryBookFilterTests
     }
 
     [TestMethod]
-    public async Task GetAllAsync_FilteredByRefreshedBefore_IncludesTheWholeChosenDay()
+    public async Task GetAllAsync_FilteredByRefreshedBefore_UsesTheExactInstantAsAnExclusiveBound()
     {
         await SeedRefreshedBooksAsync();
 
-        // "Recent refresh" is stamped 23:30 on 2026-06-20: choosing that day as the upper bound
-        // must still include it, while a never-refreshed book never satisfies a date bound.
-        var (items, total) = await _repository.GetAllAsync(
-            20, 0, new BookSummaryFilter(RefreshedBefore: new DateTime(2026, 6, 20)));
-        Assert.AreEqual(2, total);
-        CollectionAssert.AreEquivalent(
-            new[] { "Old refresh", "Recent refresh" }, items.Select(a => a.BookName).ToList());
+        // "Recent refresh" is stamped 2026-06-20 23:30:00Z. A never-refreshed book never
+        // satisfies a date bound.
+        var (atStamp, atStampTotal) = await _repository.GetAllAsync(
+            20, 0, new BookSummaryFilter(RefreshedBefore: new DateTime(2026, 6, 20, 23, 30, 0, DateTimeKind.Utc)));
+        Assert.AreEqual(1, atStampTotal, "an exclusive bound excludes a refresh stamped exactly at it");
+        Assert.AreEqual("Old refresh", atStamp.Single().BookName);
 
-        var (earlier, earlierTotal) = await _repository.GetAllAsync(
-            20, 0, new BookSummaryFilter(RefreshedBefore: new DateTime(2026, 6, 19)));
-        Assert.AreEqual(1, earlierTotal);
-        Assert.AreEqual("Old refresh", earlier.Single().BookName);
+        var (afterStamp, afterStampTotal) = await _repository.GetAllAsync(
+            20, 0, new BookSummaryFilter(RefreshedBefore: new DateTime(2026, 6, 20, 23, 31, 0, DateTimeKind.Utc)));
+        Assert.AreEqual(2, afterStampTotal);
+        CollectionAssert.AreEquivalent(
+            new[] { "Old refresh", "Recent refresh" }, afterStamp.Select(a => a.BookName).ToList());
+    }
+
+    [TestMethod]
+    public async Task GetAllAsync_FilteredByRefreshedAfter_HonoursTimeOfDay()
+    {
+        await SeedRefreshedBooksAsync();
+
+        // "Old refresh" is stamped 2026-01-10 12:00:00Z: a bound a minute later excludes it.
+        var (items, total) = await _repository.GetAllAsync(
+            20, 0, new BookSummaryFilter(RefreshedAfter: new DateTime(2026, 1, 10, 12, 1, 0, DateTimeKind.Utc)));
+        Assert.AreEqual(1, total);
+        Assert.AreEqual("Recent refresh", items.Single().BookName);
+    }
+
+    [TestMethod]
+    public async Task GetAllAsync_FilteredByRefreshedBefore_ConvertsALocalKindBoundToUtc()
+    {
+        await SeedRefreshedBooksAsync();
+
+        // ASP.NET binds a "...Z" timestamp to a Local-kind DateTime; the same instant must filter
+        // identically whatever the server's zone is.
+        var localKind = new DateTime(2026, 6, 20, 23, 31, 0, DateTimeKind.Utc).ToLocalTime();
+        var (items, total) = await _repository.GetAllAsync(
+            20, 0, new BookSummaryFilter(RefreshedBefore: localKind));
+        Assert.AreEqual(2, total);
+        Assert.AreEqual(2, items.Count);
     }
 
     [TestMethod]

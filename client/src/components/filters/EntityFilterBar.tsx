@@ -17,6 +17,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import {
   activeChips,
+  dateTimeLocalToIso,
+  isoToDateTimeLocal,
   toIntFilterValue,
   tristateValue,
   type FilterFieldDef,
@@ -216,15 +218,13 @@ export function EntityFilterBar({ fields, values, onChange }: EntityFilterBarPro
                 <div className="relative">
                   <CalendarDays className="text-muted-foreground pointer-events-none absolute top-1/2 left-2 h-3.5 w-3.5 -translate-y-1/2" />
                   <Input
-                    type="date"
+                    type="datetime-local"
                     disabled={neverActive}
-                    value={
-                      values[field.afterKey] === undefined ? "" : String(values[field.afterKey])
-                    }
+                    value={isoToDateTimeLocal(values[field.afterKey] as string | undefined)}
                     onChange={(e) =>
-                      onChange({ ...values, [field.afterKey]: e.target.value || undefined })
+                      onChange({ ...values, [field.afterKey]: dateTimeLocalToIso(e.target.value) })
                     }
-                    className="w-36 pl-7 text-xs"
+                    className="w-48 pl-7 text-xs"
                     aria-label={`${field.label} after`}
                   />
                 </div>
@@ -232,15 +232,13 @@ export function EntityFilterBar({ fields, values, onChange }: EntityFilterBarPro
                 <div className="relative">
                   <CalendarDays className="text-muted-foreground pointer-events-none absolute top-1/2 left-2 h-3.5 w-3.5 -translate-y-1/2" />
                   <Input
-                    type="date"
+                    type="datetime-local"
                     disabled={neverActive}
-                    value={
-                      values[field.beforeKey] === undefined ? "" : String(values[field.beforeKey])
-                    }
+                    value={isoToDateTimeLocal(values[field.beforeKey] as string | undefined)}
                     onChange={(e) =>
-                      onChange({ ...values, [field.beforeKey]: e.target.value || undefined })
+                      onChange({ ...values, [field.beforeKey]: dateTimeLocalToIso(e.target.value) })
                     }
-                    className="w-36 pl-7 text-xs"
+                    className="w-48 pl-7 text-xs"
                     aria-label={`${field.label} before`}
                   />
                 </div>
