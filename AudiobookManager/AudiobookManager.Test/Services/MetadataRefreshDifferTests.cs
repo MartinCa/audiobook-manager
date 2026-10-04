@@ -125,6 +125,39 @@ public class MetadataRefreshDifferTests
     }
 
     [TestMethod]
+    public void Diff_SourceReportsSeveralPeopleAsOneCommaJoinedName_NoDiffAgainstTheSplitBook()
+    {
+        // Regression: the applier splits "A, B" into two people, so a book already holding both
+        // must not diff against the source's single combined name on every fetch.
+        var book = Book();
+        book.Authors = new List<Database.Models.Person> { new(1, "Yuji Oniki"), new(2, "Koushun Takami") };
+        book.Narrators = new List<Database.Models.Person> { new(3, "A Narrator"), new(4, "B Narrator") };
+
+        var fetched = Fetched(r =>
+        {
+            r.Authors = new List<ScrapingPerson> { new("Yuji Oniki, Koushun Takami") };
+            r.Narrators = new List<ScrapingPerson> { new("A Narrator, B Narrator") };
+        });
+
+        var diffs = MetadataRefreshDiffer.Diff(book, fetched, Domain.InitialsSpacing.Spaced, Domain.InitialsPunctuation.Dotted).ToList();
+
+        Assert.AreEqual(0, diffs.Count);
+    }
+
+    [TestMethod]
+    public void DiffSnapshot_SourceReportsSeveralPeopleAsOneCommaJoinedName_NoDiffAgainstTheSplitBook()
+    {
+        var book = Book();
+        book.Authors = new List<Database.Models.Person> { new(1, "Yuji Oniki"), new(2, "Koushun Takami") };
+        var snapshot = Snapshot() with { Authors = new List<string> { "Yuji Oniki, Koushun Takami" } };
+        snapshot = snapshot with { Url = book.Www ?? snapshot.Url };
+
+        var diffs = MetadataRefreshDiffer.DiffSnapshot(book, snapshot, Domain.InitialsSpacing.Spaced, Domain.InitialsPunctuation.Dotted).ToList();
+
+        CollectionAssert.AreEqual(new List<string>(), diffs.Select(d => d.Field).Where(f => f == MetadataRefreshFields.Authors).ToList());
+    }
+
+    [TestMethod]
     public void Diff_WhitespaceOnlyDifferences_AreNotDifferences()
     {
         var book = Book(bookName: "The Test Book", description: "Some description.");

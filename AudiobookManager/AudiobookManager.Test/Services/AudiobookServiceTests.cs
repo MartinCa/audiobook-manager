@@ -1109,6 +1109,44 @@ public class AudiobookServiceTests
     }
 
     [TestMethod]
+    public async Task OrganizeAudiobook_AuthorNamedWithAComma_IsSplitBeforeTheTagsAreWritten()
+    {
+        // Regression: the combined name has to be split before the tag write, not after the
+        // re-parse, or the tags are written from "A, B" and the round-trip check fails.
+        SetupUpdateAudiobookTest();
+
+        var importPath = Path.Combine(_testRoot, "import", "book.m4b");
+        Directory.CreateDirectory(Path.GetDirectoryName(importPath)!);
+        File.WriteAllText(importPath, "original m4b content");
+
+        var audiobook = new Audiobook(
+            new List<Person> { new Person("Yuji Oniki, Koushun Takami") }, "New Book", 2024,
+            new AudiobookFileInfo(importPath, Path.GetFileName(importPath), 1000));
+
+        List<string>? writtenAuthors = null;
+        _tagHandler.Setup(t => t.SaveAudiobookTagsToFile(It.IsAny<Audiobook>(), It.IsAny<Action<float>?>()))
+            .Callback((Audiobook a, Action<float>? _) => writtenAuthors = a.Authors.Select(p => p.Name).ToList());
+        _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>()))
+            .Returns((FileInfo fi, bool _) => new Audiobook(
+                new List<Person> { new Person("Yuji Oniki"), new Person("Koushun Takami") }, "New Book", 2024,
+                new AudiobookFileInfo(fi.FullName, fi.Name, 1000)));
+        _personRepository.Setup(r => r.GetOrCreatePersons(It.IsAny<IEnumerable<string>>()))
+            .ReturnsAsync((IEnumerable<string> names) => names.Distinct().ToDictionary(n => n, n => new DbPerson(1, n)));
+        _genreRepository.Setup(r => r.GetOrCreateGenres(It.IsAny<IEnumerable<string>>()))
+            .ReturnsAsync(new Dictionary<string, DbGenre>());
+        _audiobookRepository.Setup(r => r.InsertAudiobook(It.IsAny<DbAudiobook>()))
+            .ReturnsAsync((DbAudiobook db) =>
+            {
+                db.Id = 5;
+                return db;
+            });
+
+        await _service.OrganizeAudiobook(audiobook, (_, _) => Task.CompletedTask);
+
+        CollectionAssert.AreEqual(new[] { "Yuji Oniki", "Koushun Takami" }, writtenAuthors);
+    }
+
+    [TestMethod]
     public async Task OrganizeAudiobook_TagsDoNotRoundTripAfterSave_ThrowsAndDoesNotInsertOrRelocate()
     {
         // Regression test: the shared pipeline's tag round-trip verification (previously present

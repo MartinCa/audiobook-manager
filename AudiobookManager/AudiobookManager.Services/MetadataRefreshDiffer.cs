@@ -27,10 +27,10 @@ public static class MetadataRefreshDiffer
 
         add(MetadataRefreshFields.Authors,
             JoinNames(book.Authors.Select(a => a.Name), spacing, punctuation),
-            JoinNames(fetched.Authors.Select(a => a.Name), spacing, punctuation));
+            JoinNames(SplitCombinedNames(fetched.Authors.Select(a => a.Name)), spacing, punctuation));
         add(MetadataRefreshFields.Narrators,
             JoinNames(book.Narrators.Select(n => n.Name), spacing, punctuation),
-            JoinNames(fetched.Narrators.Select(n => n.Name), spacing, punctuation));
+            JoinNames(SplitCombinedNames(fetched.Narrators.Select(n => n.Name)), spacing, punctuation));
         // A book recorded as split compares against the source's title split the same way, or
         // every refresh would propose undoing the split.
         var (sourceBookName, sourceSubtitle) = TitleSplitter.Apply(fetched.BookName, fetched.Subtitle, book.SplitTitleOnColon);
@@ -88,10 +88,10 @@ public static class MetadataRefreshDiffer
 
         add(MetadataRefreshFields.Authors,
             JoinNames(book.Authors.Select(a => a.Name), spacing, punctuation),
-            JoinNames(snapshot.Authors, spacing, punctuation));
+            JoinNames(SplitCombinedNames(snapshot.Authors), spacing, punctuation));
         add(MetadataRefreshFields.Narrators,
             JoinNames(book.Narrators.Select(n => n.Name), spacing, punctuation),
-            JoinNames(snapshot.Narrators, spacing, punctuation));
+            JoinNames(SplitCombinedNames(snapshot.Narrators), spacing, punctuation));
         var (sourceBookName, sourceSubtitle) = TitleSplitter.Apply(snapshot.BookName, snapshot.Subtitle, book.SplitTitleOnColon);
         add(MetadataRefreshFields.BookName, book.BookName, sourceBookName);
         add(MetadataRefreshFields.Subtitle, book.Subtitle, sourceSubtitle);
@@ -213,6 +213,17 @@ public static class MetadataRefreshDiffer
     /// the canonical form (consistent with how Genres already displays a sorted/deduped form
     /// rather than the literal scraped order).
     /// </summary>
+    /// <summary>
+    /// The source's names as applying them would store them: <see cref="MetadataRefreshApplier"/>
+    /// splits a name that is really several comma-joined people, so the diff has to compare the
+    /// split form or a source reporting "A, B" as one person would diff against the stored
+    /// [A, B] on every fetch and the book would never leave the pending list.
+    /// </summary>
+    private static IEnumerable<string?> SplitCombinedNames(IEnumerable<string?> names) =>
+        AudiobookManager.FileManager.AudiobookTagHandler
+            .SplitCommaJoinedNames(names.Where(n => n is not null).Select(n => new Domain.Person(n!)))
+            .Select(p => (string?)p.Name);
+
     private static string? JoinNames(IEnumerable<string?> names, Domain.InitialsSpacing spacing, Domain.InitialsPunctuation punctuation) =>
         JoinList(names.Select(n => string.IsNullOrWhiteSpace(n) ? n : InitialsSpacingFormatter.Format(n, spacing, punctuation)));
 
