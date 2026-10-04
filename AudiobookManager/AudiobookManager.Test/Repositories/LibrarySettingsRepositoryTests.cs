@@ -158,4 +158,34 @@ public class LibrarySettingsRepositoryTests
             AudiobookManager.Database.Models.SearchInitialsHandling.Compact,
             (await freshContext.LibrarySettings.SingleAsync()).SearchInitialsHandling);
     }
+
+    [TestMethod]
+    public async Task SetMetadataApplyRulesJsonAsync_StoresTheJson_AndLeavesTheOtherSettingsAlone()
+    {
+        await _repository.UpdateAsync(
+            DbInitialsSpacing.Spaced, DbInitialsPunctuation.Undotted, 2500, false, "0 5 * * *", 50,
+            AudiobookManager.Database.Models.SearchInitialsHandling.Compact);
+
+        await _repository.SetMetadataApplyRulesJsonAsync("{\"Description\":{}}");
+
+        _db.ChangeTracker.Clear();
+        var row = await _repository.GetOrCreateAsync();
+        Assert.AreEqual("{\"Description\":{}}", row.MetadataApplyRulesJson);
+        Assert.AreEqual(DbInitialsSpacing.Spaced, row.InitialsSpacing);
+        Assert.AreEqual(2500, row.MetadataRefreshDelayMs);
+        Assert.AreEqual(50, row.DefaultPageSize);
+    }
+
+    [TestMethod]
+    public async Task UpdateAsync_DoesNotResetTheStoredApplyRules()
+    {
+        await _repository.SetMetadataApplyRulesJsonAsync("{\"Description\":{}}");
+
+        await _repository.UpdateAsync(
+            DbInitialsSpacing.Unspaced, DbInitialsPunctuation.Dotted, 1000, true, "0 3 * * *", 20,
+            AudiobookManager.Database.Models.SearchInitialsHandling.AsStored);
+
+        _db.ChangeTracker.Clear();
+        Assert.AreEqual("{\"Description\":{}}", (await _repository.GetOrCreateAsync()).MetadataApplyRulesJson);
+    }
 }

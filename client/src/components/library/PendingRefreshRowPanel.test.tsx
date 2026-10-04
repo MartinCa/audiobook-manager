@@ -20,10 +20,39 @@ vi.mock("@/services/api", () => ({
   },
   settingsApi: {
     getLanguages: vi.fn().mockResolvedValue({ languages: [] }),
+    getMetadataApplyRules: vi.fn(),
   },
 }));
 
-import { browseApi, metadataRefreshApi } from "@/services/api";
+import { browseApi, metadataRefreshApi, settingsApi } from "@/services/api";
+import type { MetadataApplyRules } from "@/types/MetadataApplyRules";
+
+function ratingRules(
+  interactive: MetadataApplyRules["fields"][number]["interactive"],
+  automated: MetadataApplyRules["fields"][number]["automated"] = "AskMe",
+  otherAutomated: MetadataApplyRules["fields"][number]["automated"] = "AskMe",
+): MetadataApplyRules {
+  return {
+    fields: [
+      {
+        field: "Rating",
+        label: "Rating",
+        interactive,
+        automated,
+        alwaysOverwriteAllowed: true,
+      },
+      {
+        field: "Publisher",
+        label: "Publisher",
+        interactive: "AlwaysSelect",
+        automated: otherAutomated,
+        alwaysOverwriteAllowed: true,
+      },
+    ],
+    interactiveOptions: [],
+    automatedOptions: [],
+  };
+}
 
 function renderPanel(onApplied: () => void = vi.fn()) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -442,6 +471,75 @@ describe("PendingRefreshRowPanel", () => {
 
       await screen.findByRole("button", { name: /apply all/i });
       expect(screen.queryByRole("radio")).not.toBeInTheDocument();
+    });
+  });
+  describe("apply rules (when reviewing)", () => {
+    async function renderWithRules(rules: MetadataApplyRules) {
+      vi.mocked(settingsApi.getMetadataApplyRules).mockResolvedValue(rules);
+      vi.mocked(browseApi.getAudiobookDetail).mockResolvedValue(bookDetailWithOnlyRatingDiffering);
+      vi.mocked(metadataRefreshApi.getPendingForAudiobook).mockResolvedValue(
+        pendingWithOnlyRatingDiffering,
+      );
+      vi.mocked(metadataRefreshApi.applyPending).mockClear();
+      renderPanel();
+      return screen.findByRole("button", { name: /apply selected/i });
+    }
+
+    it("starts a changed field unticked when its rule is Never select, and Apply All still applies it", async () => {
+      const applySelected = await renderWithRules(ratingRules("NeverSelect"));
+
+      await waitFor(() => expect(applySelected).toHaveTextContent("Apply Selected (0)"));
+      expect(applySelected).toBeDisabled();
+
+      fireEvent.click(screen.getByRole("button", { name: /apply all/i }));
+      await waitFor(() => expect(metadataRefreshApi.applyPending).toHaveBeenCalled());
+      expect(metadataRefreshApi.applyPending).toHaveBeenCalledWith(
+        42,
+        ["Rating"],
+        false,
+        undefined,
+        false,
+      );
+    });
+
+    it("leaves a field with a current value unticked under Select if empty", async () => {
+      // The book already has a rating ("4.0"), so this rule does not preselect the new one.
+      const applySelected = await renderWithRules(ratingRules("SelectIfEmpty"));
+
+      await waitFor(() => expect(applySelected).toHaveTextContent("Apply Selected (0)"));
+    });
+
+    it("ticks a field whose source has a value under Select if source has value", async () => {
+      const applySelected = await renderWithRules(ratingRules("SelectIfSourceHasValue"));
+
+      await waitFor(() => expect(applySelected).toHaveTextContent("Apply Selected (1)"));
+    });
+
+    it("falls back to ticking every changed field when the rules cannot be loaded", async () => {
+      vi.mocked(settingsApi.getMetadataApplyRules).mockRejectedValue(new Error("boom"));
+      vi.mocked(browseApi.getAudiobookDetail).mockResolvedValue(bookDetailWithOnlyRatingDiffering);
+      vi.mocked(metadataRefreshApi.getPendingForAudiobook).mockResolvedValue(
+        pendingWithOnlyRatingDiffering,
+      );
+
+      renderPanel();
+
+      const applySelected = await screen.findByRole("button", { name: /apply selected/i });
+      expect(applySelected).toHaveTextContent("Apply Selected (1)");
+    });
+
+    it("says why the book was held for review once some field is set to apply on its own", async () => {
+      await renderWithRules(ratingRules("AlwaysSelect", "AskMe", "KeepCurrent"));
+
+      expect(
+        await screen.findByText(/held for review because Rating is set to/i),
+      ).toBeInTheDocument();
+    });
+
+    it("says nothing about review reasons while every field is on the default Ask me", async () => {
+      await renderWithRules(ratingRules("AlwaysSelect"));
+
+      expect(screen.queryByText(/held for review because/i)).not.toBeInTheDocument();
     });
   });
 });

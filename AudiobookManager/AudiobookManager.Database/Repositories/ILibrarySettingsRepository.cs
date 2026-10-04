@@ -16,4 +16,10 @@ public interface ILibrarySettingsRepository
         string upcomingReleasesCronSchedule,
         int defaultPageSize,
         SearchInitialsHandling searchInitialsHandling);
+
+    /// <summary>
+    /// Replaces only the online-metadata apply rules JSON (null = all defaults), leaving every other
+    /// setting untouched, so saving the rules can never clobber a concurrent edit of the rest.
+    /// </summary>
+    Task SetMetadataApplyRulesJsonAsync(string? json);
 }

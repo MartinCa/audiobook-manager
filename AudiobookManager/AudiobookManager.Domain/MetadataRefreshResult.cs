@@ -28,4 +28,10 @@ public class MetadataRefreshResult
 
     /// <summary>Why the refresh failed, when it did. Never shown to the user verbatim from an exception - see ProblemResults.</summary>
     public string? Error { get; init; }
+
+    /// <summary>
+    /// The fields an automated run applied by itself under the per-field apply rules. Empty for a
+    /// person's refresh and for a changeset left pending for review.
+    /// </summary>
+    public IReadOnlyList<string> AutoAppliedFields { get; init; } = Array.Empty<string>();
 }

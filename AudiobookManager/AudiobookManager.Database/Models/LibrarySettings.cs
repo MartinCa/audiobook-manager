@@ -60,6 +60,14 @@ public class LibrarySettings
     [Column("search_initials_handling")]
     public SearchInitialsHandling SearchInitialsHandling { get; set; } = SearchInitialsHandling.AsStored;
 
+    /// <summary>
+    /// The per-field online-metadata apply rules as a JSON object keyed by field name, or null for
+    /// "all defaults". A JSON column rather than two columns per field: the field set grows with the
+    /// tag set, and the shape is owned (parsed, validated, defaulted) by <c>MetadataApplyRuleSet</c>.
+    /// </summary>
+    [Column("metadata_apply_rules_json")]
+    public string? MetadataApplyRulesJson { get; set; }
+
     public LibrarySettings() { }
 
     public LibrarySettings(

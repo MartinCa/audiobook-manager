@@ -40,4 +40,11 @@ public class LibrarySettings
     /// See <see cref="SearchInitialsHandling"/>.
     /// </summary>
     public SearchInitialsHandling SearchInitialsHandling { get; set; } = SearchInitialsHandling.AsStored;
+
+    /// <summary>
+    /// Per-field rules for applying online metadata, keyed by <c>MetadataRefreshFields</c> name. A
+    /// field missing from the map uses the default rule (select it, ask me), which reproduces the
+    /// behaviour from before these rules existed; <c>MetadataApplyRuleSet</c> resolves the map.
+    /// </summary>
+    public Dictionary<string, FieldApplyRule> MetadataApplyRules { get; set; } = new();
 }

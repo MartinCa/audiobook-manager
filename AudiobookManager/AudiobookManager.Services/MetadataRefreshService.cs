@@ -77,7 +77,15 @@ public class MetadataRefreshService : IMetadataRefreshService
             s.SupportsUrl(url) && (!s.RequiresApiKey || s.IsApiKeyConfigured));
     }
 
-    public async Task<MetadataRefreshResult> RefreshAudiobookAsync(long audiobookId)
+    /// <summary>
+    /// A person's refresh of one book (the Refresh button): the differences always go to review,
+    /// whatever the automated apply rules say. Bulk and scheduled runs take
+    /// <see cref="RefreshAudiobookCoreAsync"/> with <c>automated: true</c> instead.
+    /// </summary>
+    public Task<MetadataRefreshResult> RefreshAudiobookAsync(long audiobookId) =>
+        RefreshAudiobookCoreAsync(audiobookId, automated: false);
+
+    private async Task<MetadataRefreshResult> RefreshAudiobookCoreAsync(long audiobookId, bool automated)
     {
         var book = await _audiobookRepository.GetByIdWithIncludesAsync(audiobookId);
         if (book is null)
@@ -99,13 +107,22 @@ public class MetadataRefreshService : IMetadataRefreshService
             var fetched = await _scrapingService.GetBookDetails(book.Www!);
             var (spacing, punctuation) = await GetInitialsSettingsAsync();
             var differences = MetadataRefreshDiffer.Diff(book, fetched, spacing, punctuation).ToList();
-            await RecordFetchedSnapshotAsync(book, fetched, differences);
+
+            var autoApplied = automated
+                ? await TryApplyAutomaticallyAsync(book, fetched, differences)
+                : null;
+            if (autoApplied is null)
+            {
+                await RecordFetchedSnapshotAsync(book, fetched, differences);
+            }
+
             return new MetadataRefreshResult
             {
                 Success = true,
                 HasDifferences = differences.Count > 0,
                 Differences = differences,
                 SourceName = fetched.Source,
+                AutoAppliedFields = autoApplied ?? Array.Empty<string>(),
             };
         }
         catch (HardcoverDailyLimitExceededException)
@@ -159,6 +176,64 @@ public class MetadataRefreshService : IMetadataRefreshService
             Differences = differences,
             SourceName = fetched.Source,
         };
+    }
+
+    /// <summary>
+    /// The automated half of the apply rules (see <see cref="MetadataApplyRuleSet"/>): settles a
+    /// fetched changeset without a person when no differing field is set to Ask me, by applying the
+    /// fields their rules select and dropping the rest. Returns the fields it applied (possibly
+    /// none - every difference may be Keep current), or null when the changeset is not settled here
+    /// and must be recorded for review as usual: a field wants a person, or the apply itself failed
+    /// (the destination path is taken, the book is mid-save), in which case the full changeset is
+    /// left pending rather than lost.
+    /// </summary>
+    private async Task<IReadOnlyList<string>?> TryApplyAutomaticallyAsync(
+        Database.Models.Audiobook book, Scraping.Models.MetadataSearchResult fetched, List<MetadataRefreshDiff> differences)
+    {
+        if (differences.Count == 0)
+        {
+            return null;
+        }
+
+        var rules = MetadataApplyRuleSet.From((await _librarySettingsRepository.GetOrCreateAsync()).ToDomain().MetadataApplyRules);
+        var decision = rules.Decide(differences);
+        if (decision.RequiresReview)
+        {
+            _logger.LogInformation(
+                "Metadata refresh for audiobook {AudiobookId} ('{Title}') needs review: {Fields} set to Ask me differ",
+                book.Id, book.BookName, string.Join(", ", decision.ReviewFields));
+            return null;
+        }
+
+        if (decision.FieldsToApply.Count == 0)
+        {
+            // Every difference is on a rule that declines it: nothing to apply and nothing to
+            // review, so the book is simply up to date as far as these rules are concerned.
+            await _pendingRepository.DeleteByAudiobookIdAsync(book.Id);
+            await _audiobookRepository.UpdateLastMetadataRefreshedAtAsync(book.Id, DateTime.UtcNow);
+            return Array.Empty<string>();
+        }
+
+        // Recorded first so the apply runs the same path every other apply does (save gate, relocation,
+        // consistency recheck, pending cleanup), and so a failed apply leaves the changeset pending.
+        await RecordFetchedSnapshotAsync(book, fetched, differences);
+        try
+        {
+            var row = await _pendingRepository.GetByAudiobookIdAsync(book.Id);
+            if (row is not null && await ApplyOneAsync(row, decision.FieldsToApply.ToList()))
+            {
+                return decision.FieldsToApply.ToList();
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "Automatic apply failed for audiobook {AudiobookId} ('{Title}'); its changeset stays pending for review",
+                book.Id, book.BookName);
+        }
+
+        // Already recorded above, so the caller must not record it a second time.
+        return Array.Empty<string>();
     }
 
     public async Task<MetadataRefreshBatchResult> RefreshStaleAudiobooksAsync(
@@ -244,7 +319,7 @@ public class MetadataRefreshService : IMetadataRefreshService
 
             try
             {
-                var result = await RefreshAudiobookAsync(target.Id);
+                var result = await RefreshAudiobookCoreAsync(target.Id, automated: true);
                 if (result.Success)
                 {
                     succeeded++;

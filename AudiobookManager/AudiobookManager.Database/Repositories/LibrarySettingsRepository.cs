@@ -100,4 +100,11 @@ public class LibrarySettingsRepository : ILibrarySettingsRepository
             return winner;
         }
     }
+
+    public async Task SetMetadataApplyRulesJsonAsync(string? json)
+    {
+        // Ensure the singleton row exists, then update just this column set-based.
+        await GetOrCreateAsync();
+        await _db.LibrarySettings.ExecuteUpdateAsync(s => s.SetProperty(x => x.MetadataApplyRulesJson, json));
+    }
 }

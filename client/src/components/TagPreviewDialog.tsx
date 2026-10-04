@@ -7,6 +7,8 @@ import { MetadataFieldDiffTable } from "@/components/MetadataFieldDiffTable";
 import { settingsApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { useMetadataFieldDiffs } from "@/hooks/useMetadataFieldDiffs";
+import { useMetadataApplyRules } from "@/hooks/useMetadataApplyRules";
+import { defaultSelectedKeys } from "@/helpers/metadataApplyRules";
 import { useBookQualifiers } from "@/hooks/useBookQualifiers";
 import { splitTitleOnColon } from "@/helpers/titleSplitter";
 import {
@@ -131,6 +133,18 @@ export function TagPreviewDialog({
     () => fields.filter((f) => f.changed).map((f) => f.key),
     [fields],
   );
+  // What the review starts with ticked: the changed fields, narrowed by each one's "when
+  // reviewing" rule (Library Settings). "Select All Changed" and "Apply All" still cover every
+  // changed field.
+  const { rules: applyRules, ready: applyRulesReady } = useMetadataApplyRules();
+  const defaultKeys = useMemo(
+    () =>
+      defaultSelectedKeys(
+        fields.filter((f) => f.changed),
+        applyRules,
+      ),
+    [fields, applyRules],
+  );
 
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   // Opt-out of auto-save, for the search-result flow only (see showAutoSaveToggle). Must default
@@ -142,9 +156,15 @@ export function TagPreviewDialog({
   const [seededWithLanguages, setSeededWithLanguages] = useState(Boolean(langData));
   if (langData && !seededWithLanguages) {
     setSeededWithLanguages(true);
-    if (changedFieldKeys.includes("language")) {
+    if (defaultKeys.includes("language")) {
       setSelected((prev) => new Set(prev).add("language"));
     }
+  }
+  // Likewise the rules: if they arrive after the first seed, the selection is re-seeded once.
+  const [seededWithRules, setSeededWithRules] = useState(applyRulesReady);
+  if (applyRulesReady && !seededWithRules) {
+    setSeededWithRules(true);
+    setSelected(new Set(defaultKeys));
   }
   const [dontSaveAutomatically, setDontSaveAutomatically] = useState(false);
 
@@ -152,7 +172,7 @@ export function TagPreviewDialog({
   const [lastSearchResult, setLastSearchResult] = useState<MetadataSearchResult | null>(null);
   if (searchResult !== lastSearchResult) {
     setLastSearchResult(searchResult);
-    setSelected(new Set(changedFieldKeys));
+    setSelected(new Set(defaultKeys));
     setDontSaveAutomatically(false);
     setSplitTitleOnColonEnabled(recordedSplit);
     setChosenPrimarySeries(undefined);
@@ -186,7 +206,7 @@ export function TagPreviewDialog({
     useState(splitTitleOnColonEnabled);
   if (splitTitleOnColonEnabled !== lastSplitTitleOnColonEnabled) {
     setLastSplitTitleOnColonEnabled(splitTitleOnColonEnabled);
-    setSelected(new Set(changedFieldKeys));
+    setSelected(new Set(defaultKeys));
   }
 
   const toggleField = (key: string) => {

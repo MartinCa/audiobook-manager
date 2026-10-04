@@ -678,6 +678,43 @@ applied title, so a bulk apply with the toggle on does not flag every book that 
 database-only bookkeeping (no tag, sidecar or path), carried through `FromDb` -> `UpdateAudiobook` like
 `Qualifiers`; the edit form's checkbox is the one way to turn it off again.
 
+### Online metadata apply rules (per field, interactive vs automated)
+
+**Invariant: how a differing field is handled when online metadata is applied is a per-field rule
+pair, resolved by `MetadataApplyRuleSet` (`AudiobookManager.Services`) - nothing else decides it.**
+Each field in `MetadataApplyRuleSet.Fields` (kept in step with `MetadataRefreshFields.All` by a
+test, minus the retired `SeriesPart`) has an `InteractiveApplyRule` (does a review a person
+confirms start with the field ticked: Always select / Never select / Select if empty / Select if
+source has value) and an `AutomatedApplyRule` (what an unattended run does: Ask me / Always
+overwrite / Fill blanks only / Overwrite unless source is empty / Keep current). The defaults -
+Always select, Ask me - are exactly the behaviour from before the rules existed. Both rules apply
+only to a field that actually differs. "Empty" is no text (a year of 0 included).
+
+- **Stored as one JSON column** (`library_settings.metadata_apply_rules_json`, null = all
+  defaults), written only through `ILibrarySettingsRepository.SetMetadataApplyRulesJsonAsync` (a
+  set-based update of that column, so `UpdateAsync` and this never clobber each other). Served and
+  saved over `GET`/`PUT api/settings/metadata-apply-rules` together with the option lists, their
+  explanatory text and the guard rails: **the frontend holds no list of fields or options** (same
+  rule as languages and scrapers); a PUT leaves out-of-body fields on their stored rules.
+- **Automated runs** are the bulk and scheduled refreshes only (`RunRefreshLoopAsync` calls
+  `RefreshAudiobookCoreAsync(automated: true)`); `RefreshAudiobookAsync`, the single-book Refresh,
+  is always a review. `Decide` returns "review" when *any* differing field is Ask me - then
+  **nothing is applied for that book**, not even fields whose own rule would have applied, and the
+  changeset is stored pending as before. Otherwise `TryApplyAutomaticallyAsync` records the
+  snapshot and applies the chosen fields through `ApplyOneAsync` (save gate, `UpdateAudiobook`,
+  consistency recheck, pending cleanup), so the binding invariant above holds. Fields the rules
+  decline are dropped, not left pending. If that apply fails (path taken, book busy) the full
+  changeset stays pending for review rather than being lost. Bulk *online search* only collects
+  candidates; picking one is a person's action that lands in the ordinary review.
+- **Guard rails:** `Always overwrite` is the only rule that can replace a value with an empty one,
+  so it is refused (`Validate` -> 400; `From` coerces a stored one back to Ask me) on the fields a
+  book cannot be without - Authors, Book name, Year - and allowed with a warning on Series (an empty
+  source would drop the series and move the file). Qualifiers are additive, so they cannot blank.
+- **The interactive half is evaluated twice**, because the review dialogs compute their own diffs:
+  `MetadataApplyRuleSet.IsSelectedByDefault` and its client twin `isSelectedByDefault` in
+  `helpers/metadataApplyRules.ts` must agree. The cover has no rule and stays selected when it
+  changed. With the rules unloaded or unreachable a review ticks everything that changed.
+
 ### Metadata sidecar files
 
 Alongside each m4b, `WriteMetadata()` creates `desc.txt` (description), `reader.txt` (narrators)

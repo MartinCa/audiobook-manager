@@ -30,4 +30,27 @@ public class SettingsService : ISettingsService
             settings.SearchInitialsHandling.ToDb());
         return dbSettings.ToDomain();
     }
+
+    public async Task<MetadataApplyRuleSet> GetMetadataApplyRules()
+    {
+        var dbSettings = await _librarySettingsRepository.GetOrCreateAsync();
+        return MetadataApplyRuleSet.From(MetadataApplyRuleSet.Deserialize(dbSettings.MetadataApplyRulesJson));
+    }
+
+    public async Task<MetadataApplyRuleSet> UpdateMetadataApplyRules(IReadOnlyDictionary<string, Domain.FieldApplyRule> rules)
+    {
+        MetadataApplyRuleSet.Validate(rules);
+
+        var merged = MetadataApplyRuleSet.From(MetadataApplyRuleSet.Deserialize(
+            (await _librarySettingsRepository.GetOrCreateAsync()).MetadataApplyRulesJson)).ToDictionary()
+            .ToDictionary(r => r.Key, r => r.Value);
+        foreach (var (field, rule) in rules)
+        {
+            merged[field] = rule;
+        }
+
+        var resolved = MetadataApplyRuleSet.From(merged);
+        await _librarySettingsRepository.SetMetadataApplyRulesJsonAsync(resolved.Serialize());
+        return resolved;
+    }
 }
