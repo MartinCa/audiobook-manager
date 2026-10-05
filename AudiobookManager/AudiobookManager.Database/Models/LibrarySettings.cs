@@ -60,6 +60,18 @@ public class LibrarySettings
     [Column("search_initials_handling")]
     public SearchInitialsHandling SearchInitialsHandling { get; set; } = SearchInitialsHandling.AsStored;
 
+    /// <summary>Whether the book folder name carries the narrator as <c>{Narrator}</c>.</summary>
+    [Column("include_narrator_in_path")]
+    public bool IncludeNarratorInPath { get; set; }
+
+    /// <summary>How many narrators the folder name lists when <see cref="IncludeNarratorInPath"/> is on.</summary>
+    [Column("max_narrators_in_path")]
+    public int MaxNarratorsInPath { get; set; } = 1;
+
+    /// <summary>How many narrators the folder name lists, 0 when the narrator is not part of the path.</summary>
+    [NotMapped]
+    public int NarratorsInPath => IncludeNarratorInPath ? MaxNarratorsInPath : 0;
+
     /// <summary>
     /// The per-field online-metadata apply rules as a JSON object keyed by field name, or null for
     /// "all defaults". A JSON column rather than two columns per field: the field set grows with the
@@ -78,7 +90,9 @@ public class LibrarySettings
         bool upcomingReleasesEnabled = true,
         string upcomingReleasesCronSchedule = "0 3 * * *",
         int defaultPageSize = 20,
-        SearchInitialsHandling searchInitialsHandling = SearchInitialsHandling.AsStored)
+        SearchInitialsHandling searchInitialsHandling = SearchInitialsHandling.AsStored,
+        bool includeNarratorInPath = false,
+        int maxNarratorsInPath = 1)
     {
         Id = id;
         InitialsSpacing = initialsSpacing;
@@ -88,5 +102,7 @@ public class LibrarySettings
         UpcomingReleasesCronSchedule = upcomingReleasesCronSchedule;
         DefaultPageSize = defaultPageSize;
         SearchInitialsHandling = searchInitialsHandling;
+        IncludeNarratorInPath = includeNarratorInPath;
+        MaxNarratorsInPath = maxNarratorsInPath;
     }
 }

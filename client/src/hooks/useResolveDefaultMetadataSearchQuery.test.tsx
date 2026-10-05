@@ -25,6 +25,8 @@ function settingsWith(handling: SearchInitialsHandling): LibrarySettings {
     upcomingReleasesCronSchedule: "0 3 * * *",
     defaultPageSize: 20,
     searchInitialsHandling: handling,
+    includeNarratorInPath: false,
+    maxNarratorsInPath: 3,
   };
 }
 

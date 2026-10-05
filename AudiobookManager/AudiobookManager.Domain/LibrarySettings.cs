@@ -42,6 +42,33 @@ public class LibrarySettings
     public SearchInitialsHandling SearchInitialsHandling { get; set; } = SearchInitialsHandling.AsStored;
 
     /// <summary>
+    /// Whether a book's folder name gets the narrator appended as <c>{Narrator}</c> (the form
+    /// Audiobookshelf reads), so two narrations of one book can sit side by side. Off by default:
+    /// turning it on moves every book that has a narrator, through the consistency check's
+    /// WrongFilePath resolve.
+    /// </summary>
+    public bool IncludeNarratorInPath { get; set; }
+
+    /// <summary>Default for <see cref="MaxNarratorsInPath"/>.</summary>
+    public const int DefaultMaxNarratorsInPath = 1;
+
+    /// <summary>Largest accepted <see cref="MaxNarratorsInPath"/>; the smallest is 1.</summary>
+    public const int MaxNarratorsInPathLimit = 10;
+
+    /// <summary>
+    /// How many narrators the folder name lists when <see cref="IncludeNarratorInPath"/> is on (the
+    /// first ones, in tag order). A long cast makes a long folder name and a different path for
+    /// every change to the tail of the list.
+    /// </summary>
+    public int MaxNarratorsInPath { get; set; } = DefaultMaxNarratorsInPath;
+
+    /// <summary>
+    /// The one number the path code takes: how many narrators the folder names, 0 when the
+    /// narrator is not part of the path.
+    /// </summary>
+    public int NarratorsInPath => IncludeNarratorInPath ? MaxNarratorsInPath : 0;
+
+    /// <summary>
     /// Per-field rules for applying online metadata, keyed by <c>MetadataRefreshFields</c> name. A
     /// field missing from the map uses the default rule (select it, ask me), which reproduces the
     /// behaviour from before these rules existed; <c>MetadataApplyRuleSet</c> resolves the map.

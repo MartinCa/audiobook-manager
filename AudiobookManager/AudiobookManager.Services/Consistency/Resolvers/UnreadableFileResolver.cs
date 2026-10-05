@@ -40,7 +40,7 @@ public class UnreadableFileResolver : IBookConsistencyIssueResolver
 
         // Detection is what decides whether the file reads now - re-running it is the whole
         // resolve, and it returns the book's real issues if it does.
-        var newIssues = await Task.Run(() => _detectionService.DetectIssues(audiobook));
+        var newIssues = await _detectionService.DetectIssuesAsync(audiobook);
 
         var stillUnreadable = newIssues
             .Where(newIssue => newIssue.IssueType == BookConsistencyIssueType.UnreadableFile)

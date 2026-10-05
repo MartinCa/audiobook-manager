@@ -7,7 +7,7 @@ public sealed class PathMismatchDetector : IBookConsistencyIssueDetector
 {
     public IEnumerable<BookConsistencyIssue> Detect(AudiobookCheckContext context)
     {
-        var expectedRelativePath = AudiobookFileHandler.GenerateRelativeAudiobookPath(context.Parsed);
+        var expectedRelativePath = AudiobookFileHandler.GenerateRelativeAudiobookPath(context.Parsed, context.MaxNarratorsInPath);
         // Same join as AudiobookService.GenerateLibraryPath, and it has to stay the same one: this
         // is the path a WrongFilePath resolve will move the file to, so a path this check would
         // accept but the organize path would refuse is a loop the user cannot resolve.

@@ -185,16 +185,16 @@ public class AudiobookControllerTests
     }
 
     [TestMethod]
-    public void GeneratePath_DelegatesToService()
+    public async Task GeneratePath_DelegatesToService()
     {
         var dto = MakeDto();
 
-        _audiobookService.Setup(s => s.GenerateLibraryPath(It.IsAny<Audiobook>())).Returns("/library/Test Author/2024 - Test Book/test.m4b");
+        _audiobookService.Setup(s => s.GenerateLibraryPathAsync(It.IsAny<Audiobook>())).ReturnsAsync("/library/Test Author/2024 - Test Book/test.m4b");
 
-        var result = _controller.GeneratePath(dto);
+        var result = await _controller.GeneratePath(dto);
 
         Assert.AreEqual("/library/Test Author/2024 - Test Book/test.m4b", result);
-        _audiobookService.Verify(s => s.GenerateLibraryPath(It.Is<Audiobook>(a => a.BookName == "Test Book")), Times.Once);
+        _audiobookService.Verify(s => s.GenerateLibraryPathAsync(It.Is<Audiobook>(a => a.BookName == "Test Book")), Times.Once);
     }
 
     [TestMethod]

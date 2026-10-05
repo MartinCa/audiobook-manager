@@ -55,6 +55,8 @@ function makeSettings(overrides: Partial<LibrarySettings> = {}): LibrarySettings
     upcomingReleasesCronSchedule: "0 3 * * *",
     defaultPageSize: 20,
     searchInitialsHandling: "AsStored",
+    includeNarratorInPath: false,
+    maxNarratorsInPath: 3,
     ...overrides,
   };
 }
@@ -95,6 +97,130 @@ describe("LibrarySettingsPage", () => {
     expect(await findSearchInitialsCombo()).toHaveTextContent("Compact (George R.R. Martin)");
   });
 
+  it("shows the narrator-in-folder-name option off by default and reflects a stored on", async () => {
+    vi.mocked(settingsApi.getLibrarySettings).mockResolvedValue(makeSettings());
+    const { unmount } = renderPage();
+    expect(
+      await screen.findByRole("checkbox", { name: /include narrator in folder name/i }),
+    ).not.toBeChecked();
+    unmount();
+
+    vi.mocked(settingsApi.getLibrarySettings).mockResolvedValue(
+      makeSettings({ includeNarratorInPath: true }),
+    );
+    renderPage();
+    await waitFor(() => {
+      expect(
+        screen.getByRole("checkbox", { name: /include narrator in folder name/i }),
+      ).toBeChecked();
+    });
+  });
+
+  it("sends includeNarratorInPath: true on save once the option is ticked", async () => {
+    const user = userEvent.setup();
+    vi.mocked(settingsApi.getLibrarySettings).mockResolvedValue(makeSettings());
+    vi.mocked(settingsApi.updateLibrarySettings).mockResolvedValue(
+      makeSettings({ includeNarratorInPath: true }),
+    );
+
+    renderPage();
+
+    await user.click(
+      await screen.findByRole("checkbox", { name: /include narrator in folder name/i }),
+    );
+    await user.click(screen.getByRole("button", { name: /^Save$/ }));
+
+    await waitFor(() => {
+      expect(settingsApi.updateLibrarySettings).toHaveBeenCalledWith(
+        expect.objectContaining({ includeNarratorInPath: true }),
+      );
+    });
+  });
+
+  it("shows the stored narrator limit, disabled while the narrator is not in the folder name", async () => {
+    vi.mocked(settingsApi.getLibrarySettings).mockResolvedValue(
+      makeSettings({ includeNarratorInPath: false, maxNarratorsInPath: 4 }),
+    );
+
+    renderPage();
+
+    const limit = await screen.findByRole("spinbutton", { name: /maximum narrators/i });
+    expect(limit).toHaveValue(4);
+    expect(limit).toBeDisabled();
+  });
+
+  it("sends the edited narrator limit on save", async () => {
+    const user = userEvent.setup();
+    vi.mocked(settingsApi.getLibrarySettings).mockResolvedValue(
+      makeSettings({ includeNarratorInPath: true }),
+    );
+    vi.mocked(settingsApi.updateLibrarySettings).mockResolvedValue(
+      makeSettings({ includeNarratorInPath: true, maxNarratorsInPath: 2 }),
+    );
+
+    renderPage();
+
+    const limit = await screen.findByRole("spinbutton", { name: /maximum narrators/i });
+    await waitFor(() => expect(limit).toBeEnabled());
+    await user.clear(limit);
+    await user.type(limit, "2");
+    await user.click(screen.getByRole("button", { name: /^Save$/ }));
+
+    await waitFor(() => {
+      expect(settingsApi.updateLibrarySettings).toHaveBeenCalledWith(
+        expect.objectContaining({ includeNarratorInPath: true, maxNarratorsInPath: 2 }),
+      );
+    });
+  });
+
+  it("does not leave Save disabled by an invalid narrator limit once the narrator is switched off", async () => {
+    const user = userEvent.setup();
+    vi.mocked(settingsApi.getLibrarySettings).mockResolvedValue(
+      makeSettings({ includeNarratorInPath: true, maxNarratorsInPath: 4 }),
+    );
+    vi.mocked(settingsApi.updateLibrarySettings).mockResolvedValue(
+      makeSettings({ includeNarratorInPath: false, maxNarratorsInPath: 4 }),
+    );
+
+    renderPage();
+
+    const limit = await screen.findByRole("spinbutton", { name: /maximum narrators/i });
+    await waitFor(() => expect(limit).toBeEnabled());
+    await user.clear(limit);
+    expect(screen.getByRole("button", { name: /^Save$/ })).toBeDisabled();
+
+    await user.click(screen.getByRole("checkbox", { name: /include narrator in folder name/i }));
+    expect(screen.getByRole("button", { name: /^Save$/ })).toBeEnabled();
+    await user.click(screen.getByRole("button", { name: /^Save$/ }));
+
+    // The cleared text is not sent: the stored limit goes back unchanged.
+    await waitFor(() => {
+      expect(settingsApi.updateLibrarySettings).toHaveBeenCalledWith(
+        expect.objectContaining({ includeNarratorInPath: false, maxNarratorsInPath: 4 }),
+      );
+    });
+  });
+
+  it.each(["0", "11", ""])(
+    "blocks saving when the narrator limit is %j, which the server would refuse",
+    async (typed) => {
+      const user = userEvent.setup();
+      vi.mocked(settingsApi.getLibrarySettings).mockResolvedValue(
+        makeSettings({ includeNarratorInPath: true }),
+      );
+
+      renderPage();
+
+      const limit = await screen.findByRole("spinbutton", { name: /maximum narrators/i });
+      await waitFor(() => expect(limit).toBeEnabled());
+      await user.clear(limit);
+      if (typed) await user.type(limit, typed);
+
+      expect(screen.getByRole("button", { name: /^Save$/ })).toBeDisabled();
+      expect(settingsApi.updateLibrarySettings).not.toHaveBeenCalled();
+    },
+  );
+
   it("sends the chosen search initials handling on save", async () => {
     const user = userEvent.setup();
     vi.mocked(settingsApi.getLibrarySettings).mockResolvedValue(makeSettings());
@@ -120,6 +246,8 @@ describe("LibrarySettingsPage", () => {
         upcomingReleasesCronSchedule: "0 3 * * *",
         defaultPageSize: 20,
         searchInitialsHandling: "Compact",
+        includeNarratorInPath: false,
+        maxNarratorsInPath: 3,
       });
     });
   });
@@ -143,7 +271,7 @@ describe("LibrarySettingsPage", () => {
 
     const cronInput = await screen.findByPlaceholderText("0 3 * * *");
     expect(cronInput).toHaveValue("0 4 * * *");
-    expect(screen.getByRole("checkbox")).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: /check for upcoming releases/i })).toBeChecked();
   });
 
   it("sends an update when a different spacing is chosen and shows a success toast", async () => {
@@ -173,6 +301,8 @@ describe("LibrarySettingsPage", () => {
         upcomingReleasesCronSchedule: "0 3 * * *",
         defaultPageSize: 20,
         searchInitialsHandling: "AsStored",
+        includeNarratorInPath: false,
+        maxNarratorsInPath: 3,
       });
     });
     expect(notifications.success).toHaveBeenCalledWith("Library settings saved");
@@ -205,6 +335,8 @@ describe("LibrarySettingsPage", () => {
         upcomingReleasesCronSchedule: "0 3 * * *",
         defaultPageSize: 20,
         searchInitialsHandling: "AsStored",
+        includeNarratorInPath: false,
+        maxNarratorsInPath: 3,
       });
     });
     expect(notifications.success).toHaveBeenCalledWith("Library settings saved");
@@ -220,7 +352,7 @@ describe("LibrarySettingsPage", () => {
     const cronInput = await screen.findByPlaceholderText("0 3 * * *");
     await user.clear(cronInput);
     await user.type(cronInput, "0 5 * * *");
-    await user.click(screen.getByRole("checkbox"));
+    await user.click(screen.getByRole("checkbox", { name: /check for upcoming releases/i }));
 
     await user.click(screen.getByRole("button", { name: /^Save$/ }));
 
@@ -232,6 +364,8 @@ describe("LibrarySettingsPage", () => {
         upcomingReleasesCronSchedule: "0 5 * * *",
         defaultPageSize: 20,
         searchInitialsHandling: "AsStored",
+        includeNarratorInPath: false,
+        maxNarratorsInPath: 3,
       });
     });
   });

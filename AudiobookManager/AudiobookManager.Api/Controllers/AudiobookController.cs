@@ -81,10 +81,10 @@ public class AudiobookController : ControllerBase
     }
 
     [HttpPost("generate_path")]
-    public string GeneratePath([FromBody] OrganizeAudiobookDto dto)
+    public async Task<string> GeneratePath([FromBody] OrganizeAudiobookDto dto)
     {
         var book = MapToDomain(dto);
-        return _audiobookService.GenerateLibraryPath(book);
+        return await _audiobookService.GenerateLibraryPathAsync(book);
     }
 
     [HttpPost("check_target_path")]

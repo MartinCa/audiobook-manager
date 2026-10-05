@@ -23,6 +23,7 @@ public class AudiobookService : IAudiobookService
     private readonly IBookConsistencyIssueRepository _issueRepository;
     private readonly IPendingOnlineMatchRepository _pendingOnlineMatchRepository;
     private readonly ISeriesReconciliationCache _seriesReconciliationCache;
+    private readonly ISettingsService _settingsService;
 
     public AudiobookService(
         IAudiobookTagHandler tagHandler,
@@ -35,6 +36,7 @@ public class AudiobookService : IAudiobookService
         IBookConsistencyIssueRepository issueRepository,
         IPendingOnlineMatchRepository pendingOnlineMatchRepository,
         ISeriesReconciliationCache seriesReconciliationCache,
+        ISettingsService settingsService,
         ILogger<AudiobookService> logger)
     {
         _tagHandler = tagHandler;
@@ -47,6 +49,7 @@ public class AudiobookService : IAudiobookService
         _issueRepository = issueRepository;
         _pendingOnlineMatchRepository = pendingOnlineMatchRepository;
         _seriesReconciliationCache = seriesReconciliationCache;
+        _settingsService = settingsService;
         _logger = logger;
     }
 
@@ -71,11 +74,14 @@ public class AudiobookService : IAudiobookService
         return parsed;
     }
 
-    public string GenerateLibraryPath(Audiobook audiobook)
+    public string GenerateLibraryPath(Audiobook audiobook, int maxNarratorsInPath)
     {
-        var newRelativePath = AudiobookFileHandler.GenerateRelativeAudiobookPath(audiobook);
+        var newRelativePath = AudiobookFileHandler.GenerateRelativeAudiobookPath(audiobook, maxNarratorsInPath);
         return AudiobookFileHandler.JoinLibraryPath(_settings.AudiobookLibraryPath, newRelativePath);
     }
+
+    public async Task<string> GenerateLibraryPathAsync(Audiobook audiobook) =>
+        GenerateLibraryPath(audiobook, (await _settingsService.GetLibrarySettings()).NarratorsInPath);
 
     /// <summary>
     /// Checks whether a file already occupies the audiobook's generated library path, so a
@@ -85,7 +91,7 @@ public class AudiobookService : IAudiobookService
     /// </summary>
     public async Task<TargetPathCollisionResult> CheckTargetPathCollision(Audiobook audiobook)
     {
-        var targetPath = GenerateLibraryPath(audiobook);
+        var targetPath = await GenerateLibraryPathAsync(audiobook);
 
         if (!File.Exists(targetPath))
         {
@@ -198,7 +204,7 @@ public class AudiobookService : IAudiobookService
         // and an assertion is only a backstop if it fires before anything irreversible. Tripping
         // it after SaveAudiobookTagsToFile would leave the m4b carrying new tags at its old
         // location with a stale database path - a half-migrated state worse than the refusal.
-        var newFullPath = GenerateLibraryPath(audiobook);
+        var newFullPath = await GenerateLibraryPathAsync(audiobook);
 
         const int afterTagsProgress = 70;
         int lastProgressNotified = 0;

@@ -10,5 +10,12 @@ namespace AudiobookManager.Services;
 /// </summary>
 public interface IAudiobookIssueDetectionService
 {
-    List<BookConsistencyIssue> DetectIssues(Audiobook audiobook);
+    /// <param name="maxNarratorsInPath">The library's narrator-in-path setting, read once by the caller (a full check must not re-read it per book).</param>
+    List<BookConsistencyIssue> DetectIssues(Audiobook audiobook, int maxNarratorsInPath);
+
+    /// <summary>
+    /// Single-book detection: reads the library's narrator-in-path setting, then runs
+    /// <see cref="DetectIssues"/> off the calling thread (it parses the whole m4b).
+    /// </summary>
+    Task<List<BookConsistencyIssue>> DetectIssuesAsync(Audiobook audiobook);
 }

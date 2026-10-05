@@ -55,6 +55,13 @@ describe("api service mappings and contracts", () => {
       expect(preview).not.toHaveProperty("additionalSeries");
     });
 
+    it("sends the narrators in the path preview, which the narrator-in-folder-name setting reads", () => {
+      expect(toPathPreviewDto(sampleAudiobook).narrators).toEqual([
+        "Michael Kramer",
+        "Kate Reading",
+      ]);
+    });
+
     it("sends the split-title flag, defaulting to false so a book never silently becomes split", () => {
       expect(toAudiobookDto(sampleAudiobook).splitTitleOnColon).toBe(false);
       expect(

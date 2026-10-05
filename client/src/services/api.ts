@@ -108,6 +108,10 @@ export function toAudiobookDto(data: Audiobook) {
 export function toPathPreviewDto(data: Audiobook) {
   return {
     authors: data.authors.map((a) => a.name),
+    // Read by GenerateRelativeAudiobookPath when the library setting puts the narrator in the
+    // folder name; without it the check-target-path / generate-path endpoints build the path of
+    // a narrator-less book and miss a collision at the real target.
+    narrators: data.narrators.map((n) => n.name),
     bookName: data.bookName,
     series: data.series,
     seriesPart: data.seriesPart,

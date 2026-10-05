@@ -13,12 +13,14 @@ public record LibrarySettingsDto(
     bool UpcomingReleasesEnabled,
     string UpcomingReleasesCronSchedule,
     int DefaultPageSize,
-    string SearchInitialsHandling);
+    string SearchInitialsHandling,
+    bool IncludeNarratorInPath,
+    int MaxNarratorsInPath);
 
 /// <summary>
 /// The body of PUT api/settings/library. <see cref="InitialsPunctuation"/>,
 /// <see cref="UpcomingReleasesEnabled"/>, <see cref="UpcomingReleasesCronSchedule"/> and
-/// <see cref="DefaultPageSize"/> and <see cref="SearchInitialsHandling"/> are optional like <see cref="MetadataRefreshDelayMs"/>: an
+/// <see cref="DefaultPageSize"/>, <see cref="SearchInitialsHandling"/> and <see cref="IncludeNarratorInPath"/> and <see cref="MaxNarratorsInPath"/> are optional like <see cref="MetadataRefreshDelayMs"/>: an
 /// omitted field keeps the stored value rather than resetting it.
 /// </summary>
 public record UpdateLibrarySettingsDto(
@@ -28,7 +30,9 @@ public record UpdateLibrarySettingsDto(
     bool? UpcomingReleasesEnabled,
     string? UpcomingReleasesCronSchedule,
     int? DefaultPageSize,
-    string? SearchInitialsHandling = null);
+    string? SearchInitialsHandling = null,
+    bool? IncludeNarratorInPath = null,
+    int? MaxNarratorsInPath = null);
 
 /// <summary>One selectable apply rule with the text the settings page explains it with.</summary>
 public record MetadataApplyOptionDto(string Key, string Label, string Description);
