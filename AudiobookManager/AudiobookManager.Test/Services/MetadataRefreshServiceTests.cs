@@ -442,7 +442,7 @@ public class MetadataRefreshServiceTests
     // mapping pattern added after the snapshot was captured left a phantom Series difference (Ask me
     // by default) that held back a row the rules would otherwise settle.
     [TestMethod]
-    public async Task ApplyPendingByRules_DecidesAgainstTheSeriesRemappedWithTodaysPatterns()
+    public async Task Reevaluate_CountsSettleableRowsAgainstTheSeriesRemappedWithTodaysPatterns()
     {
         var book = new Database.Models.Audiobook(
             42, "The Thursday Murder Club", null, "Thursday Murder Club", "1", 2020,
@@ -480,21 +480,24 @@ public class MetadataRefreshServiceTests
                     .Select(r => new MetadataSeriesSearchResult("Thursday Murder Club") { SeriesPart = r.SeriesPart })
                     .ToList()));
 
-        var settleable = await CreateService().CountPendingSettleableByRulesAsync();
+        var result = await CreateService().ReevaluatePendingRefreshesAsync();
 
-        Assert.AreEqual(1, settleable, "once remapped only the description differs, and its rule settles it");
+        Assert.AreEqual(1, result.Settleable, "once remapped only the description differs, and its rule settles it");
         _pendingRepository.Verify(
             r => r.UpdatePayloadAndChangedFieldsAsync(42, It.IsAny<string>(), It.Is<string>(c => c == "[\"Description\"]")),
             Times.Once);
     }
 
     [TestMethod]
-    public async Task CountPendingSettleableByRules_RowsWithAnAskMeField_AreNotCounted()
+    public async Task Reevaluate_RowsWithAnAskMeField_AreNotCountedSettleable()
     {
         SetUpBulkRefreshWithOneDifference(rulesJson: null, out _);
         SeedPendingRowFromCandidate();
 
-        Assert.AreEqual(0, await CreateService(_scrapers).CountPendingSettleableByRulesAsync());
+        var result = await CreateService(_scrapers).ReevaluatePendingRefreshesAsync();
+
+        Assert.AreEqual(1, result.Processed);
+        Assert.AreEqual(0, result.Settleable);
     }
 
     #endregion

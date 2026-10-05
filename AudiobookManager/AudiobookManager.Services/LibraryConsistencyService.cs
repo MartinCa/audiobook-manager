@@ -265,6 +265,9 @@ public class LibraryConsistencyService : ILibraryConsistencyService
     /// as well would make that second take throw <see cref="AudiobookBusyException"/>, which the
     /// automatic apply swallows - leaving the changeset pending while the failure issue is deleted.
     /// The fetch before the apply writes nothing, so nothing is left ungated.
+    /// Two resolves of the same book can therefore overlap on the fetch: the apply's own gate still
+    /// serializes the file write, and the loser's busy apply is swallowed and leaves its changeset
+    /// pending, which the next re-evaluation drops once it no longer differs from the book.
     /// </summary>
     private async Task<(ResolveScope Scope, BookConsistencyResolveResult Result)> ResolveLoadedIssue(BookConsistencyIssue issue)
     {

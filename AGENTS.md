@@ -707,7 +707,8 @@ only to a field that actually differs. "Empty" is no text (a year of 0 included)
   (`RefreshAudiobookAutomatedAsync`; `LibraryConsistencyService.ResolveLoadedIssue` does not hold the
   per-book gate for a `MetadataRefreshFailed` issue, since the retry's own apply takes it and the gate
   is non-reentrant), plus the backlog: "Re-evaluate Pending Changes" re-diffs the
-  pending rows and then settles the ones the current rules allow (`ApplyPendingByRulesAsync`, a
+  pending rows (counting, in that same pass, those the rules settle - `MetadataRefreshReevaluateResult.Settleable`,
+  which gates whether an apply starts) and then settles them (`ApplyPendingByRulesAsync`, a
   background apply on the apply lock/events, since it rewrites tags and moves files; rows with an
   Ask me field stay). `RefreshAudiobookAsync`, the single-book Refresh button, is
   the one exception: its result opens in the review dialog immediately, so it is always a review. `Decide` returns "review" when _any_ differing field is Ask me - then

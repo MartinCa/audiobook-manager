@@ -147,7 +147,9 @@ public interface IMetadataRefreshService
     /// Re-evaluates every pending snapshot against the library, series mapping patterns and
     /// changed-fields logic as they stand right now, without re-scraping anything - see
     /// <see cref="MetadataRefreshService.ReevaluatePendingRefreshesAsync"/> for what "re-evaluates"
-    /// covers. A row that no longer differs from its book afterward is dismissed.
+    /// covers. A row that no longer differs from its book afterward is dismissed. The result also
+    /// counts the surviving rows the automated apply rules would settle, so a caller can skip starting
+    /// <see cref="ApplyPendingByRulesAsync"/> when there is nothing for it to do.
     /// </summary>
     Task<MetadataRefreshReevaluateResult> ReevaluatePendingRefreshesAsync();
 
@@ -158,10 +160,4 @@ public interface IMetadataRefreshService
     /// </summary>
     Task<(int Processed, int Succeeded, int Failed)> ApplyPendingByRulesAsync(
         Func<int, int, int, int, Task> progressAction);
-
-    /// <summary>
-    /// How many pending rows <see cref="ApplyPendingByRulesAsync"/> would settle right now, so a caller
-    /// can skip starting an apply that has nothing to do.
-    /// </summary>
-    Task<int> CountPendingSettleableByRulesAsync();
 }

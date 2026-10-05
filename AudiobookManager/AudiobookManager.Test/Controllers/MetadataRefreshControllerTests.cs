@@ -358,8 +358,7 @@ public class MetadataRefreshControllerTests
     public async Task ReevaluatePending_ReturnsTheServiceResultAsDto()
     {
         _metadataRefreshService.Setup(s => s.ReevaluatePendingRefreshesAsync())
-            .ReturnsAsync(new MetadataRefreshReevaluateResult(5, 2, 1));
-        _metadataRefreshService.Setup(s => s.CountPendingSettleableByRulesAsync()).ReturnsAsync(1);
+            .ReturnsAsync(new MetadataRefreshReevaluateResult(5, 2, 1, Settleable: 1));
 
         var finished = RegisterApplyFinishedWaiter();
 
@@ -381,8 +380,7 @@ public class MetadataRefreshControllerTests
         // Regression (review finding): the flag used to mean "the apply lock was free", so the client
         // announced an apply that would have done nothing.
         _metadataRefreshService.Setup(s => s.ReevaluatePendingRefreshesAsync())
-            .ReturnsAsync(new MetadataRefreshReevaluateResult(3, 0, 0));
-        _metadataRefreshService.Setup(s => s.CountPendingSettleableByRulesAsync()).ReturnsAsync(0);
+            .ReturnsAsync(new MetadataRefreshReevaluateResult(3, 0, 0, Settleable: 0));
 
         var result = await _controller.ReevaluatePending();
 
@@ -397,8 +395,7 @@ public class MetadataRefreshControllerTests
     public async Task ReevaluatePending_StartsTheRuleBasedApplyInTheBackground()
     {
         _metadataRefreshService.Setup(s => s.ReevaluatePendingRefreshesAsync())
-            .ReturnsAsync(new MetadataRefreshReevaluateResult(0, 0, 0));
-        _metadataRefreshService.Setup(s => s.CountPendingSettleableByRulesAsync()).ReturnsAsync(2);
+            .ReturnsAsync(new MetadataRefreshReevaluateResult(2, 0, 0, Settleable: 2));
         _metadataRefreshService.Setup(s => s.ApplyPendingByRulesAsync(It.IsAny<Func<int, int, int, int, Task>>()))
             .ReturnsAsync((0, 0, 0));
 

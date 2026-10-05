@@ -366,9 +366,10 @@ public class MetadataRefreshController : ControllerBase
     {
         var result = await _metadataRefreshService.ReevaluatePendingRefreshesAsync();
 
-        // Only start an apply when the rules settle at least one row, so the caller is never told one
-        // is running when it would be a no-op.
-        var started = await _metadataRefreshService.CountPendingSettleableByRulesAsync() > 0
+        // Only start an apply when the re-diff just counted a row the rules settle, so the caller is
+        // not told one is running when it would be a no-op. The apply itself decides afresh (a book
+        // may have changed since), so this only gates the start; it never decides what is applied.
+        var started = result.Settleable > 0
             && BackgroundOperationRunner.Start(
             _applyLock,
             _serviceScopeFactory,
