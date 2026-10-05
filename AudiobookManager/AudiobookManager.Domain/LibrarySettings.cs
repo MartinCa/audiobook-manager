@@ -50,7 +50,7 @@ public class LibrarySettings
     public bool IncludeNarratorInPath { get; set; }
 
     /// <summary>Default for <see cref="MaxNarratorsInPath"/>.</summary>
-    public const int DefaultMaxNarratorsInPath = 3;
+    public const int DefaultMaxNarratorsInPath = 1;
 
     /// <summary>Largest accepted <see cref="MaxNarratorsInPath"/>; the smallest is 1.</summary>
     public const int MaxNarratorsInPathLimit = 10;

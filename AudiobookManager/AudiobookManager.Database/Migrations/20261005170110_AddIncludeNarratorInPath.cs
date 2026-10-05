@@ -22,7 +22,7 @@ namespace AudiobookManager.Database.Migrations
                 table: "library_settings",
                 type: "INTEGER",
                 nullable: false,
-                defaultValue: 3);
+                defaultValue: 1);
         }
 
         /// <inheritdoc />

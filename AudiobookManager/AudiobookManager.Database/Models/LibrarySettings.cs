@@ -66,7 +66,7 @@ public class LibrarySettings
 
     /// <summary>How many narrators the folder name lists when <see cref="IncludeNarratorInPath"/> is on.</summary>
     [Column("max_narrators_in_path")]
-    public int MaxNarratorsInPath { get; set; } = 3;
+    public int MaxNarratorsInPath { get; set; } = 1;
 
     /// <summary>How many narrators the folder name lists, 0 when the narrator is not part of the path.</summary>
     [NotMapped]
@@ -92,7 +92,7 @@ public class LibrarySettings
         int defaultPageSize = 20,
         SearchInitialsHandling searchInitialsHandling = SearchInitialsHandling.AsStored,
         bool includeNarratorInPath = false,
-        int maxNarratorsInPath = 3)
+        int maxNarratorsInPath = 1)
     {
         Id = id;
         InitialsSpacing = initialsSpacing;

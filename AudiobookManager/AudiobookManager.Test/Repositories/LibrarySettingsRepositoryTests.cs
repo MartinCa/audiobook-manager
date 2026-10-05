@@ -160,9 +160,9 @@ public class LibrarySettingsRepositoryTests
     }
 
     [TestMethod]
-    public async Task UpdateAsync_PersistsMaxNarratorsInPath_AndDefaultsToThree()
+    public async Task UpdateAsync_PersistsMaxNarratorsInPath_AndDefaultsToOne()
     {
-        Assert.AreEqual(3, (await _repository.GetOrCreateAsync()).MaxNarratorsInPath);
+        Assert.AreEqual(1, (await _repository.GetOrCreateAsync()).MaxNarratorsInPath);
 
         await _repository.UpdateAsync(
             DbInitialsSpacing.Spaced, DbInitialsPunctuation.Dotted, 1000, true, "0 3 * * *", 20,

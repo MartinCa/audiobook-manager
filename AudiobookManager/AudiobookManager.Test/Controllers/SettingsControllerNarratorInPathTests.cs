@@ -132,6 +132,6 @@ public class SettingsControllerNarratorInPathTests
     {
         Assert.AreEqual(0, new Domain.LibrarySettings { IncludeNarratorInPath = false, MaxNarratorsInPath = 4 }.NarratorsInPath);
         Assert.AreEqual(4, new Domain.LibrarySettings { IncludeNarratorInPath = true, MaxNarratorsInPath = 4 }.NarratorsInPath);
-        Assert.AreEqual(Domain.LibrarySettings.DefaultMaxNarratorsInPath, new Domain.LibrarySettings().MaxNarratorsInPath);
+        Assert.AreEqual(1, new Domain.LibrarySettings().MaxNarratorsInPath);
     }
 }
