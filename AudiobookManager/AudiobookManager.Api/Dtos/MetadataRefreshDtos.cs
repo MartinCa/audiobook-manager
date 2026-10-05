@@ -92,7 +92,7 @@ public record ApplyPendingRefreshDto(
 public record ApplySelectedMetadataRefreshDto(List<long> AudiobookIds, bool SplitTitleOnColon = false);
 
 /// <summary>The result of POST api/metadata-refresh/reevaluate.</summary>
-public record MetadataRefreshReevaluateResultDto(int Processed, int Updated, int Removed);
+public record MetadataRefreshReevaluateResultDto(int Processed, int Updated, int Removed, bool AutoApplyStarted);
 
 /// <summary>The result of POST api/metadata-refresh/dismiss-selected.</summary>
 public record DismissSelectedMetadataRefreshResultDto(int Dismissed);

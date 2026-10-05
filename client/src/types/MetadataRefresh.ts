@@ -45,10 +45,10 @@ export type BulkMetadataRefresh = {
 };
 
 // AudiobookManager.Api/Dtos/MetadataRefreshDtos.cs: Processed/Updated/Removed on
-// MetadataRefreshReevaluateResultDto are non-nullable.
+// MetadataRefreshReevaluateResultDto are non-nullable, as is AutoApplyStarted.
 export type MetadataRefreshReevaluateResult = Require<
   components["schemas"]["MetadataRefreshReevaluateResultDto"],
-  "processed" | "updated" | "removed"
+  "processed" | "updated" | "removed" | "autoApplyStarted"
 >;
 
 // AudiobookManager.Api/Dtos/MetadataRefreshDtos.cs: Dismissed on

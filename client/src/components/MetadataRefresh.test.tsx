@@ -26,6 +26,7 @@ vi.mock("@/services/api", async (importOriginal) => {
       applyPending: vi.fn().mockResolvedValue(undefined),
       applySelected: vi.fn().mockResolvedValue(undefined),
       applyFiltered: vi.fn().mockResolvedValue(undefined),
+      reevaluatePending: vi.fn(),
     },
     metadataSearchApi: {
       getServices: vi.fn().mockResolvedValue([
@@ -238,6 +239,28 @@ describe("MetadataRefresh", () => {
     });
     await waitFor(() => {
       expect(notifications.success).toHaveBeenCalledWith("Dismissed 1 pending change(s)");
+    });
+  });
+
+  it("re-evaluating announces the background apply only when the server started one", async () => {
+    vi.mocked(metadataRefreshApi.reevaluatePending)
+      .mockResolvedValueOnce({ processed: 3, updated: 1, removed: 0, autoApplyStarted: true })
+      .mockResolvedValueOnce({ processed: 3, updated: 0, removed: 0, autoApplyStarted: false });
+    renderWithRouter();
+
+    await screen.findByText(/Brandon Sanderson — The Way of Kings/);
+    fireEvent.click(screen.getByRole("button", { name: /re-evaluate pending changes/i }));
+    await waitFor(() => {
+      expect(notifications.success).toHaveBeenCalledWith(
+        "Re-evaluated 3 pending change(s): 1 updated, 0 resolved. Applying changes the automated rules settle…",
+      );
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /re-evaluate pending changes/i }));
+    await waitFor(() => {
+      expect(notifications.success).toHaveBeenCalledWith(
+        "Re-evaluated 3 pending change(s): 0 updated, 0 resolved",
+      );
     });
   });
 

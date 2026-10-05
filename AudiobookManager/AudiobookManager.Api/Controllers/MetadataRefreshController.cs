@@ -355,14 +355,47 @@ public class MetadataRefreshController : ControllerBase
     /// Re-evaluates every pending snapshot against the library, series mapping patterns, and
     /// changed-fields logic as they stand right now, without re-scraping anything - so a mapping
     /// pattern added after a snapshot was captured (or any other setting/book change since) is
-    /// reflected without waiting for the book's next scheduled refresh. Synchronous: pure DB/CPU
-    /// work, no scraper calls, sized the same way the self-heal backfill is.
+    /// reflected without waiting for the book's next scheduled refresh. The re-diff is synchronous
+    /// (pure DB/CPU work, no scraper calls). It then settles whatever the automated apply rules can
+    /// settle - which rewrites tags and moves files - as a fire-and-forget apply sharing
+    /// <see cref="StartApplySelected"/>'s lock, key and SignalR events. <c>AutoApplyStarted</c> is false when no row is
+    /// settleable or when that lock is busy; the re-diff stands either way.
     /// </summary>
     [HttpPost("reevaluate")]
     public async Task<ActionResult<MetadataRefreshReevaluateResultDto>> ReevaluatePending()
     {
         var result = await _metadataRefreshService.ReevaluatePendingRefreshesAsync();
-        var dto = new MetadataRefreshReevaluateResultDto(result.Processed, result.Updated, result.Removed);
+
+        // Only start an apply when the re-diff just counted a row the rules settle, so the caller is
+        // not told one is running when it would be a no-op. The apply itself decides afresh (a book
+        // may have changed since), so this only gates the start; it never decides what is applied.
+        var started = result.Settleable > 0
+            && BackgroundOperationRunner.Start(
+            _applyLock,
+            _serviceScopeFactory,
+            _logger,
+            _statusRegistry,
+            ApplyOperationKey,
+            async sp =>
+            {
+                var refreshService = sp.GetRequiredService<IMetadataRefreshService>();
+
+                Task ProgressAction(int processed, int total, int succeeded, int failed)
+                {
+                    _statusRegistry.SetProgress(ApplyOperationKey, processed, total);
+                    return _organizeHub.Clients.All.MetadataApplyProgress(
+                        new MetadataApplyProgress(processed, total, succeeded, failed));
+                }
+
+                var (processed, succeeded, failed) = await refreshService.ApplyPendingByRulesAsync(ProgressAction);
+
+                await _organizeHub.Clients.All.MetadataApplyComplete(
+                    new MetadataApplyComplete(processed, processed, succeeded, failed));
+            },
+            () => _organizeHub.Clients.All.MetadataApplyComplete(new MetadataApplyComplete(0, 0, 0, 0)),
+            _appLifetime.ApplicationStopping) is not ObjectResult { StatusCode: StatusCodes.Status409Conflict };
+
+        var dto = new MetadataRefreshReevaluateResultDto(result.Processed, result.Updated, result.Removed, started);
         return Ok(dto);
     }
 

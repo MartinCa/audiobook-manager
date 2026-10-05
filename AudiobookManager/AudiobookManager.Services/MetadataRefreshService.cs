@@ -13,8 +13,13 @@ using Microsoft.Extensions.Logging;
 
 namespace AudiobookManager.Services;
 
-/// <summary>The outcome of <see cref="MetadataRefreshService.ReevaluatePendingRefreshesAsync"/>.</summary>
-public record MetadataRefreshReevaluateResult(int Processed, int Updated, int Removed);
+/// <summary>
+/// The outcome of <see cref="MetadataRefreshService.ReevaluatePendingRefreshesAsync"/>.
+/// <paramref name="Settleable"/> is how many of the rows still pending afterwards the automated apply
+/// rules would settle (see <see cref="MetadataRefreshService.ApplyPendingByRulesAsync"/>), counted in
+/// the same pass so a caller need not scan the backlog again to know whether an apply has work to do.
+/// </summary>
+public record MetadataRefreshReevaluateResult(int Processed, int Updated, int Removed, int Settleable = 0);
 
 public class MetadataRefreshService : IMetadataRefreshService
 {
@@ -84,6 +89,13 @@ public class MetadataRefreshService : IMetadataRefreshService
     /// </summary>
     public Task<MetadataRefreshResult> RefreshAudiobookAsync(long audiobookId) =>
         RefreshAudiobookCoreAsync(audiobookId, automated: false);
+
+    /// <summary>
+    /// A refresh of one book that no person is watching (the consistency "retry refresh" resolve):
+    /// the automated apply rules settle it, and only a changeset they cannot settle is left pending.
+    /// </summary>
+    public Task<MetadataRefreshResult> RefreshAudiobookAutomatedAsync(long audiobookId) =>
+        RefreshAudiobookCoreAsync(audiobookId, automated: true);
 
     private async Task<MetadataRefreshResult> RefreshAudiobookCoreAsync(long audiobookId, bool automated)
     {
@@ -166,7 +178,14 @@ public class MetadataRefreshService : IMetadataRefreshService
 
         var (spacing, punctuation) = await GetInitialsSettingsAsync();
         var differences = MetadataRefreshDiffer.Diff(book, fetched, spacing, punctuation).ToList();
-        await RecordFetchedSnapshotAsync(book, fetched, differences);
+
+        // Picking a candidate is not itself the review: the automated rules settle what they can,
+        // and only a changeset with an Ask me field is left pending for a person.
+        if (!await TryApplyAutomaticallyAsync(book, fetched, differences))
+        {
+            await RecordFetchedSnapshotAsync(book, fetched, differences);
+        }
+
         return new MetadataRefreshResult
         {
             Success = true,
@@ -193,7 +212,7 @@ public class MetadataRefreshService : IMetadataRefreshService
             return false;
         }
 
-        var rules = MetadataApplyRuleSet.From((await _librarySettingsRepository.GetOrCreateAsync()).ToDomain().MetadataApplyRules);
+        var rules = await GetApplyRuleSetAsync();
         var decision = rules.Decide(differences);
         if (decision.RequiresReview)
         {
@@ -857,10 +876,12 @@ public class MetadataRefreshService : IMetadataRefreshService
         var books = await _audiobookRepository.GetByIdsWithIncludesAsync(ids);
         var booksById = books.ToDictionary(b => b.Id);
         var (spacing, punctuation) = await GetInitialsSettingsAsync();
+        var rules = await GetApplyRuleSetAsync();
 
         var processed = 0;
         var updated = 0;
         var removed = 0;
+        var settleable = 0;
 
         foreach (var row in rows)
         {
@@ -900,9 +921,119 @@ public class MetadataRefreshService : IMetadataRefreshService
                 await _pendingRepository.UpdatePayloadAndChangedFieldsAsync(row.AudiobookId, payloadJson, changedFieldsJson);
                 updated++;
             }
+
+            if (!rules.Decide(diffs).RequiresReview)
+            {
+                settleable++;
+            }
         }
 
-        return new MetadataRefreshReevaluateResult(processed, updated, removed);
+        return new MetadataRefreshReevaluateResult(processed, updated, removed, settleable);
+    }
+
+    private async Task<MetadataApplyRuleSet> GetApplyRuleSetAsync() =>
+        MetadataApplyRuleSet.From((await _librarySettingsRepository.GetOrCreateAsync()).ToDomain().MetadataApplyRules);
+
+    /// <summary>
+    /// The pending rows the automated apply rules can settle as they stand now, with the fields each
+    /// would apply (empty = every difference is Keep current, so the row is just dropped). A row with
+    /// an Ask me field is not included. Each stored payload is series-remapped against today's mapping
+    /// patterns first, and the remap is persisted when it changed anything - the same step
+    /// <see cref="ReevaluatePendingRefreshesAsync"/> performs - so the decision, and the apply that
+    /// follows from the stored row, never rest on a stale mapped series name regardless of what ran
+    /// before this.
+    /// </summary>
+    private async Task<List<(PendingMetadataRefresh Row, IReadOnlyCollection<string> Fields)>> RemapAndFindSettleableRowsAsync()
+    {
+        var settleable = new List<(PendingMetadataRefresh Row, IReadOnlyCollection<string> Fields)>();
+
+        var ids = await _pendingRepository.GetPendingAudiobookIdsAsync();
+        if (ids.Count == 0)
+        {
+            return settleable;
+        }
+
+        var rules = await GetApplyRuleSetAsync();
+        var rows = await _pendingRepository.GetByAudiobookIdsAsync(ids);
+        var books = (await _audiobookRepository.GetByIdsWithIncludesAsync(ids)).ToDictionary(b => b.Id);
+        var (spacing, punctuation) = await GetInitialsSettingsAsync();
+
+        foreach (var row in rows)
+        {
+            var payload = PendingRefreshPayload.TryParse(row.PayloadJson);
+            if (payload is null || !books.TryGetValue(row.AudiobookId, out var book))
+            {
+                continue;
+            }
+
+            var remapped = await RemapSeriesAsync(payload);
+            var diffs = MetadataRefreshDiffer.DiffSnapshot(book, remapped, spacing, punctuation).ToList();
+            if (diffs.Count == 0)
+            {
+                continue;
+            }
+
+            var decision = rules.Decide(diffs);
+            if (decision.RequiresReview)
+            {
+                continue;
+            }
+
+            var payloadJson = PendingRefreshPayload.Serialize(remapped);
+            var changedFieldsJson = JsonSerializer.Serialize(diffs.Select(d => d.Field).ToList(), ChangedFieldsJsonOptions);
+            if (!string.Equals(payloadJson, row.PayloadJson, StringComparison.Ordinal) ||
+                !string.Equals(changedFieldsJson, row.ChangedFieldsJson, StringComparison.Ordinal))
+            {
+                await _pendingRepository.UpdatePayloadAndChangedFieldsAsync(row.AudiobookId, payloadJson, changedFieldsJson);
+                row.PayloadJson = payloadJson;
+                row.ChangedFieldsJson = changedFieldsJson;
+            }
+
+            settleable.Add((row, decision.FieldsToApply.ToList()));
+        }
+
+        return settleable;
+    }
+
+    /// <summary>
+    /// Settles the pending snapshots the automated apply rules can settle, as they stand now - the
+    /// backlog counterpart of <see cref="TryApplyAutomaticallyAsync"/>, for rows parked before the
+    /// rules allowed them (or before the rules changed). A row is left alone when any differing field
+    /// is Ask me; otherwise the fields the rules select are applied through <see cref="ApplyOneAsync"/>
+    /// (save gate, relocation, recheck, pending cleanup) and the rest are dropped. Unlike
+    /// <see cref="ReevaluatePendingRefreshesAsync"/> this rewrites tags and moves files, so it runs
+    /// per book with the bulk contract: one failure (path taken, book busy) leaves that row pending
+    /// and the batch carries on. It needs no prior re-evaluation: the series remap is part of the
+    /// decision (see <see cref="RemapAndFindSettleableRowsAsync"/>).
+    /// </summary>
+    public async Task<(int Processed, int Succeeded, int Failed)> ApplyPendingByRulesAsync(
+        Func<int, int, int, int, Task> progressAction)
+    {
+        // Decided up front so the batch total counts only rows the rules settle - a row that waits
+        // for a person is neither a success nor a failure here.
+        var byId = (await RemapAndFindSettleableRowsAsync()).ToDictionary(s => s.Row.AudiobookId);
+
+        return await BulkOperationRunner.RunAsync(
+            byId.Keys.ToList(),
+            async id =>
+            {
+                var (row, fields) = byId[id];
+                if (fields.Count == 0)
+                {
+                    // Every difference is on Keep current: nothing to apply, nothing left to review.
+                    await _pendingRepository.DeleteByAudiobookIdAsync(id);
+                    await _audiobookRepository.UpdateLastMetadataRefreshedAtAsync(id, DateTime.UtcNow);
+                    return;
+                }
+
+                if (!await ApplyOneAsync(row, fields))
+                {
+                    throw new KeyNotFoundException($"Audiobook {id} no longer exists.");
+                }
+            },
+            _logger,
+            id => $"Failed to apply pending metadata refresh for audiobook {id} by the automated rules",
+            progressAction);
     }
 
     /// <summary>

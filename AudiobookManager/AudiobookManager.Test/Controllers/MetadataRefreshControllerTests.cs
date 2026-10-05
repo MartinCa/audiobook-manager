@@ -358,9 +358,12 @@ public class MetadataRefreshControllerTests
     public async Task ReevaluatePending_ReturnsTheServiceResultAsDto()
     {
         _metadataRefreshService.Setup(s => s.ReevaluatePendingRefreshesAsync())
-            .ReturnsAsync(new MetadataRefreshReevaluateResult(5, 2, 1));
+            .ReturnsAsync(new MetadataRefreshReevaluateResult(5, 2, 1, Settleable: 1));
+
+        var finished = RegisterApplyFinishedWaiter();
 
         var result = await _controller.ReevaluatePending();
+        await AwaitOperationFinished(finished);
 
         var ok = result.Result as OkObjectResult;
         Assert.IsNotNull(ok);
@@ -369,6 +372,42 @@ public class MetadataRefreshControllerTests
         Assert.AreEqual(5, dto.Processed);
         Assert.AreEqual(2, dto.Updated);
         Assert.AreEqual(1, dto.Removed);
+    }
+
+    [TestMethod]
+    public async Task ReevaluatePending_NothingTheRulesSettle_StartsNoApplyAndReportsSo()
+    {
+        // Regression (review finding): the flag used to mean "the apply lock was free", so the client
+        // announced an apply that would have done nothing.
+        _metadataRefreshService.Setup(s => s.ReevaluatePendingRefreshesAsync())
+            .ReturnsAsync(new MetadataRefreshReevaluateResult(3, 0, 0, Settleable: 0));
+
+        var result = await _controller.ReevaluatePending();
+
+        var dto = (result.Result as OkObjectResult)?.Value as MetadataRefreshReevaluateResultDto;
+        Assert.IsNotNull(dto);
+        Assert.IsFalse(dto.AutoApplyStarted);
+        _metadataRefreshService.Verify(s => s.ApplyPendingByRulesAsync(It.IsAny<Func<int, int, int, int, Task>>()), Times.Never);
+        _serviceScopeFactory.Verify(f => f.CreateScope(), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task ReevaluatePending_StartsTheRuleBasedApplyInTheBackground()
+    {
+        _metadataRefreshService.Setup(s => s.ReevaluatePendingRefreshesAsync())
+            .ReturnsAsync(new MetadataRefreshReevaluateResult(2, 0, 0, Settleable: 2));
+        _metadataRefreshService.Setup(s => s.ApplyPendingByRulesAsync(It.IsAny<Func<int, int, int, int, Task>>()))
+            .ReturnsAsync((0, 0, 0));
+
+        var finished = RegisterApplyFinishedWaiter();
+
+        var result = await _controller.ReevaluatePending();
+        await AwaitOperationFinished(finished);
+
+        var dto = (result.Result as OkObjectResult)?.Value as MetadataRefreshReevaluateResultDto;
+        Assert.IsNotNull(dto);
+        Assert.IsTrue(dto.AutoApplyStarted);
+        _metadataRefreshService.Verify(s => s.ApplyPendingByRulesAsync(It.IsAny<Func<int, int, int, int, Task>>()), Times.Once);
     }
 
     [TestMethod]

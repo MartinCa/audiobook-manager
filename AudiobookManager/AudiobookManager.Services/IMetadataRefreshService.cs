@@ -21,9 +21,16 @@ public interface IMetadataRefreshService
     Task<MetadataRefreshResult> RefreshAudiobookAsync(long audiobookId);
 
     /// <summary>
-    /// Diffs an already-fetched scraper result against the book and records it as a pending
-    /// metadata-refresh snapshot - the same write path <see cref="RefreshAudiobookAsync"/> uses,
-    /// for a result that did not come from the book's own Www (a bulk online-match candidate).
+    /// Like <see cref="RefreshAudiobookAsync"/> but for a refresh no person is watching: the
+    /// automated apply rules settle the changeset, and only one with an Ask me field is left pending.
+    /// </summary>
+    Task<MetadataRefreshResult> RefreshAudiobookAutomatedAsync(long audiobookId);
+
+    /// <summary>
+    /// Diffs an already-fetched scraper result against the book for a result that did not come from
+    /// the book's own Www (a bulk online-match candidate), then settles it by the automated apply
+    /// rules; a changeset they cannot settle (an Ask me field differs) is recorded as a pending
+    /// metadata-refresh snapshot, the same write path <see cref="RefreshAudiobookAsync"/> uses.
     /// </summary>
     Task<MetadataRefreshResult> ApplyFetchedResultAsSnapshotAsync(
         long audiobookId, Scraping.Models.MetadataSearchResult fetched);
@@ -140,7 +147,17 @@ public interface IMetadataRefreshService
     /// Re-evaluates every pending snapshot against the library, series mapping patterns and
     /// changed-fields logic as they stand right now, without re-scraping anything - see
     /// <see cref="MetadataRefreshService.ReevaluatePendingRefreshesAsync"/> for what "re-evaluates"
-    /// covers. A row that no longer differs from its book afterward is dismissed.
+    /// covers. A row that no longer differs from its book afterward is dismissed. The result also
+    /// counts the surviving rows the automated apply rules would settle, so a caller can skip starting
+    /// <see cref="ApplyPendingByRulesAsync"/> when there is nothing for it to do.
     /// </summary>
     Task<MetadataRefreshReevaluateResult> ReevaluatePendingRefreshesAsync();
+
+    /// <summary>
+    /// Applies every pending snapshot the automated apply rules can settle as they stand now (see
+    /// <see cref="MetadataRefreshService.ApplyPendingByRulesAsync"/>); rows with an Ask me field
+    /// are left pending. Bulk contract: per-item failure tolerated, progress after every item.
+    /// </summary>
+    Task<(int Processed, int Succeeded, int Failed)> ApplyPendingByRulesAsync(
+        Func<int, int, int, int, Task> progressAction);
 }

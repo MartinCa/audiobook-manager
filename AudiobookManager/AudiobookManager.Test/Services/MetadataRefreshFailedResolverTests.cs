@@ -34,13 +34,13 @@ public class MetadataRefreshFailedResolverTests
     [TestMethod]
     public async Task ResolveAsync_DailyLimitExceeded_ReportsActionableResultWithoutTouchingTheIssue()
     {
-        // Regression (PR #1380 review): RefreshAudiobookAsync re-throws the daily-limit
+        // Regression (PR #1380 review): the refresh re-throws the daily-limit
         // exception so the bulk loop can stop early. A single resolve reached it raw and the
         // controller's catch-all turned it into a generic 500; the resolver must surface the
         // clear message the dedicated refresh endpoint gives for the same condition.
         var issue = Issue();
         _refreshService
-            .Setup(s => s.RefreshAudiobookAsync(42))
+            .Setup(s => s.RefreshAudiobookAutomatedAsync(42))
             .ThrowsAsync(new HardcoverDailyLimitExceededException(5000));
 
         var (scope, result) = await CreateResolver().ResolveAsync(issue);
@@ -59,7 +59,7 @@ public class MetadataRefreshFailedResolverTests
     {
         var issue = Issue();
         _refreshService
-            .Setup(s => s.RefreshAudiobookAsync(42))
+            .Setup(s => s.RefreshAudiobookAutomatedAsync(42))
             .ReturnsAsync(new MetadataRefreshResult { Success = false, Error = "fetch failed" });
 
         var (scope, result) = await CreateResolver().ResolveAsync(issue);
@@ -74,7 +74,7 @@ public class MetadataRefreshFailedResolverTests
     {
         var issue = Issue();
         _refreshService
-            .Setup(s => s.RefreshAudiobookAsync(42))
+            .Setup(s => s.RefreshAudiobookAutomatedAsync(42))
             .ReturnsAsync(new MetadataRefreshResult { Success = true });
 
         var (scope, result) = await CreateResolver().ResolveAsync(issue);

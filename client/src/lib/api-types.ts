@@ -6308,6 +6308,7 @@ export interface components {
             updated?: number;
             /** Format: int32 */
             removed?: number;
+            autoApplyStarted?: boolean;
         };
         MetadataRefreshResultDto: {
             success?: boolean;

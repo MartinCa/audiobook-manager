@@ -37,11 +37,12 @@ export function PendingOnlineMatchRowPanel({ item, onResolved }: PendingOnlineMa
     setSelectingIndex(index);
     try {
       await pendingOnlineMatchApi.selectResult(item.audiobookId, index);
-      // A diff-less candidate (the fetch confirms the book already matches) never surfaces a
-      // pending metadata banner - the apply flow records nothing and resolves the row directly -
-      // so this can't promise a banner will appear, only that any changes land there if it does.
+      // The server settles the pick by the automated apply rules: what they accept is applied
+      // right away, a diff-less candidate records nothing, and only a changeset with an Ask me
+      // field is left on the book's pending metadata banner. The response says which, so this
+      // can't promise any one outcome.
       notifications.success(
-        "Match selected — if there are changes to apply, they'll appear on the book's pending metadata banner.",
+        "Match selected — changes the automated rules accept are applied; anything needing review appears on the book's pending metadata banner.",
       );
       invalidateViews();
       onResolved();

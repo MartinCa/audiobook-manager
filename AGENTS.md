@@ -700,16 +700,25 @@ only to a field that actually differs. "Empty" is no text (a year of 0 included)
   saved over `GET`/`PUT api/settings/metadata-apply-rules` together with the option lists, their
   explanatory text and the guard rails: **the frontend holds no list of fields or options** (same
   rule as languages and scrapers); a PUT leaves out-of-body fields on their stored rules.
-- **Automated runs** are the bulk and scheduled refreshes only (`RunRefreshLoopAsync` calls
-  `RefreshAudiobookCoreAsync(automated: true)`); `RefreshAudiobookAsync`, the single-book Refresh,
-  is always a review. `Decide` returns "review" when _any_ differing field is Ask me - then
+- **Automated runs** are every flow whose changeset would otherwise be parked as pending with no
+  person looking at it: the bulk and scheduled refreshes (`RunRefreshLoopAsync` calls
+  `RefreshAudiobookCoreAsync(automated: true)`), picking a candidate from a pending online match
+  (`ApplyFetchedResultAsSnapshotAsync`) and the consistency "retry refresh" resolve
+  (`RefreshAudiobookAutomatedAsync`; `LibraryConsistencyService.ResolveLoadedIssue` does not hold the
+  per-book gate for a `MetadataRefreshFailed` issue, since the retry's own apply takes it and the gate
+  is non-reentrant), plus the backlog: "Re-evaluate Pending Changes" re-diffs the
+  pending rows (counting, in that same pass, those the rules settle - `MetadataRefreshReevaluateResult.Settleable`,
+  which gates whether an apply starts) and then settles them (`ApplyPendingByRulesAsync`, a
+  background apply on the apply lock/events, since it rewrites tags and moves files; rows with an
+  Ask me field stay). `RefreshAudiobookAsync`, the single-book Refresh button, is
+  the one exception: its result opens in the review dialog immediately, so it is always a review. `Decide` returns "review" when _any_ differing field is Ask me - then
   **nothing is applied for that book**, not even fields whose own rule would have applied, and the
   changeset is stored pending as before. Otherwise `TryApplyAutomaticallyAsync` records the
   snapshot and applies the chosen fields through `ApplyOneAsync` (save gate, `UpdateAudiobook`,
   consistency recheck, pending cleanup), so the binding invariant above holds. Fields the rules
   decline are dropped, not left pending. If that apply fails (path taken, book busy) the full
-  changeset stays pending for review rather than being lost. Bulk _online search_ only collects
-  candidates; picking one is a person's action that lands in the ordinary review.
+  changeset stays pending for review rather than being lost. Bulk _online search_ itself only
+  collects candidates; the rules come into play when one is picked.
 - **Guard rails:** `Always overwrite` is the only rule that can replace a value with an empty one,
   so it is refused (`Validate` -> 400; `From` coerces a stored one back to Ask me) on the fields a
   book cannot be without - Authors, Book name, Year - and allowed with a warning on Series (an empty
