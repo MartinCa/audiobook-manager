@@ -85,6 +85,13 @@ public class MetadataRefreshService : IMetadataRefreshService
     public Task<MetadataRefreshResult> RefreshAudiobookAsync(long audiobookId) =>
         RefreshAudiobookCoreAsync(audiobookId, automated: false);
 
+    /// <summary>
+    /// A refresh of one book that no person is watching (the consistency "retry refresh" resolve):
+    /// the automated apply rules settle it, and only a changeset they cannot settle is left pending.
+    /// </summary>
+    public Task<MetadataRefreshResult> RefreshAudiobookAutomatedAsync(long audiobookId) =>
+        RefreshAudiobookCoreAsync(audiobookId, automated: true);
+
     private async Task<MetadataRefreshResult> RefreshAudiobookCoreAsync(long audiobookId, bool automated)
     {
         var book = await _audiobookRepository.GetByIdWithIncludesAsync(audiobookId);
@@ -166,7 +173,14 @@ public class MetadataRefreshService : IMetadataRefreshService
 
         var (spacing, punctuation) = await GetInitialsSettingsAsync();
         var differences = MetadataRefreshDiffer.Diff(book, fetched, spacing, punctuation).ToList();
-        await RecordFetchedSnapshotAsync(book, fetched, differences);
+
+        // Picking a candidate is not itself the review: the automated rules settle what they can,
+        // and only a changeset with an Ask me field is left pending for a person.
+        if (!await TryApplyAutomaticallyAsync(book, fetched, differences))
+        {
+            await RecordFetchedSnapshotAsync(book, fetched, differences);
+        }
+
         return new MetadataRefreshResult
         {
             Success = true,

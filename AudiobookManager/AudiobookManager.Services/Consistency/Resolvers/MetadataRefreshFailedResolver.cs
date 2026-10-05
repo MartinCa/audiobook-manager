@@ -40,7 +40,7 @@ public class MetadataRefreshFailedResolver : IBookConsistencyIssueResolver
 
         try
         {
-            result = await _metadataRefreshService.RefreshAudiobookAsync(audiobook.Id);
+            result = await _metadataRefreshService.RefreshAudiobookAutomatedAsync(audiobook.Id);
         }
         catch (HardcoverDailyLimitExceededException ex)
         {

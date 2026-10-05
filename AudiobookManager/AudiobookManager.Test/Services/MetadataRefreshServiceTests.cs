@@ -308,6 +308,59 @@ public class MetadataRefreshServiceTests
         _pendingRepository.Verify(r => r.UpsertAsync(It.IsAny<PendingMetadataRefresh>()), Times.Once);
     }
 
+    private static MetadataSearchResult CandidateWithNewDescription() =>
+        new("https://www.audible.com/pd/whatever", "A Book")
+        {
+            Source = "Audible",
+            Year = 2024,
+            Description = "A new description",
+            Authors = new List<AudiobookManager.Domain.Person> { new("Author A") },
+            Narrators = new List<AudiobookManager.Domain.Person>(),
+            Genres = new List<string>(),
+        };
+
+    [TestMethod]
+    public async Task ApplyFetchedResult_PickedOnlineMatch_IsSettledByTheAutomatedRules_NotLeftPending()
+    {
+        // Regression: choosing a pending online match used to record the changeset for review
+        // whatever the automated rules said.
+        SetUpBulkRefreshWithOneDifference(
+            RulesJson((MetadataRefreshFields.Description, InteractiveApplyRule.AlwaysSelect, AutomatedApplyRule.OverwriteUnlessSourceEmpty)),
+            out var saved);
+
+        await CreateService(_scrapers).ApplyFetchedResultAsSnapshotAsync(42, CandidateWithNewDescription());
+
+        Assert.AreEqual(1, saved.Count);
+        Assert.AreEqual("A new description", saved[0].Description);
+        _pendingRepository.Verify(r => r.DeleteByAudiobookIdAsync(42), Times.AtLeastOnce);
+    }
+
+    [TestMethod]
+    public async Task ApplyFetchedResult_PickedOnlineMatchWithAnAskMeField_StaysPendingForReview()
+    {
+        SetUpBulkRefreshWithOneDifference(rulesJson: null, out var saved);
+
+        await CreateService(_scrapers).ApplyFetchedResultAsSnapshotAsync(42, CandidateWithNewDescription());
+
+        Assert.AreEqual(0, saved.Count);
+        _pendingRepository.Verify(r => r.UpsertAsync(It.IsAny<PendingMetadataRefresh>()), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task RefreshAudiobookAutomatedAsync_IsSettledByTheAutomatedRules_UnlikeTheRefreshButton()
+    {
+        // The consistency "retry refresh" resolve has no person watching, so it follows the rules.
+        SetUpBulkRefreshWithOneDifference(
+            RulesJson((MetadataRefreshFields.Description, InteractiveApplyRule.AlwaysSelect, AutomatedApplyRule.AlwaysOverwrite)),
+            out var saved);
+
+        await CreateService(_scrapers).RefreshAudiobookAutomatedAsync(42);
+
+        Assert.AreEqual(1, saved.Count);
+        _pendingRepository.Verify(r => r.UpsertAsync(It.IsAny<PendingMetadataRefresh>()), Times.Once);
+        _pendingRepository.Verify(r => r.DeleteByAudiobookIdAsync(42), Times.AtLeastOnce);
+    }
+
     #endregion
 
     #region RefreshSelectedAudiobooksAsync

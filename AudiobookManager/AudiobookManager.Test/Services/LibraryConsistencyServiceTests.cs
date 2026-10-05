@@ -473,7 +473,7 @@ public class LibraryConsistencyServiceTests
 
         var refreshService = new Mock<IMetadataRefreshService>();
         refreshService
-            .Setup(s => s.RefreshAudiobookAsync(It.IsAny<long>()))
+            .Setup(s => s.RefreshAudiobookAutomatedAsync(It.IsAny<long>()))
             .ThrowsAsync(new HardcoverDailyLimitExceededException(5000));
 
         var service = CreateService(metadataRefreshService: refreshService.Object);
