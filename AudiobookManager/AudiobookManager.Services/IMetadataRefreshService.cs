@@ -150,4 +150,12 @@ public interface IMetadataRefreshService
     /// covers. A row that no longer differs from its book afterward is dismissed.
     /// </summary>
     Task<MetadataRefreshReevaluateResult> ReevaluatePendingRefreshesAsync();
+
+    /// <summary>
+    /// Applies every pending snapshot the automated apply rules can settle as they stand now (see
+    /// <see cref="MetadataRefreshService.ApplyPendingByRulesAsync"/>); rows with an Ask me field
+    /// are left pending. Bulk contract: per-item failure tolerated, progress after every item.
+    /// </summary>
+    Task<(int Processed, int Succeeded, int Failed)> ApplyPendingByRulesAsync(
+        Func<int, int, int, int, Task> progressAction);
 }

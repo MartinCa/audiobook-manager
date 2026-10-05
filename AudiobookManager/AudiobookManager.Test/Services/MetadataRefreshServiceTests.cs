@@ -361,6 +361,83 @@ public class MetadataRefreshServiceTests
         _pendingRepository.Verify(r => r.DeleteByAudiobookIdAsync(42), Times.AtLeastOnce);
     }
 
+    private PendingMetadataRefresh SeedPendingRowFromCandidate()
+    {
+        var row = new PendingMetadataRefresh
+        {
+            AudiobookId = 42,
+            SourceName = "Audible",
+            PayloadJson = PendingRefreshPayload.Serialize(PendingRefreshPayload.FromSearchResult(CandidateWithNewDescription())),
+            ChangedFieldsJson = "[\"Description\"]",
+        };
+        _pendingRepository.Setup(r => r.GetPendingAudiobookIdsAsync()).ReturnsAsync(new List<long> { 42 });
+        _pendingRepository.Setup(r => r.GetByAudiobookIdsAsync(It.IsAny<IReadOnlyList<long>>()))
+            .ReturnsAsync(new List<PendingMetadataRefresh> { row });
+        _pendingRepository.Setup(r => r.GetByAudiobookIdAsync(42)).ReturnsAsync(row);
+        return row;
+    }
+
+    [TestMethod]
+    public async Task ApplyPendingByRules_ARowTheRulesNowSettle_IsAppliedAndNoLongerPending()
+    {
+        // The backlog case: a row parked before the rule allowed it is applied once it does.
+        SetUpBulkRefreshWithOneDifference(
+            RulesJson((MetadataRefreshFields.Description, InteractiveApplyRule.AlwaysSelect, AutomatedApplyRule.OverwriteUnlessSourceEmpty)),
+            out var saved);
+        SeedPendingRowFromCandidate();
+
+        var result = await CreateService(_scrapers).ApplyPendingByRulesAsync(NoProgress);
+
+        Assert.AreEqual((1, 1, 0), result);
+        Assert.AreEqual(1, saved.Count);
+        Assert.AreEqual("A new description", saved[0].Description);
+        _pendingRepository.Verify(r => r.DeleteByAudiobookIdAsync(42), Times.AtLeastOnce);
+    }
+
+    [TestMethod]
+    public async Task ApplyPendingByRules_ARowWithAnAskMeField_IsLeftPendingAndNotCounted()
+    {
+        SetUpBulkRefreshWithOneDifference(rulesJson: null, out var saved);
+        SeedPendingRowFromCandidate();
+
+        var result = await CreateService(_scrapers).ApplyPendingByRulesAsync(NoProgress);
+
+        Assert.AreEqual((0, 0, 0), result);
+        Assert.AreEqual(0, saved.Count);
+        _pendingRepository.Verify(r => r.DeleteByAudiobookIdAsync(It.IsAny<long>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task ApplyPendingByRules_EveryDifferenceOnKeepCurrent_DropsTheRowWithoutApplying()
+    {
+        SetUpBulkRefreshWithOneDifference(
+            RulesJson((MetadataRefreshFields.Description, InteractiveApplyRule.AlwaysSelect, AutomatedApplyRule.KeepCurrent)),
+            out var saved);
+        SeedPendingRowFromCandidate();
+
+        var result = await CreateService(_scrapers).ApplyPendingByRulesAsync(NoProgress);
+
+        Assert.AreEqual((1, 1, 0), result);
+        Assert.AreEqual(0, saved.Count);
+        _pendingRepository.Verify(r => r.DeleteByAudiobookIdAsync(42), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task ApplyPendingByRules_AFailingApply_CountsFailedAndKeepsTheRowPending()
+    {
+        SetUpBulkRefreshWithOneDifference(
+            RulesJson((MetadataRefreshFields.Description, InteractiveApplyRule.AlwaysSelect, AutomatedApplyRule.AlwaysOverwrite)),
+            out _);
+        SeedPendingRowFromCandidate();
+        _audiobookService.Setup(s => s.UpdateAudiobook(42, It.IsAny<Domain.Audiobook>()))
+            .ThrowsAsync(new InvalidOperationException("target exists"));
+
+        var result = await CreateService(_scrapers).ApplyPendingByRulesAsync(NoProgress);
+
+        Assert.AreEqual((1, 0, 1), result);
+        _pendingRepository.Verify(r => r.DeleteByAudiobookIdAsync(42), Times.Never);
+    }
+
     #endregion
 
     #region RefreshSelectedAudiobooksAsync

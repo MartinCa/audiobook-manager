@@ -704,7 +704,10 @@ only to a field that actually differs. "Empty" is no text (a year of 0 included)
   person looking at it: the bulk and scheduled refreshes (`RunRefreshLoopAsync` calls
   `RefreshAudiobookCoreAsync(automated: true)`), picking a candidate from a pending online match
   (`ApplyFetchedResultAsSnapshotAsync`) and the consistency "retry refresh" resolve
-  (`RefreshAudiobookAutomatedAsync`). `RefreshAudiobookAsync`, the single-book Refresh button, is
+  (`RefreshAudiobookAutomatedAsync`), plus the backlog: "Re-evaluate Pending Changes" re-diffs the
+  pending rows and then settles the ones the current rules allow (`ApplyPendingByRulesAsync`, a
+  background apply on the apply lock/events, since it rewrites tags and moves files; rows with an
+  Ask me field stay). `RefreshAudiobookAsync`, the single-book Refresh button, is
   the one exception: its result opens in the review dialog immediately, so it is always a review. `Decide` returns "review" when _any_ differing field is Ask me - then
   **nothing is applied for that book**, not even fields whose own rule would have applied, and the
   changeset is stored pending as before. Otherwise `TryApplyAutomaticallyAsync` records the

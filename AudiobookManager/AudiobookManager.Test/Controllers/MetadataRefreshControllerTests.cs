@@ -360,7 +360,10 @@ public class MetadataRefreshControllerTests
         _metadataRefreshService.Setup(s => s.ReevaluatePendingRefreshesAsync())
             .ReturnsAsync(new MetadataRefreshReevaluateResult(5, 2, 1));
 
+        var finished = RegisterApplyFinishedWaiter();
+
         var result = await _controller.ReevaluatePending();
+        await AwaitOperationFinished(finished);
 
         var ok = result.Result as OkObjectResult;
         Assert.IsNotNull(ok);
@@ -369,6 +372,25 @@ public class MetadataRefreshControllerTests
         Assert.AreEqual(5, dto.Processed);
         Assert.AreEqual(2, dto.Updated);
         Assert.AreEqual(1, dto.Removed);
+    }
+
+    [TestMethod]
+    public async Task ReevaluatePending_StartsTheRuleBasedApplyInTheBackground()
+    {
+        _metadataRefreshService.Setup(s => s.ReevaluatePendingRefreshesAsync())
+            .ReturnsAsync(new MetadataRefreshReevaluateResult(0, 0, 0));
+        _metadataRefreshService.Setup(s => s.ApplyPendingByRulesAsync(It.IsAny<Func<int, int, int, int, Task>>()))
+            .ReturnsAsync((0, 0, 0));
+
+        var finished = RegisterApplyFinishedWaiter();
+
+        var result = await _controller.ReevaluatePending();
+        await AwaitOperationFinished(finished);
+
+        var dto = (result.Result as OkObjectResult)?.Value as MetadataRefreshReevaluateResultDto;
+        Assert.IsNotNull(dto);
+        Assert.IsTrue(dto.AutoApplyStarted);
+        _metadataRefreshService.Verify(s => s.ApplyPendingByRulesAsync(It.IsAny<Func<int, int, int, int, Task>>()), Times.Once);
     }
 
     [TestMethod]
