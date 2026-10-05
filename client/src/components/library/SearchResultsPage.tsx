@@ -133,11 +133,13 @@ export function SearchResultsPage() {
     }
   };
 
-  // The search a tab (or a "View all" link) points at: the tab goes in the URL, the page resets.
-  const searchForTab = (nextTab: SearchTab) => ({
-    tab: nextTab === "all" ? undefined : nextTab,
-    page: undefined,
-  });
+  // The search a tab (or a "View all" link) points at: the tab goes in the URL and the page resets.
+  // The tab you are already on points at the current search unchanged, so following it is a no-op
+  // (as the old click handler was) instead of dropping you back to page 1.
+  const searchForTab = <P extends object>(prev: P, nextTab: SearchTab) =>
+    nextTab === tab
+      ? prev
+      : { ...prev, tab: nextTab === "all" ? undefined : nextTab, page: undefined };
 
   const handlePageChange = (newPage: number) => {
     void navigate({
@@ -289,12 +291,7 @@ export function SearchResultsPage() {
               <TabsTrigger
                 value="all"
                 nativeButton={false}
-                render={
-                  <Link
-                    to="/library/search"
-                    search={(prev) => ({ ...prev, ...searchForTab("all") })}
-                  />
-                }
+                render={<Link to="/library/search" search={(prev) => searchForTab(prev, "all")} />}
                 className="text-xs"
               >
                 All
@@ -303,10 +300,7 @@ export function SearchResultsPage() {
                 value="books"
                 nativeButton={false}
                 render={
-                  <Link
-                    to="/library/search"
-                    search={(prev) => ({ ...prev, ...searchForTab("books") })}
-                  />
+                  <Link to="/library/search" search={(prev) => searchForTab(prev, "books")} />
                 }
                 className="text-xs"
               >
@@ -317,10 +311,7 @@ export function SearchResultsPage() {
                 value="authors"
                 nativeButton={false}
                 render={
-                  <Link
-                    to="/library/search"
-                    search={(prev) => ({ ...prev, ...searchForTab("authors") })}
-                  />
+                  <Link to="/library/search" search={(prev) => searchForTab(prev, "authors")} />
                 }
                 className="text-xs"
               >
@@ -331,10 +322,7 @@ export function SearchResultsPage() {
                 value="series"
                 nativeButton={false}
                 render={
-                  <Link
-                    to="/library/search"
-                    search={(prev) => ({ ...prev, ...searchForTab("series") })}
-                  />
+                  <Link to="/library/search" search={(prev) => searchForTab(prev, "series")} />
                 }
                 className="text-xs"
               >
@@ -376,10 +364,7 @@ export function SearchResultsPage() {
                       size="sm"
                       className="h-auto p-0 text-xs"
                       render={
-                        <Link
-                          to="/library/search"
-                          search={(prev) => ({ ...prev, ...searchForTab("books") })}
-                        />
+                        <Link to="/library/search" search={(prev) => searchForTab(prev, "books")} />
                       }
                     >
                       View all {booksTotal} books &rarr;
@@ -414,7 +399,7 @@ export function SearchResultsPage() {
                       render={
                         <Link
                           to="/library/search"
-                          search={(prev) => ({ ...prev, ...searchForTab("authors") })}
+                          search={(prev) => searchForTab(prev, "authors")}
                         />
                       }
                     >
@@ -444,7 +429,7 @@ export function SearchResultsPage() {
                       render={
                         <Link
                           to="/library/search"
-                          search={(prev) => ({ ...prev, ...searchForTab("series") })}
+                          search={(prev) => searchForTab(prev, "series")}
                         />
                       }
                     >

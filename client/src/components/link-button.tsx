@@ -1,14 +1,17 @@
-import { cloneElement, type ComponentProps, type ReactElement, type ReactNode } from "react";
+import { cloneElement, type ComponentProps, type ReactElement } from "react";
 import type { VariantProps } from "class-variance-authority";
 
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "cn";
 
-type LinkButtonProps = Omit<ComponentProps<"a">, "children"> &
+// What the cloned link receives: anchor props plus the slot marker (hyphenated names are not part
+// of ComponentProps<"a">, so the clone prop type has to name it).
+type LinkElementProps = ComponentProps<"a"> & { "data-slot"?: string };
+
+type LinkButtonProps = ComponentProps<"a"> &
   VariantProps<typeof buttonVariants> & {
     /** The link to render, e.g. `<Link to="/library" />` or `<a href="/library" />`. Required: without it there is no link. */
-    render: ReactElement<{ className?: string }>;
-    children?: ComponentProps<"a">["children"];
+    render: ReactElement<LinkElementProps>;
   };
 
 /**
@@ -35,5 +38,5 @@ export function LinkButton({
     // Only override the element's own children when LinkButton was given some: a third
     // cloneElement argument replaces them even when it is undefined.
     ...(children !== undefined && { children }),
-  } as Partial<{ className: string; children: ReactNode }>);
+  });
 }
