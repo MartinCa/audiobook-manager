@@ -264,12 +264,12 @@ public class LibraryScanService : ILibraryScanService
     /// declaring it async only misled callers into wrapping it in Task.WhenAll for a concurrency
     /// it could never provide.
     /// </summary>
-    public bool IsDuplicateTarget(DiscoveredAudiobook entry)
+    public bool IsDuplicateTarget(DiscoveredAudiobook entry, bool includeNarratorInPath)
     {
         try
         {
             var domain = ToDomainAudiobook(entry);
-            var targetPath = _audiobookService.GenerateLibraryPath(domain);
+            var targetPath = _audiobookService.GenerateLibraryPath(domain, includeNarratorInPath);
             if (!File.Exists(targetPath))
             {
                 return false;

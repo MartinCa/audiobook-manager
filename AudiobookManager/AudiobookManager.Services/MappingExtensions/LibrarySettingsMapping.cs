@@ -14,6 +14,7 @@ public static class LibrarySettingsMapping
             UpcomingReleasesCronSchedule = dbModel.UpcomingReleasesCronSchedule,
             DefaultPageSize = dbModel.DefaultPageSize,
             SearchInitialsHandling = ToDomain(dbModel.SearchInitialsHandling),
+            IncludeNarratorInPath = dbModel.IncludeNarratorInPath,
             MetadataApplyRules = MetadataApplyRuleSet.Deserialize(dbModel.MetadataApplyRulesJson),
         };
 

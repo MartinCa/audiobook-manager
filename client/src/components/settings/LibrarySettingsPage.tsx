@@ -61,6 +61,7 @@ export function LibrarySettingsPage() {
   const [defaultPageSize, setDefaultPageSize] = useState<PageSizeOption | null>(null);
   const [searchInitialsHandling, setSearchInitialsHandling] =
     useState<SearchInitialsHandling | null>(null);
+  const [includeNarratorInPath, setIncludeNarratorInPath] = useState<boolean | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: queryKeys.librarySettings(),
@@ -75,6 +76,7 @@ export function LibrarySettingsPage() {
       upcomingReleasesCronSchedule: string;
       defaultPageSize: number;
       searchInitialsHandling: SearchInitialsHandling;
+      includeNarratorInPath: boolean;
     }) => settingsApi.updateLibrarySettings(settings),
     onSuccess: () => {
       notifications.success("Library settings saved");
@@ -98,6 +100,8 @@ export function LibrarySettingsPage() {
   const currentDefaultPageSize = defaultPageSize ?? data?.defaultPageSize ?? null;
   const currentSearchInitialsHandling =
     searchInitialsHandling ?? data?.searchInitialsHandling ?? null;
+  const currentIncludeNarratorInPath =
+    includeNarratorInPath ?? data?.includeNarratorInPath ?? false;
 
   const handleSave = () => {
     if (
@@ -115,6 +119,7 @@ export function LibrarySettingsPage() {
       upcomingReleasesCronSchedule: currentCronSchedule,
       defaultPageSize: currentDefaultPageSize,
       searchInitialsHandling: currentSearchInitialsHandling,
+      includeNarratorInPath: currentIncludeNarratorInPath,
     });
   };
 
@@ -233,6 +238,26 @@ export function LibrarySettingsPage() {
                   Hardcover, &ldquo;George R.R. Martin&rdquo; finds books that &ldquo;George R. R.
                   Martin&rdquo; misses). It never changes stored names, and text you type into the
                   search box is sent as typed.
+                </p>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="flex items-center gap-2 text-sm">
+                  <Checkbox
+                    checked={currentIncludeNarratorInPath}
+                    onCheckedChange={(checked) => setIncludeNarratorInPath(Boolean(checked))}
+                    disabled={mutation.isPending}
+                  />
+                  Include narrator in folder name
+                </label>
+                <p className="text-muted-foreground text-xs">
+                  Adds the narrator to each book&apos;s folder in the form Audiobookshelf reads,
+                  e.g.{" "}
+                  <span className="font-mono">2010 - The Way of Kings {"{Michael Kramer}"}</span>,
+                  so two narrations of the same book can sit side by side. Books without a narrator
+                  are unaffected. Turning this on or off changes the expected path of every book
+                  that has a narrator: they show up as &ldquo;wrong file path&rdquo; in the
+                  consistency check, where resolving them moves the files.
                 </p>
               </div>
 

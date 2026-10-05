@@ -12,4 +12,5 @@ public sealed record AudiobookCheckContext(
     Audiobook Audiobook,
     DomainAudiobook Parsed,
     string DirectoryPath,
-    string LibraryPath);
+    string LibraryPath,
+    bool IncludeNarratorInPath);

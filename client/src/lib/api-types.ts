@@ -6252,6 +6252,7 @@ export interface components {
             /** Format: int32 */
             defaultPageSize?: number;
             searchInitialsHandling?: string | null;
+            includeNarratorInPath?: boolean;
         };
         MatchAuthorDto: {
             sourceId?: string | null;
@@ -6828,6 +6829,7 @@ export interface components {
             /** Format: int32 */
             defaultPageSize?: number | null;
             searchInitialsHandling?: string | null;
+            includeNarratorInPath?: boolean | null;
         };
         UpdateMetadataApplyRulesDto: {
             rules?: components["schemas"]["MetadataApplyRuleInputDto"][] | null;

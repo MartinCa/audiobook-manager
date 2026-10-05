@@ -51,7 +51,7 @@ public class MissingMediaFileResolver : IBookConsistencyIssueResolver
             // stored SeriesPartMismatch for this book would be silently dropped by the broad
             // delete below and never re-inserted. Its findings are merged into the refresh.
             await _issueRepository.DeleteByAudiobookIdAsync(audiobook.Id);
-            var newIssues = await Task.Run(() => _detectionService.DetectIssues(audiobook));
+            var newIssues = await _detectionService.DetectIssuesAsync(audiobook);
             newIssues.AddRange(await _partMismatchIssueDetector.DetectForAudiobookAsync(audiobook));
             if (newIssues.Count > 0)
             {
@@ -85,7 +85,7 @@ public class MissingMediaFileResolver : IBookConsistencyIssueResolver
             // answer (LibraryPathUnavailable, the stock "share is gone" shape) is inserted below.
             await _issueRepository.DeleteByAudiobookIdAndTypesAsync(
                 audiobook.Id, new[] { BookConsistencyIssueType.MissingMediaFile });
-            var newIssues = await Task.Run(() => _detectionService.DetectIssues(audiobook));
+            var newIssues = await _detectionService.DetectIssuesAsync(audiobook);
             if (newIssues.Count > 0)
             {
                 await _issueRepository.InsertRangeAsync(newIssues);

@@ -172,6 +172,7 @@ public class SettingsController : ControllerBase
             UpcomingReleasesCronSchedule = upcomingReleasesCronSchedule,
             DefaultPageSize = defaultPageSize,
             SearchInitialsHandling = searchInitialsHandling,
+            IncludeNarratorInPath = dto.IncludeNarratorInPath ?? current.IncludeNarratorInPath,
         });
         return Ok(ToDto(updated));
     }
@@ -298,5 +299,6 @@ public class SettingsController : ControllerBase
             settings.UpcomingReleasesEnabled,
             settings.UpcomingReleasesCronSchedule,
             settings.DefaultPageSize,
-            settings.SearchInitialsHandling.ToString());
+            settings.SearchInitialsHandling.ToString(),
+            settings.IncludeNarratorInPath);
 }

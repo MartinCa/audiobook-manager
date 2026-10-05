@@ -35,6 +35,7 @@ describe("usePageSize", () => {
       upcomingReleasesCronSchedule: "0 3 * * *",
       defaultPageSize: 100,
       searchInitialsHandling: "AsStored",
+      includeNarratorInPath: false,
     });
 
     const { result } = renderHook(() => usePageSize(), { wrapper });
@@ -51,6 +52,7 @@ describe("usePageSize", () => {
       upcomingReleasesCronSchedule: "0 3 * * *",
       defaultPageSize: 20,
       searchInitialsHandling: "AsStored",
+      includeNarratorInPath: false,
     });
 
     const { result } = renderHook(() => usePageSize(), { wrapper });

@@ -30,5 +30,5 @@ public interface ILibraryScanService
     /// so bulk import would fail. Returns false for an entry missing the tags required to
     /// generate a path (author/book name/year) rather than throwing.
     /// </summary>
-    bool IsDuplicateTarget(DiscoveredAudiobook entry);
+    bool IsDuplicateTarget(DiscoveredAudiobook entry, bool includeNarratorInPath);
 }

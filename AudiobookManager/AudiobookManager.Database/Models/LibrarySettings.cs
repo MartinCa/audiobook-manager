@@ -60,6 +60,10 @@ public class LibrarySettings
     [Column("search_initials_handling")]
     public SearchInitialsHandling SearchInitialsHandling { get; set; } = SearchInitialsHandling.AsStored;
 
+    /// <summary>Whether the book folder name carries the narrator as <c>{Narrator}</c>.</summary>
+    [Column("include_narrator_in_path")]
+    public bool IncludeNarratorInPath { get; set; }
+
     /// <summary>
     /// The per-field online-metadata apply rules as a JSON object keyed by field name, or null for
     /// "all defaults". A JSON column rather than two columns per field: the field set grows with the
@@ -78,7 +82,8 @@ public class LibrarySettings
         bool upcomingReleasesEnabled = true,
         string upcomingReleasesCronSchedule = "0 3 * * *",
         int defaultPageSize = 20,
-        SearchInitialsHandling searchInitialsHandling = SearchInitialsHandling.AsStored)
+        SearchInitialsHandling searchInitialsHandling = SearchInitialsHandling.AsStored,
+        bool includeNarratorInPath = false)
     {
         Id = id;
         InitialsSpacing = initialsSpacing;
@@ -88,5 +93,6 @@ public class LibrarySettings
         UpcomingReleasesCronSchedule = upcomingReleasesCronSchedule;
         DefaultPageSize = defaultPageSize;
         SearchInitialsHandling = searchInitialsHandling;
+        IncludeNarratorInPath = includeNarratorInPath;
     }
 }

@@ -55,6 +55,7 @@ function makeSettings(overrides: Partial<LibrarySettings> = {}): LibrarySettings
     upcomingReleasesCronSchedule: "0 3 * * *",
     defaultPageSize: 20,
     searchInitialsHandling: "AsStored",
+    includeNarratorInPath: false,
     ...overrides,
   };
 }
@@ -95,6 +96,46 @@ describe("LibrarySettingsPage", () => {
     expect(await findSearchInitialsCombo()).toHaveTextContent("Compact (George R.R. Martin)");
   });
 
+  it("shows the narrator-in-folder-name option off by default and reflects a stored on", async () => {
+    vi.mocked(settingsApi.getLibrarySettings).mockResolvedValue(makeSettings());
+    const { unmount } = renderPage();
+    expect(
+      await screen.findByRole("checkbox", { name: /include narrator in folder name/i }),
+    ).not.toBeChecked();
+    unmount();
+
+    vi.mocked(settingsApi.getLibrarySettings).mockResolvedValue(
+      makeSettings({ includeNarratorInPath: true }),
+    );
+    renderPage();
+    await waitFor(() => {
+      expect(
+        screen.getByRole("checkbox", { name: /include narrator in folder name/i }),
+      ).toBeChecked();
+    });
+  });
+
+  it("sends includeNarratorInPath: true on save once the option is ticked", async () => {
+    const user = userEvent.setup();
+    vi.mocked(settingsApi.getLibrarySettings).mockResolvedValue(makeSettings());
+    vi.mocked(settingsApi.updateLibrarySettings).mockResolvedValue(
+      makeSettings({ includeNarratorInPath: true }),
+    );
+
+    renderPage();
+
+    await user.click(
+      await screen.findByRole("checkbox", { name: /include narrator in folder name/i }),
+    );
+    await user.click(screen.getByRole("button", { name: /^Save$/ }));
+
+    await waitFor(() => {
+      expect(settingsApi.updateLibrarySettings).toHaveBeenCalledWith(
+        expect.objectContaining({ includeNarratorInPath: true }),
+      );
+    });
+  });
+
   it("sends the chosen search initials handling on save", async () => {
     const user = userEvent.setup();
     vi.mocked(settingsApi.getLibrarySettings).mockResolvedValue(makeSettings());
@@ -120,6 +161,7 @@ describe("LibrarySettingsPage", () => {
         upcomingReleasesCronSchedule: "0 3 * * *",
         defaultPageSize: 20,
         searchInitialsHandling: "Compact",
+        includeNarratorInPath: false,
       });
     });
   });
@@ -143,7 +185,7 @@ describe("LibrarySettingsPage", () => {
 
     const cronInput = await screen.findByPlaceholderText("0 3 * * *");
     expect(cronInput).toHaveValue("0 4 * * *");
-    expect(screen.getByRole("checkbox")).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: /check for upcoming releases/i })).toBeChecked();
   });
 
   it("sends an update when a different spacing is chosen and shows a success toast", async () => {
@@ -173,6 +215,7 @@ describe("LibrarySettingsPage", () => {
         upcomingReleasesCronSchedule: "0 3 * * *",
         defaultPageSize: 20,
         searchInitialsHandling: "AsStored",
+        includeNarratorInPath: false,
       });
     });
     expect(notifications.success).toHaveBeenCalledWith("Library settings saved");
@@ -205,6 +248,7 @@ describe("LibrarySettingsPage", () => {
         upcomingReleasesCronSchedule: "0 3 * * *",
         defaultPageSize: 20,
         searchInitialsHandling: "AsStored",
+        includeNarratorInPath: false,
       });
     });
     expect(notifications.success).toHaveBeenCalledWith("Library settings saved");
@@ -220,7 +264,7 @@ describe("LibrarySettingsPage", () => {
     const cronInput = await screen.findByPlaceholderText("0 3 * * *");
     await user.clear(cronInput);
     await user.type(cronInput, "0 5 * * *");
-    await user.click(screen.getByRole("checkbox"));
+    await user.click(screen.getByRole("checkbox", { name: /check for upcoming releases/i }));
 
     await user.click(screen.getByRole("button", { name: /^Save$/ }));
 
@@ -232,6 +276,7 @@ describe("LibrarySettingsPage", () => {
         upcomingReleasesCronSchedule: "0 5 * * *",
         defaultPageSize: 20,
         searchInitialsHandling: "AsStored",
+        includeNarratorInPath: false,
       });
     });
   });

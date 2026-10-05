@@ -50,7 +50,8 @@ public class LibrarySettingsRepository : ILibrarySettingsRepository
         bool upcomingReleasesEnabled,
         string upcomingReleasesCronSchedule,
         int defaultPageSize,
-        SearchInitialsHandling searchInitialsHandling)
+        SearchInitialsHandling searchInitialsHandling,
+        bool includeNarratorInPath)
     {
         var settings = await _db.LibrarySettings.SingleOrDefaultAsync();
         if (settings == null)
@@ -63,7 +64,8 @@ public class LibrarySettingsRepository : ILibrarySettingsRepository
                 upcomingReleasesEnabled,
                 upcomingReleasesCronSchedule,
                 defaultPageSize,
-                searchInitialsHandling);
+                searchInitialsHandling,
+                includeNarratorInPath);
             _db.LibrarySettings.Add(settings);
         }
         else
@@ -75,6 +77,7 @@ public class LibrarySettingsRepository : ILibrarySettingsRepository
             settings.UpcomingReleasesCronSchedule = upcomingReleasesCronSchedule;
             settings.DefaultPageSize = defaultPageSize;
             settings.SearchInitialsHandling = searchInitialsHandling;
+            settings.IncludeNarratorInPath = includeNarratorInPath;
         }
 
         try
@@ -96,6 +99,7 @@ public class LibrarySettingsRepository : ILibrarySettingsRepository
             winner.UpcomingReleasesCronSchedule = upcomingReleasesCronSchedule;
             winner.DefaultPageSize = defaultPageSize;
             winner.SearchInitialsHandling = searchInitialsHandling;
+            winner.IncludeNarratorInPath = includeNarratorInPath;
             await _db.SaveChangesAsync();
             return winner;
         }

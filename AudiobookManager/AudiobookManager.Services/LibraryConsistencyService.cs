@@ -112,12 +112,15 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         // hub sends nobody can see.
         var pending = new List<BookConsistencyIssue>(InsertBatchSize);
 
+        // Read once for the whole run: it is the same for every book.
+        var includeNarratorInPath = (await _librarySettingsRepository.GetOrCreateAsync()).IncludeNarratorInPath;
+
         foreach (var audiobook in audiobooks)
         {
             booksChecked++;
             var bookLabel = $"{string.Join(", ", audiobook.Authors.Select(a => a.Name))} — {audiobook.BookName}";
 
-            var issues = _detectionService.DetectIssues(audiobook);
+            var issues = _detectionService.DetectIssues(audiobook, includeNarratorInPath);
             issuesFound += issues.Count;
             pending.AddRange(issues);
 
@@ -541,7 +544,7 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         // and this path is awaited directly by a controller action, so it must not run on the
         // request thread. (The full check needs no such wrapper: BackgroundOperationRunner
         // already puts it on the thread pool.)
-        var issues = await Task.Run(() => _detectionService.DetectIssues(audiobook));
+        var issues = await _detectionService.DetectIssuesAsync(audiobook);
 
         // The series-part-mismatch check is async (the cached reconciliation reads the roster and
         // owned keys) and is this book's share of the same library-wide sweep the full check runs;

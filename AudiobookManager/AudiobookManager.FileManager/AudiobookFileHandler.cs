@@ -350,7 +350,40 @@ public class AudiobookFileHandler : IAudiobookFileHandler
     public static void RemoveSidecarFilesStatic(string directoryPath) =>
         new AudiobookFileHandler(_defaultFileOperations).RemoveSidecarFiles(directoryPath);
 
-    public static string GenerateRelativeAudiobookPath(Audiobook audiobook)
+    /// <summary>Longest narrator text put in a folder name, so a long cast list cannot push the segment past the file system's name limit.</summary>
+    private const int MaxNarratorFolderLength = 80;
+
+    /// <summary>
+    /// The <c>{Narrator}</c> suffix Audiobookshelf reads a book folder's narrator from, or an empty
+    /// string when the book has no narrator. Several narrators are joined like the narrator tag.
+    /// </summary>
+    public static string GetNarratorFolderSuffix(Audiobook audiobook)
+    {
+        var narrators = AudiobookTagHandler.GetStringFromListOfPersons(
+            audiobook.Narrators.Where(n => !string.IsNullOrWhiteSpace(n.Name)));
+        if (narrators.Length == 0)
+        {
+            return "";
+        }
+
+        if (narrators.Length > MaxNarratorFolderLength)
+        {
+            narrators = narrators[..MaxNarratorFolderLength].TrimEnd(' ', ',');
+        }
+
+        // A brace inside the name would end the group early, and Audiobookshelf would read a
+        // truncated narrator.
+        narrators = narrators.Replace("{", "").Replace("}", "");
+
+        return narrators.Length == 0 ? "" : $" {{{narrators}}}";
+    }
+
+    /// <param name="includeNarratorInPath">
+    /// The library setting that appends <c>{Narrator}</c> to the book folder so several narrations
+    /// of one book can live side by side. Required rather than defaulted: a caller that forgot it
+    /// would compute a different path from the rest of the app.
+    /// </param>
+    public static string GenerateRelativeAudiobookPath(Audiobook audiobook, bool includeNarratorInPath)
     {
         if (audiobook.FileInfo is null)
         {
@@ -360,6 +393,9 @@ public class AudiobookFileHandler : IAudiobookFileHandler
         // The path carries the qualifier suffixes, like every other thing written to disk.
         var bookName = audiobook.EffectiveBookName;
         var series = audiobook.EffectiveSeries;
+        // Directory only: the file name is unique within its folder, and Audiobookshelf reads the
+        // narrator from the folder.
+        var narratorSuffix = includeNarratorInPath ? GetNarratorFolderSuffix(audiobook) : "";
 
         var fileName = $"{audiobook.Year} - {bookName}";
 
@@ -370,13 +406,13 @@ public class AudiobookFileHandler : IAudiobookFileHandler
             pathParts.Add(series);
             var seriesPart = !string.IsNullOrEmpty(audiobook.SeriesPart) ? $" {AudiobookTagHandler.PadSeriesPart(audiobook.SeriesPart)}" : "";
             var seriesDirectory = !string.IsNullOrEmpty(audiobook.SeriesPart) ? $"Book{seriesPart} - " : "";
-            pathParts.Add($"{seriesDirectory}{audiobook.Year} - {bookName}");
+            pathParts.Add($"{seriesDirectory}{audiobook.Year} - {bookName}{narratorSuffix}");
 
             fileName = $"{series}{seriesPart} - {fileName}";
         }
         else
         {
-            pathParts.Add($"{audiobook.Year} - {bookName}");
+            pathParts.Add($"{audiobook.Year} - {bookName}{narratorSuffix}");
         }
 
         return CombinePathAndFilename(pathParts, fileName, Path.GetExtension(audiobook.FileInfo.FullPath));

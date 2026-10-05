@@ -42,6 +42,14 @@ public class LibrarySettings
     public SearchInitialsHandling SearchInitialsHandling { get; set; } = SearchInitialsHandling.AsStored;
 
     /// <summary>
+    /// Whether a book's folder name gets the narrator appended as <c>{Narrator}</c> (the form
+    /// Audiobookshelf reads), so two narrations of one book can sit side by side. Off by default:
+    /// turning it on moves every book that has a narrator, through the consistency check's
+    /// WrongFilePath resolve.
+    /// </summary>
+    public bool IncludeNarratorInPath { get; set; }
+
+    /// <summary>
     /// Per-field rules for applying online metadata, keyed by <c>MetadataRefreshFields</c> name. A
     /// field missing from the map uses the default rule (select it, ask me), which reproduces the
     /// behaviour from before these rules existed; <c>MetadataApplyRuleSet</c> resolves the map.

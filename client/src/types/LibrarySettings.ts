@@ -26,6 +26,7 @@ export type LibrarySettings = Require<
   | "upcomingReleasesCronSchedule"
   | "defaultPageSize"
   | "searchInitialsHandling"
+  | "includeNarratorInPath"
 > & {
   initialsSpacing: InitialsSpacing;
   initialsPunctuation: InitialsPunctuation;
@@ -33,7 +34,8 @@ export type LibrarySettings = Require<
 };
 
 // Body of PUT api/settings/library. initialsPunctuation/metadataRefreshDelayMs/
-// upcomingReleasesEnabled/upcomingReleasesCronSchedule/defaultPageSize/searchInitialsHandling are optional on the wire
+// upcomingReleasesEnabled/upcomingReleasesCronSchedule/defaultPageSize/searchInitialsHandling/
+// includeNarratorInPath are optional on the wire
 // too - an omitted field keeps the stored value rather than resetting it (see
 // SettingsController.UpdateLibrarySettings).
 export type UpdateLibrarySettings = {
@@ -44,4 +46,5 @@ export type UpdateLibrarySettings = {
   upcomingReleasesCronSchedule?: string;
   defaultPageSize?: number;
   searchInitialsHandling?: SearchInitialsHandling;
+  includeNarratorInPath?: boolean;
 };

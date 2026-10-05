@@ -50,9 +50,9 @@ public class SettingsServiceTests
         {
             _librarySettingsRepository
                 .Setup(r => r.UpdateAsync(
-                    It.IsAny<DbInitialsSpacing>(), It.IsAny<DbInitialsPunctuation>(), It.IsAny<int>(), It.IsAny<bool>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<AudiobookManager.Database.Models.SearchInitialsHandling>()))
-                .ReturnsAsync((DbInitialsSpacing s, DbInitialsPunctuation p, int delayMs, bool enabled, string cron, int pageSize, AudiobookManager.Database.Models.SearchInitialsHandling search) =>
-                    new DbLibrarySettings(1, s, p, delayMs, enabled, cron, pageSize, search));
+                    It.IsAny<DbInitialsSpacing>(), It.IsAny<DbInitialsPunctuation>(), It.IsAny<int>(), It.IsAny<bool>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<AudiobookManager.Database.Models.SearchInitialsHandling>(), It.IsAny<bool>()))
+                .ReturnsAsync((DbInitialsSpacing s, DbInitialsPunctuation p, int delayMs, bool enabled, string cron, int pageSize, AudiobookManager.Database.Models.SearchInitialsHandling search, bool includeNarrator) =>
+                    new DbLibrarySettings(1, s, p, delayMs, enabled, cron, pageSize, search, includeNarrator));
 
             var result = await _service.UpdateLibrarySettings(
                 new DomainLibrarySettings
@@ -69,9 +69,9 @@ public class SettingsServiceTests
 
         // The delay rides along with the spacing through the same update - not a second write path.
         _librarySettingsRepository.Verify(
-            r => r.UpdateAsync(DbInitialsSpacing.Spaced, DbInitialsPunctuation.Dotted, 2500, true, "0 3 * * *", 50, AudiobookManager.Database.Models.SearchInitialsHandling.AsStored), Times.Once);
+            r => r.UpdateAsync(DbInitialsSpacing.Spaced, DbInitialsPunctuation.Dotted, 2500, true, "0 3 * * *", 50, AudiobookManager.Database.Models.SearchInitialsHandling.AsStored, false), Times.Once);
         _librarySettingsRepository.Verify(
-            r => r.UpdateAsync(DbInitialsSpacing.Unspaced, DbInitialsPunctuation.Dotted, 2500, true, "0 3 * * *", 50, AudiobookManager.Database.Models.SearchInitialsHandling.AsStored), Times.Once);
+            r => r.UpdateAsync(DbInitialsSpacing.Unspaced, DbInitialsPunctuation.Dotted, 2500, true, "0 3 * * *", 50, AudiobookManager.Database.Models.SearchInitialsHandling.AsStored, false), Times.Once);
     }
 
     [TestMethod]
@@ -79,9 +79,9 @@ public class SettingsServiceTests
     {
         _librarySettingsRepository
             .Setup(r => r.UpdateAsync(
-                It.IsAny<DbInitialsSpacing>(), It.IsAny<DbInitialsPunctuation>(), It.IsAny<int>(), It.IsAny<bool>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<AudiobookManager.Database.Models.SearchInitialsHandling>()))
-            .ReturnsAsync((DbInitialsSpacing s, DbInitialsPunctuation p, int delayMs, bool enabled, string cron, int pageSize, AudiobookManager.Database.Models.SearchInitialsHandling search) =>
-                new DbLibrarySettings(1, s, p, delayMs, enabled, cron, pageSize, search));
+                It.IsAny<DbInitialsSpacing>(), It.IsAny<DbInitialsPunctuation>(), It.IsAny<int>(), It.IsAny<bool>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<AudiobookManager.Database.Models.SearchInitialsHandling>(), It.IsAny<bool>()))
+            .ReturnsAsync((DbInitialsSpacing s, DbInitialsPunctuation p, int delayMs, bool enabled, string cron, int pageSize, AudiobookManager.Database.Models.SearchInitialsHandling search, bool includeNarrator) =>
+                new DbLibrarySettings(1, s, p, delayMs, enabled, cron, pageSize, search, includeNarrator));
 
         foreach (var handling in Enum.GetValues<AudiobookManager.Domain.SearchInitialsHandling>())
         {

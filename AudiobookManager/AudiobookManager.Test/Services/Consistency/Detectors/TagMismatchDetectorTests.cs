@@ -48,7 +48,8 @@ public class TagMismatchDetectorTests
             MakeDbBook(),
             MakeParsed("Macmillan Audio", description),
             "/library/author/2024 - A Book",
-            "/library");
+            "/library",
+            false);
 
         var issues = detector.Detect(context).ToList();
 

@@ -174,7 +174,7 @@ public class AudiobookFileHandlerTests
             SeriesPart = "1"
         };
 
-        var result = AudiobookFileHandler.GenerateRelativeAudiobookPath(audiobook);
+        var result = AudiobookFileHandler.GenerateRelativeAudiobookPath(audiobook, false);
 
         var sep = AudiobookFileHandler.GetDirectorySeparator();
         Assert.IsTrue(result.Contains($"Brandon Sanderson{sep}The Stormlight Archive{sep}"));
@@ -191,7 +191,7 @@ public class AudiobookFileHandlerTests
             2023,
             new AudiobookFileInfo("/import/standalone.m4b", "standalone.m4b", 1000));
 
-        var result = AudiobookFileHandler.GenerateRelativeAudiobookPath(audiobook);
+        var result = AudiobookFileHandler.GenerateRelativeAudiobookPath(audiobook, false);
 
         var sep = AudiobookFileHandler.GetDirectorySeparator();
         Assert.IsTrue(result.Contains($"Author Name{sep}2023 - Standalone Title"));
@@ -213,7 +213,7 @@ public class AudiobookFileHandlerTests
             SeriesPart = "3"
         };
 
-        var result = AudiobookFileHandler.GenerateRelativeAudiobookPath(audiobook);
+        var result = AudiobookFileHandler.GenerateRelativeAudiobookPath(audiobook, false);
 
         Assert.IsTrue(result.Contains("Book 03 - "));
     }
@@ -231,7 +231,7 @@ public class AudiobookFileHandlerTests
             SeriesPart = "5"
         };
 
-        var result = AudiobookFileHandler.GenerateRelativeAudiobookPath(audiobook);
+        var result = AudiobookFileHandler.GenerateRelativeAudiobookPath(audiobook, false);
 
         var sep = AudiobookFileHandler.GetDirectorySeparator();
         var expected = string.Join(sep.ToString(), new[]
@@ -257,7 +257,7 @@ public class AudiobookFileHandlerTests
             SeriesPart = null
         };
 
-        var result = AudiobookFileHandler.GenerateRelativeAudiobookPath(audiobook);
+        var result = AudiobookFileHandler.GenerateRelativeAudiobookPath(audiobook, false);
 
         var sep = AudiobookFileHandler.GetDirectorySeparator();
         var expected = string.Join(sep.ToString(), new[]
@@ -284,7 +284,7 @@ public class AudiobookFileHandlerTests
             Subtitle = "A Subtitle"
         };
 
-        var result = AudiobookFileHandler.GenerateRelativeAudiobookPath(audiobook);
+        var result = AudiobookFileHandler.GenerateRelativeAudiobookPath(audiobook, false);
 
         var sep = AudiobookFileHandler.GetDirectorySeparator();
         Assert.IsTrue(result.Contains($"Book 02 - 2020 - Book Title{sep}"));
@@ -305,7 +305,7 @@ public class AudiobookFileHandlerTests
             SeriesPart = "1.5"
         };
 
-        var result = AudiobookFileHandler.GenerateRelativeAudiobookPath(audiobook);
+        var result = AudiobookFileHandler.GenerateRelativeAudiobookPath(audiobook, false);
 
         Assert.IsTrue(result.Contains("Book 01.5 - "));
         Assert.IsTrue(result.Contains("Main Series 01.5 - "));
@@ -324,7 +324,7 @@ public class AudiobookFileHandlerTests
             SeriesPart = "1"
         };
 
-        var result = AudiobookFileHandler.GenerateRelativeAudiobookPath(audiobook);
+        var result = AudiobookFileHandler.GenerateRelativeAudiobookPath(audiobook, false);
 
         Assert.IsTrue(result.StartsWith("Author One, Author Two"));
     }
@@ -375,7 +375,7 @@ public class AudiobookFileHandlerTests
             Series = ".."
         };
 
-        var result = AudiobookFileHandler.GenerateRelativeAudiobookPath(audiobook);
+        var result = AudiobookFileHandler.GenerateRelativeAudiobookPath(audiobook, false);
 
         var sep = AudiobookFileHandler.GetDirectorySeparator();
         CollectionAssert.DoesNotContain(result.Split(sep), "..");
@@ -391,7 +391,7 @@ public class AudiobookFileHandlerTests
             2020,
             new AudiobookFileInfo("/import/book.m4b", "book.m4b", 1000));
 
-        var result = AudiobookFileHandler.GenerateRelativeAudiobookPath(audiobook);
+        var result = AudiobookFileHandler.GenerateRelativeAudiobookPath(audiobook, false);
 
         var sep = AudiobookFileHandler.GetDirectorySeparator();
         var segments = result.Split(sep);
@@ -917,7 +917,7 @@ public class AudiobookFileHandlerTests
     [TestMethod]
     public void GenerateRelativeAudiobookPath_WithQualifiers_SuffixesTheSeriesDirectoryBookDirectoryAndFileName()
     {
-        var result = AudiobookFileHandler.GenerateRelativeAudiobookPath(DramatizedKillingFloor());
+        var result = AudiobookFileHandler.GenerateRelativeAudiobookPath(DramatizedKillingFloor(), false);
 
         var sep = AudiobookFileHandler.GetDirectorySeparator();
         Assert.AreEqual(
@@ -932,7 +932,7 @@ public class AudiobookFileHandlerTests
         var book = DramatizedKillingFloor();
         book.Qualifiers = new List<string> { "dramatized", "abridged" };
 
-        var result = AudiobookFileHandler.GenerateRelativeAudiobookPath(book);
+        var result = AudiobookFileHandler.GenerateRelativeAudiobookPath(book, false);
 
         StringAssert.Contains(result, "Killing Floor (Abridged) (Dramatized)");
         StringAssert.Contains(result, "Jack Reacher (Abridged) (Dramatized)");
@@ -944,7 +944,7 @@ public class AudiobookFileHandlerTests
         var book = DramatizedKillingFloor();
         book.Qualifiers = new List<string>();
 
-        var result = AudiobookFileHandler.GenerateRelativeAudiobookPath(book);
+        var result = AudiobookFileHandler.GenerateRelativeAudiobookPath(book, false);
 
         var sep = AudiobookFileHandler.GetDirectorySeparator();
         Assert.AreEqual(
@@ -965,7 +965,7 @@ public class AudiobookFileHandlerTests
             Qualifiers = new List<string> { "abridged" },
         };
 
-        var result = AudiobookFileHandler.GenerateRelativeAudiobookPath(book);
+        var result = AudiobookFileHandler.GenerateRelativeAudiobookPath(book, false);
 
         var sep = AudiobookFileHandler.GetDirectorySeparator();
         StringAssert.Contains(result, $"Author Name{sep}2023 - Standalone Title (Abridged){sep}");

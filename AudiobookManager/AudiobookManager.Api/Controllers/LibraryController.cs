@@ -31,6 +31,7 @@ public class LibraryController : ControllerBase
     private readonly ILibraryScanService _libraryScanService;
     private readonly IHostApplicationLifetime _appLifetime;
     private readonly AudiobookManagerSettings _settings;
+    private readonly ISettingsService _settingsService;
     private readonly ILogger<LibraryController> _logger;
 
     public LibraryController(
@@ -41,6 +42,7 @@ public class LibraryController : ControllerBase
         ILibraryScanService libraryScanService,
         IHostApplicationLifetime appLifetime,
         IOptions<AudiobookManagerSettings> settings,
+        ISettingsService settingsService,
         ILogger<LibraryController> logger)
     {
         _organizeHub = organizeHub;
@@ -50,6 +52,7 @@ public class LibraryController : ControllerBase
         _libraryScanService = libraryScanService;
         _appLifetime = appLifetime;
         _settings = settings.Value;
+        _settingsService = settingsService;
         _logger = logger;
     }
 
@@ -153,9 +156,10 @@ public class LibraryController : ControllerBase
 
         if (pairs.Count > 0)
         {
+            var includeNarratorInPath = (await _settingsService.GetLibrarySettings()).IncludeNarratorInPath;
             await Task.Run(() => Parallel.ForEach(
                 pairs,
-                pair => pair.dto.IsDuplicate = _libraryScanService.IsDuplicateTarget(pair.item)));
+                pair => pair.dto.IsDuplicate = _libraryScanService.IsDuplicateTarget(pair.item, includeNarratorInPath)));
         }
 
         return new DiscoveredAudiobookPageDto(mapped.Count, total, wellTaggedTotal, mapped);
