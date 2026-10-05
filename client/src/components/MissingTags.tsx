@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import type { PageSizeOption } from "@/constants/paging";
 import { OperationKeys } from "@/constants/signalrEvents";
-import { LinkButton } from "./LinkButton";
+import { LinkButton } from "./link-button";
 import { OperationProgressBar } from "./OperationProgressBar";
 import { OwnedBookList } from "./library/OwnedBookList";
 import { missingTagsApi, operationsApi } from "@/services/api";

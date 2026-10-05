@@ -19,7 +19,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import type { PageSizeOption } from "@/constants/paging";
 import { OperationKeys, SignalREvents } from "@/constants/signalrEvents";
-import { LinkButton } from "./LinkButton";
+import { LinkButton } from "./link-button";
 import { AlignTargetDialog } from "./AlignTargetDialog";
 import { IgnoredSimilarValuesDialog } from "./IgnoredSimilarValuesDialog";
 import { OperationProgressBar } from "./OperationProgressBar";

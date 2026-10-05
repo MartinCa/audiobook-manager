@@ -34,7 +34,7 @@ import { BookEditForm } from "@/components/BookEditForm";
 import { DuplicateTargetDialog } from "../DuplicateTargetDialog";
 import { DeleteFileDialog } from "../DeleteFileDialog";
 import { AudiobookFileDetails } from "../AudiobookFileDetails";
-import { LinkButton } from "../LinkButton";
+import { LinkButton } from "../link-button";
 import { SectionPager } from "./SectionPager";
 import type { PageSizeOption } from "@/constants/paging";
 import { libraryApi, audiobookApi, filesApi, queueApi } from "@/services/api";

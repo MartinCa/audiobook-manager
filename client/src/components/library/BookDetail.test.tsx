@@ -342,11 +342,12 @@ describe("BookDetail", () => {
     expect(row).toHaveTextContent("None");
   });
 
-  it("Edit button navigates to the edit route", async () => {
+  it("Edit is a real link to the edit route, and following it navigates there", async () => {
     const { router } = renderWithProviders();
 
-    const editBtn = await screen.findByRole("button", { name: /edit/i });
-    fireEvent.click(editBtn);
+    const editLink = await screen.findByRole("link", { name: /edit/i });
+    expect(editLink).toHaveAttribute("href", "/library/book/42/edit");
+    fireEvent.click(editLink);
 
     await waitFor(() => {
       expect(router.state.location.pathname).toBe("/library/book/42/edit");
@@ -386,7 +387,7 @@ describe("BookDetail", () => {
     renderWithProviders();
 
     expect(await screen.findByText(/Brandon Sanderson — The Way of Kings/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /edit/i })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /edit/i })).toBeInTheDocument();
 
     expect(screen.queryByRole("button", { name: /save changes/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /delete audiobook/i })).not.toBeInTheDocument();
@@ -410,7 +411,7 @@ describe("BookDetail", () => {
   it("renders Back to Library as a real link with a stable href", async () => {
     const { router } = renderWithProviders();
 
-    const backBtn = await screen.findByRole("button", { name: /back to library/i });
+    const backBtn = await screen.findByRole("link", { name: /back to library/i });
     // A real navigation link, not a history-dependent button: the href is stable regardless of
     // how the user reached the page (direct load, refresh, or an edit-form back-stack).
     expect(backBtn.tagName).toBe("A");
@@ -962,11 +963,12 @@ describe("BookDetail", () => {
 
   // ---- Search Online Metadata from the view page (item 2) ----
 
-  it("Search Online Metadata button on the view page navigates to the edit route and auto-opens the search dialog", async () => {
+  it("Search Online Metadata on the view page is a real link that opens the edit route and auto-opens the search dialog", async () => {
     const { router } = renderWithProviders();
 
-    const searchBtn = await screen.findByRole("button", { name: /search online metadata/i });
-    fireEvent.click(searchBtn);
+    const searchLink = await screen.findByRole("link", { name: /search online metadata/i });
+    expect(searchLink).toHaveAttribute("href", "/library/book/42/edit?openSearch=true");
+    fireEvent.click(searchLink);
 
     await waitFor(() => {
       expect(router.state.location.pathname).toBe("/library/book/42/edit");
@@ -1104,7 +1106,7 @@ describe("BookDetail", () => {
     fireEvent.change(titleInput, { target: { value: "The Way of Kings (revised)" } });
     await screen.findAllByText("Unsaved changes");
 
-    const backLink = screen.getByRole("button", { name: /back to library/i });
+    const backLink = screen.getByRole("link", { name: /back to library/i });
     fireEvent.click(backLink);
 
     expect(await screen.findByText("Discard unsaved changes?")).toBeInTheDocument();
@@ -1126,7 +1128,7 @@ describe("BookDetail", () => {
     fireEvent.change(titleInput, { target: { value: "The Way of Kings (revised)" } });
     await screen.findAllByText("Unsaved changes");
 
-    const backLink = screen.getByRole("button", { name: /back to library/i });
+    const backLink = screen.getByRole("link", { name: /back to library/i });
     fireEvent.click(backLink);
 
     expect(await screen.findByText("Discard unsaved changes?")).toBeInTheDocument();
@@ -1142,7 +1144,7 @@ describe("BookDetail", () => {
     const { router } = renderWithProviders("/library/book/42/edit");
     await screen.findByDisplayValue("The Way of Kings");
 
-    const backLink = screen.getByRole("button", { name: /back to library/i });
+    const backLink = screen.getByRole("link", { name: /back to library/i });
     fireEvent.click(backLink);
 
     await waitFor(() => {

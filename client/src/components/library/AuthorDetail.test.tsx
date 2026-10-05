@@ -148,7 +148,7 @@ describe("AuthorDetail", () => {
 
     renderWithProviders();
 
-    const backBtn = await screen.findByRole("button", { name: /back to authors/i });
+    const backBtn = await screen.findByRole("link", { name: /back to authors/i });
     expect(backBtn.tagName).toBe("A");
     expect(backBtn).toHaveAttribute("href", "/library/authors");
   });

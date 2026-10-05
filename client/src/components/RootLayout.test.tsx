@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createRouter, createMemoryHistory, RouterProvider } from "@tanstack/react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -211,5 +211,50 @@ describe("RootLayout", () => {
     await user.click(await screen.findByText("Tasks"));
 
     expect(router.state.location.pathname).toBe("/settings/tasks");
+  });
+
+  // Navigation entries must be links (not buttons that call navigate()), or middle-click, Ctrl/Cmd-click
+  // and "Open in new tab" silently stop working: see DESIGN.md section 3.
+  it("renders every Tools menu entry as a real link to its route", async () => {
+    const user = userEvent.setup();
+    renderWithRouter();
+
+    await user.click(await screen.findByRole("button", { name: /tools/i }));
+
+    const items = await screen.findAllByRole("menuitem");
+    expect(items.map((item) => [item.tagName, item.getAttribute("href")])).toEqual([
+      ["A", "/library/consistency"],
+      ["A", "/library/missing-tags"],
+      ["A", "/library/metadata-refresh"],
+      ["A", "/library/similar-values"],
+      ["A", "/library/clean-urls"],
+      ["A", "/library/pending-online-match"],
+    ]);
+  });
+
+  it("renders every Settings menu entry as a real link to its route", async () => {
+    const user = userEvent.setup();
+    renderWithRouter();
+
+    await user.click(await screen.findByRole("button", { name: /settings/i }));
+
+    const items = await screen.findAllByRole("menuitem");
+    expect(items.map((item) => [item.tagName, item.getAttribute("href")])).toEqual([
+      ["A", "/settings"],
+      ["A", "/settings/library"],
+      ["A", "/settings/tasks"],
+    ]);
+  });
+
+  // Not a regression guard (a navigating button closed the menu too): it pins that rendering the item
+  // as a link keeps Base UI's close-on-click, which Menu.LinkItem would not (closeOnClick defaults false).
+  it("closes the menu after a link entry is followed", async () => {
+    const user = userEvent.setup();
+    renderWithRouter();
+
+    await user.click(await screen.findByRole("button", { name: /settings/i }));
+    await user.click(await screen.findByText("Tasks"));
+
+    await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument());
   });
 });

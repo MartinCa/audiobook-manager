@@ -16,7 +16,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { BookEditForm } from "../BookEditForm";
-import { LinkButton } from "../LinkButton";
+import { LinkButton } from "../link-button";
 import { DiffDisplay, TagMismatchDiffDisplay } from "../DiffDisplay";
 import { DuplicateTargetDialog } from "../DuplicateTargetDialog";
 import { DeleteFileDialog } from "../DeleteFileDialog";
@@ -449,20 +449,20 @@ export function BookDetail({ mode }: BookDetailProps) {
           )}
 
           {!isEditMode && (
-            <Button
+            <LinkButton
               size="sm"
               variant="outline"
-              onClick={() =>
-                void navigate({
-                  to: "/library/book/$bookId/edit",
-                  params: { bookId },
-                  search: { openSearch: true },
-                })
+              render={
+                <Link
+                  to="/library/book/$bookId/edit"
+                  params={{ bookId }}
+                  search={{ openSearch: true }}
+                />
               }
             >
               <Search className="mr-1.5 h-4 w-4" />
               Search Online Metadata
-            </Button>
+            </LinkButton>
           )}
 
           {isEditMode && formDirty && (
@@ -473,23 +473,21 @@ export function BookDetail({ mode }: BookDetailProps) {
           )}
 
           {isEditMode ? (
-            <Button
+            <LinkButton
               size="sm"
               variant="outline"
-              onClick={() => void navigate({ to: "/library/book/$bookId", params: { bookId } })}
+              render={<Link to="/library/book/$bookId" params={{ bookId }} />}
             >
               Done
-            </Button>
+            </LinkButton>
           ) : (
-            <Button
+            <LinkButton
               size="sm"
-              onClick={() =>
-                void navigate({ to: "/library/book/$bookId/edit", params: { bookId } })
-              }
+              render={<Link to="/library/book/$bookId/edit" params={{ bookId }} />}
             >
               <Pencil className="mr-1.5 h-4 w-4" />
               Edit
-            </Button>
+            </LinkButton>
           )}
 
           {saving && isEditMode && (

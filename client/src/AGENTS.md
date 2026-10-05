@@ -49,7 +49,9 @@ release), say so and name the reason in the commit.
 
 `pnpm lint` enforces the mechanical parts of `DESIGN.md` — strict TypeScript, no
 deep relative imports, no direct primitive imports outside `components/ui/`, no
-inline `style` props, no Zustand fetches, TanStack Query best practices; the rules
+inline `style` props, no Zustand fetches, no `onClick`/`onSelect`/`onValueChange` handler
+that only calls `navigate()` (render a link instead, `DESIGN.md` section 3), TanStack Query best
+practices; the rules
 themselves live in `DESIGN.md`. A few are warnings rather than errors, so CI runs
 with `--max-warnings 0`: a warning is a thing to fix, not a pass. Fix the code
 rather than disabling the rule; if a rule is genuinely wrong, change it upstream

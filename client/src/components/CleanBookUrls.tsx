@@ -5,7 +5,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tansta
 import { ArrowLeft, Link2, Loader2, Sparkles } from "lucide-react";
 import { ActionButton } from "@/components/action-button";
 import { Button } from "@/components/ui/button";
-import { LinkButton } from "./LinkButton";
+import { LinkButton } from "./link-button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";

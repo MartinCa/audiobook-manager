@@ -26,7 +26,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import type { PageSizeOption } from "@/constants/paging";
 import { OperationKeys, SignalREvents } from "@/constants/signalrEvents";
 import { OperationProgressBar } from "./OperationProgressBar";
-import { LinkButton } from "./LinkButton";
+import { LinkButton } from "./link-button";
 import { SectionPager } from "./library/SectionPager";
 import { DiffDisplay, TagMismatchDiffDisplay } from "./DiffDisplay";
 import { DeleteFileDialog } from "./DeleteFileDialog";

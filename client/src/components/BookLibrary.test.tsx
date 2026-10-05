@@ -262,7 +262,7 @@ describe("BookLibrary", () => {
 
     // Back to Library is a real link with a stable href (not history-dependent), so it lands on
     // the library list root rather than replaying the previous URL.
-    const backBtn = await screen.findByRole("button", { name: /back to library/i });
+    const backBtn = await screen.findByRole("link", { name: /back to library/i });
     expect(backBtn.tagName).toBe("A");
     expect(backBtn).toHaveAttribute("href", "/library");
     fireEvent.click(backBtn);

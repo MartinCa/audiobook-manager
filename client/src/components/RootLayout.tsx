@@ -1,4 +1,4 @@
-import { Link, Outlet, useLocation, useNavigate } from "@tanstack/react-router";
+import { Link, Outlet, useLocation } from "@tanstack/react-router";
 import {
   BookOpen,
   FolderInput,
@@ -39,7 +39,6 @@ import { formatVersion, getReleaseUrl } from "@/helpers/versionHelpers";
 
 export function RootLayout() {
   const location = useLocation();
-  const navigate = useNavigate();
   const pathname = location.pathname;
 
   // Mounted for the life of the app, unlike BookDetail: a save that finishes after the user has
@@ -153,54 +152,42 @@ export function RootLayout() {
                   </DropdownMenuGroup>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
-                    onClick={() => {
-                      void navigate({ to: "/library/consistency" });
-                    }}
+                    render={<Link to="/library/consistency" />}
                     className="cursor-pointer text-xs"
                   >
                     <ShieldAlert className="text-primary mr-2 h-4 w-4" />
                     <span>Library Issues</span>
                   </DropdownMenuItem>
                   <DropdownMenuItem
-                    onClick={() => {
-                      void navigate({ to: "/library/missing-tags" });
-                    }}
+                    render={<Link to="/library/missing-tags" />}
                     className="cursor-pointer text-xs"
                   >
                     <Tag className="text-primary mr-2 h-4 w-4" />
                     <span>Missing Tags</span>
                   </DropdownMenuItem>
                   <DropdownMenuItem
-                    onClick={() => {
-                      void navigate({ to: "/library/metadata-refresh" });
-                    }}
+                    render={<Link to="/library/metadata-refresh" />}
                     className="cursor-pointer text-xs"
                   >
                     <RefreshCw className="text-primary mr-2 h-4 w-4" />
                     <span>Metadata Refresh</span>
                   </DropdownMenuItem>
                   <DropdownMenuItem
-                    onClick={() => {
-                      void navigate({ to: "/library/similar-values" });
-                    }}
+                    render={<Link to="/library/similar-values" />}
                     className="cursor-pointer text-xs"
                   >
                     <Layers className="text-primary mr-2 h-4 w-4" />
                     <span>Similar Values</span>
                   </DropdownMenuItem>
                   <DropdownMenuItem
-                    onClick={() => {
-                      void navigate({ to: "/library/clean-urls" });
-                    }}
+                    render={<Link to="/library/clean-urls" />}
                     className="cursor-pointer text-xs"
                   >
                     <Link2 className="text-primary mr-2 h-4 w-4" />
                     <span>Clean Book URLs</span>
                   </DropdownMenuItem>
                   <DropdownMenuItem
-                    onClick={() => {
-                      void navigate({ to: "/library/pending-online-match" });
-                    }}
+                    render={<Link to="/library/pending-online-match" />}
                     className="cursor-pointer text-xs"
                   >
                     <Search className="text-primary mr-2 h-4 w-4" />
@@ -235,27 +222,21 @@ export function RootLayout() {
                   </DropdownMenuGroup>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
-                    onClick={() => {
-                      void navigate({ to: "/settings" });
-                    }}
+                    render={<Link to="/settings" />}
                     className="cursor-pointer text-xs"
                   >
                     <Info className="text-primary mr-2 h-4 w-4" />
                     <span>System Information</span>
                   </DropdownMenuItem>
                   <DropdownMenuItem
-                    onClick={() => {
-                      void navigate({ to: "/settings/library" });
-                    }}
+                    render={<Link to="/settings/library" />}
                     className="cursor-pointer text-xs"
                   >
                     <SettingsIcon className="text-primary mr-2 h-4 w-4" />
                     <span>Library Settings</span>
                   </DropdownMenuItem>
                   <DropdownMenuItem
-                    onClick={() => {
-                      void navigate({ to: "/settings/tasks" });
-                    }}
+                    render={<Link to="/settings/tasks" />}
                     className="cursor-pointer text-xs"
                   >
                     <CalendarClock className="text-primary mr-2 h-4 w-4" />
@@ -287,36 +268,28 @@ export function RootLayout() {
                     Library
                   </DropdownMenuLabel>
                   <DropdownMenuItem
-                    onClick={() => {
-                      void navigate({ to: "/library" });
-                    }}
+                    render={<Link to="/library" />}
                     className="cursor-pointer text-xs"
                   >
                     <BookOpen className="text-primary mr-2 h-4 w-4" />
                     <span>Books</span>
                   </DropdownMenuItem>
                   <DropdownMenuItem
-                    onClick={() => {
-                      void navigate({ to: "/library/series" });
-                    }}
+                    render={<Link to="/library/series" />}
                     className="cursor-pointer text-xs"
                   >
                     <BookMarked className="text-primary mr-2 h-4 w-4" />
                     <span>Series</span>
                   </DropdownMenuItem>
                   <DropdownMenuItem
-                    onClick={() => {
-                      void navigate({ to: "/library/authors" });
-                    }}
+                    render={<Link to="/library/authors" />}
                     className="cursor-pointer text-xs"
                   >
                     <Users className="text-primary mr-2 h-4 w-4" />
                     <span>Authors</span>
                   </DropdownMenuItem>
                   <DropdownMenuItem
-                    onClick={() => {
-                      void navigate({ to: "/library/upcoming-releases" });
-                    }}
+                    render={<Link to="/library/upcoming-releases" />}
                     className="cursor-pointer text-xs"
                   >
                     <CalendarClock className="text-primary mr-2 h-4 w-4" />
@@ -330,19 +303,12 @@ export function RootLayout() {
                   <DropdownMenuLabel className="text-muted-foreground text-xs font-semibold uppercase">
                     Intake & Organize
                   </DropdownMenuLabel>
-                  <DropdownMenuItem
-                    onClick={() => {
-                      void navigate({ to: "/" });
-                    }}
-                    className="cursor-pointer text-xs"
-                  >
+                  <DropdownMenuItem render={<Link to="/" />} className="cursor-pointer text-xs">
                     <FolderInput className="text-primary mr-2 h-4 w-4" />
                     <span>Organize Queue</span>
                   </DropdownMenuItem>
                   <DropdownMenuItem
-                    onClick={() => {
-                      void navigate({ to: "/library/discovered" });
-                    }}
+                    render={<Link to="/library/discovered" />}
                     className="cursor-pointer text-xs"
                   >
                     <FolderSearch className="text-primary mr-2 h-4 w-4" />
@@ -357,54 +323,42 @@ export function RootLayout() {
                     Tools
                   </DropdownMenuLabel>
                   <DropdownMenuItem
-                    onClick={() => {
-                      void navigate({ to: "/library/consistency" });
-                    }}
+                    render={<Link to="/library/consistency" />}
                     className="cursor-pointer text-xs"
                   >
                     <ShieldAlert className="text-primary mr-2 h-4 w-4" />
                     <span>Library Issues</span>
                   </DropdownMenuItem>
                   <DropdownMenuItem
-                    onClick={() => {
-                      void navigate({ to: "/library/missing-tags" });
-                    }}
+                    render={<Link to="/library/missing-tags" />}
                     className="cursor-pointer text-xs"
                   >
                     <Tag className="text-primary mr-2 h-4 w-4" />
                     <span>Missing Tags</span>
                   </DropdownMenuItem>
                   <DropdownMenuItem
-                    onClick={() => {
-                      void navigate({ to: "/library/metadata-refresh" });
-                    }}
+                    render={<Link to="/library/metadata-refresh" />}
                     className="cursor-pointer text-xs"
                   >
                     <RefreshCw className="text-primary mr-2 h-4 w-4" />
                     <span>Metadata Refresh</span>
                   </DropdownMenuItem>
                   <DropdownMenuItem
-                    onClick={() => {
-                      void navigate({ to: "/library/similar-values" });
-                    }}
+                    render={<Link to="/library/similar-values" />}
                     className="cursor-pointer text-xs"
                   >
                     <Layers className="text-primary mr-2 h-4 w-4" />
                     <span>Similar Values</span>
                   </DropdownMenuItem>
                   <DropdownMenuItem
-                    onClick={() => {
-                      void navigate({ to: "/library/clean-urls" });
-                    }}
+                    render={<Link to="/library/clean-urls" />}
                     className="cursor-pointer text-xs"
                   >
                     <Link2 className="text-primary mr-2 h-4 w-4" />
                     <span>Clean Book URLs</span>
                   </DropdownMenuItem>
                   <DropdownMenuItem
-                    onClick={() => {
-                      void navigate({ to: "/library/pending-online-match" });
-                    }}
+                    render={<Link to="/library/pending-online-match" />}
                     className="cursor-pointer text-xs"
                   >
                     <Search className="text-primary mr-2 h-4 w-4" />
@@ -419,27 +373,21 @@ export function RootLayout() {
                     Settings
                   </DropdownMenuLabel>
                   <DropdownMenuItem
-                    onClick={() => {
-                      void navigate({ to: "/settings" });
-                    }}
+                    render={<Link to="/settings" />}
                     className="cursor-pointer text-xs"
                   >
                     <Info className="text-primary mr-2 h-4 w-4" />
                     <span>System Information</span>
                   </DropdownMenuItem>
                   <DropdownMenuItem
-                    onClick={() => {
-                      void navigate({ to: "/settings/library" });
-                    }}
+                    render={<Link to="/settings/library" />}
                     className="cursor-pointer text-xs"
                   >
                     <SettingsIcon className="text-primary mr-2 h-4 w-4" />
                     <span>Library Settings</span>
                   </DropdownMenuItem>
                   <DropdownMenuItem
-                    onClick={() => {
-                      void navigate({ to: "/settings/tasks" });
-                    }}
+                    render={<Link to="/settings/tasks" />}
                     className="cursor-pointer text-xs"
                   >
                     <CalendarClock className="text-primary mr-2 h-4 w-4" />

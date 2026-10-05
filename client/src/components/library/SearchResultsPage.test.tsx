@@ -182,6 +182,27 @@ describe("SearchResultsPage", () => {
     expect(browseApi.searchSeries).toHaveBeenCalledWith("mist", 5, 0);
   });
 
+  // The tabs and the "View all" controls change the URL, so they must be real links: otherwise
+  // middle-click, Ctrl/Cmd-click and "Open in new tab" do nothing (DESIGN.md section 3).
+  it("renders the result tabs as links that carry the query and reset the page", async () => {
+    renderWithRouter("/library/search?q=mist&tab=books&page=2");
+
+    const tabs = await screen.findAllByRole("tab");
+    expect(tabs.map((tab) => [tab.tagName, tab.getAttribute("href")])).toEqual([
+      ["A", "/library/search?q=mist"],
+      ["A", "/library/search?q=mist&tab=books"],
+      ["A", "/library/search?q=mist&tab=authors"],
+      ["A", "/library/search?q=mist&tab=series"],
+    ]);
+  });
+
+  it("renders 'View all' as a link to the matching tab", async () => {
+    renderWithRouter("/library/search?q=mist");
+
+    const viewAllBooks = await screen.findByRole("link", { name: /View all 8 books/i });
+    expect(viewAllBooks).toHaveAttribute("href", "/library/search?q=mist&tab=books");
+  });
+
   it("switches to the books tab when 'View all' is clicked", async () => {
     renderWithRouter("/library/search?q=mist");
 

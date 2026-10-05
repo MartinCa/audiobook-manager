@@ -26,7 +26,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import type { PageSizeOption } from "@/constants/paging";
 import { OperationKeys, SignalREvents } from "@/constants/signalrEvents";
-import { LinkButton } from "./LinkButton";
+import { LinkButton } from "./link-button";
 import { OperationProgressBar } from "./OperationProgressBar";
 import { SeriesRefreshPendingList } from "./library/SeriesRefreshPendingList";
 import { AuthorRefreshPendingList } from "./library/AuthorRefreshPendingList";
