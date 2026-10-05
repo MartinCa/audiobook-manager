@@ -438,6 +438,65 @@ public class MetadataRefreshServiceTests
         _pendingRepository.Verify(r => r.DeleteByAudiobookIdAsync(42), Times.Never);
     }
 
+    // Regression (review finding): the rules decision used the stored mapped series name as-is, so a
+    // mapping pattern added after the snapshot was captured left a phantom Series difference (Ask me
+    // by default) that held back a row the rules would otherwise settle.
+    [TestMethod]
+    public async Task ApplyPendingByRules_DecidesAgainstTheSeriesRemappedWithTodaysPatterns()
+    {
+        var book = new Database.Models.Audiobook(
+            42, "The Thursday Murder Club", null, "Thursday Murder Club", "1", 2020,
+            null, null, null, "en", null, null, "https://example.com/book", null, null,
+            "/library/book.m4b", "book.m4b", 1000);
+        book.Authors = new List<Database.Models.Person> { new(default, "Richard Osman") };
+        book.Description = "Old description";
+
+        // Stored before the mapping pattern existed: the series is still the raw scraped name.
+        var payload = new PendingRefreshPayload.Snapshot(
+            4, "https://example.com/book", "Audible",
+            new List<string> { "Richard Osman" }, new List<string>(),
+            "The Thursday Murder Club", null,
+            "A Thursday Murder Club Mystery", "1", 2020, new List<string>(),
+            "New description", null, null, null, null, null,
+            OriginalSeriesName: "A Thursday Murder Club Mystery");
+        var row = PendingRow(42, payload, "[\"Series\",\"Description\"]");
+
+        _pendingRepository.Setup(r => r.GetPendingAudiobookIdsAsync()).ReturnsAsync(new List<long> { 42 });
+        _pendingRepository.Setup(r => r.GetByAudiobookIdsAsync(It.IsAny<IReadOnlyList<long>>()))
+            .ReturnsAsync(new List<PendingMetadataRefresh> { row });
+        _pendingRepository.Setup(r => r.GetByAudiobookIdAsync(42)).ReturnsAsync(row);
+        _audiobookRepository.Setup(r => r.GetByIdsWithIncludesAsync(It.IsAny<IReadOnlyList<long>>()))
+            .ReturnsAsync(new List<Database.Models.Audiobook> { book });
+        _librarySettingsRepository.Setup(r => r.GetOrCreateAsync())
+            .ReturnsAsync(new Database.Models.LibrarySettings
+            {
+                MetadataApplyRulesJson = RulesJson(
+                    (MetadataRefreshFields.Description, InteractiveApplyRule.AlwaysSelect, AutomatedApplyRule.OverwriteUnlessSourceEmpty)),
+            });
+        _bookSeriesMapper
+            .Setup(m => m.MapBookSeries(It.IsAny<IList<MetadataSeriesSearchResult>>()))
+            .Returns<IList<MetadataSeriesSearchResult>>(results =>
+                Task.FromResult<IList<MetadataSeriesSearchResult>>(results
+                    .Select(r => new MetadataSeriesSearchResult("Thursday Murder Club") { SeriesPart = r.SeriesPart })
+                    .ToList()));
+
+        var settleable = await CreateService().CountPendingSettleableByRulesAsync();
+
+        Assert.AreEqual(1, settleable, "once remapped only the description differs, and its rule settles it");
+        _pendingRepository.Verify(
+            r => r.UpdatePayloadAndChangedFieldsAsync(42, It.IsAny<string>(), It.Is<string>(c => c == "[\"Description\"]")),
+            Times.Once);
+    }
+
+    [TestMethod]
+    public async Task CountPendingSettleableByRules_RowsWithAnAskMeField_AreNotCounted()
+    {
+        SetUpBulkRefreshWithOneDifference(rulesJson: null, out _);
+        SeedPendingRowFromCandidate();
+
+        Assert.AreEqual(0, await CreateService(_scrapers).CountPendingSettleableByRulesAsync());
+    }
+
     #endregion
 
     #region RefreshSelectedAudiobooksAsync

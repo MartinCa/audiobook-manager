@@ -97,7 +97,7 @@ describe("PendingOnlineMatchRowPanel", () => {
     });
     await waitFor(() => {
       expect(notifications.success).toHaveBeenCalledWith(
-        "Match selected — if there are changes to apply, they'll appear on the book's pending metadata banner.",
+        "Match selected — changes the automated rules accept are applied; anything needing review appears on the book's pending metadata banner.",
       );
     });
     expect(onResolved).toHaveBeenCalledTimes(1);

@@ -158,4 +158,10 @@ public interface IMetadataRefreshService
     /// </summary>
     Task<(int Processed, int Succeeded, int Failed)> ApplyPendingByRulesAsync(
         Func<int, int, int, int, Task> progressAction);
+
+    /// <summary>
+    /// How many pending rows <see cref="ApplyPendingByRulesAsync"/> would settle right now, so a caller
+    /// can skip starting an apply that has nothing to do.
+    /// </summary>
+    Task<int> CountPendingSettleableByRulesAsync();
 }

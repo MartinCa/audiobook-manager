@@ -258,10 +258,18 @@ public class LibraryConsistencyService : ILibraryConsistencyService
     /// person-scoped and its resolver takes the per-book gate itself, once per book, over its own
     /// loop (mirroring similar-value alignment). The outer gate would only pin it to one
     /// representative book, and nothing a resolver below would do is already covered by that lease.
+    ///
+    /// A <see cref="BookConsistencyIssueType.MetadataRefreshFailed"/> issue is the other: its retry
+    /// refresh may settle the changeset by the automated apply rules, and that apply
+    /// (<c>MetadataRefreshService.ApplyOneAsync</c>) takes the per-book gate itself. Holding it here
+    /// as well would make that second take throw <see cref="AudiobookBusyException"/>, which the
+    /// automatic apply swallows - leaving the changeset pending while the failure issue is deleted.
+    /// The fetch before the apply writes nothing, so nothing is left ungated.
     /// </summary>
     private async Task<(ResolveScope Scope, BookConsistencyResolveResult Result)> ResolveLoadedIssue(BookConsistencyIssue issue)
     {
-        if (issue.IssueType is BookConsistencyIssueType.InitialsSpacingMismatch)
+        if (issue.IssueType is BookConsistencyIssueType.InitialsSpacingMismatch
+            or BookConsistencyIssueType.MetadataRefreshFailed)
         {
             return await ResolveLoadedIssueCore(issue);
         }

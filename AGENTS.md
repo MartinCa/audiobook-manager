@@ -704,7 +704,9 @@ only to a field that actually differs. "Empty" is no text (a year of 0 included)
   person looking at it: the bulk and scheduled refreshes (`RunRefreshLoopAsync` calls
   `RefreshAudiobookCoreAsync(automated: true)`), picking a candidate from a pending online match
   (`ApplyFetchedResultAsSnapshotAsync`) and the consistency "retry refresh" resolve
-  (`RefreshAudiobookAutomatedAsync`), plus the backlog: "Re-evaluate Pending Changes" re-diffs the
+  (`RefreshAudiobookAutomatedAsync`; `LibraryConsistencyService.ResolveLoadedIssue` does not hold the
+  per-book gate for a `MetadataRefreshFailed` issue, since the retry's own apply takes it and the gate
+  is non-reentrant), plus the backlog: "Re-evaluate Pending Changes" re-diffs the
   pending rows and then settles the ones the current rules allow (`ApplyPendingByRulesAsync`, a
   background apply on the apply lock/events, since it rewrites tags and moves files; rows with an
   Ask me field stay). `RefreshAudiobookAsync`, the single-book Refresh button, is

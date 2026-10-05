@@ -920,22 +920,22 @@ public class MetadataRefreshService : IMetadataRefreshService
     }
 
     /// <summary>
-    /// Settles the pending snapshots the automated apply rules can settle, as they stand now - the
-    /// backlog counterpart of <see cref="TryApplyAutomaticallyAsync"/>, for rows parked before the
-    /// rules allowed them (or before the rules changed). A row is left alone when any differing field
-    /// is Ask me; otherwise the fields the rules select are applied through <see cref="ApplyOneAsync"/>
-    /// (save gate, relocation, recheck, pending cleanup) and the rest are dropped. Unlike
-    /// <see cref="ReevaluatePendingRefreshesAsync"/> this rewrites tags and moves files, so it runs
-    /// per book with the bulk contract: one failure (path taken, book busy) leaves that row pending
-    /// and the batch carries on.
+    /// The pending rows the automated apply rules can settle as they stand now, with the fields each
+    /// would apply (empty = every difference is Keep current, so the row is just dropped). A row with
+    /// an Ask me field is not included. Each stored payload is series-remapped against today's mapping
+    /// patterns first, and the remap is persisted when it changed anything - the same step
+    /// <see cref="ReevaluatePendingRefreshesAsync"/> performs - so the decision, and the apply that
+    /// follows from the stored row, never rest on a stale mapped series name regardless of what ran
+    /// before this.
     /// </summary>
-    public async Task<(int Processed, int Succeeded, int Failed)> ApplyPendingByRulesAsync(
-        Func<int, int, int, int, Task> progressAction)
+    private async Task<List<(PendingMetadataRefresh Row, IReadOnlyCollection<string> Fields)>> FindRowsSettleableByRulesAsync()
     {
+        var settleable = new List<(PendingMetadataRefresh Row, IReadOnlyCollection<string> Fields)>();
+
         var ids = await _pendingRepository.GetPendingAudiobookIdsAsync();
         if (ids.Count == 0)
         {
-            return (0, 0, 0);
+            return settleable;
         }
 
         var rules = MetadataApplyRuleSet.From((await _librarySettingsRepository.GetOrCreateAsync()).ToDomain().MetadataApplyRules);
@@ -943,9 +943,6 @@ public class MetadataRefreshService : IMetadataRefreshService
         var books = (await _audiobookRepository.GetByIdsWithIncludesAsync(ids)).ToDictionary(b => b.Id);
         var (spacing, punctuation) = await GetInitialsSettingsAsync();
 
-        // Decided up front so the batch total counts only rows the rules settle - a row that waits
-        // for a person is neither a success nor a failure here.
-        var settleable = new List<(PendingMetadataRefresh Row, IReadOnlyCollection<string> Fields)>();
         foreach (var row in rows)
         {
             var payload = PendingRefreshPayload.TryParse(row.PayloadJson);
@@ -954,20 +951,56 @@ public class MetadataRefreshService : IMetadataRefreshService
                 continue;
             }
 
-            var diffs = MetadataRefreshDiffer.DiffSnapshot(book, payload, spacing, punctuation).ToList();
+            var remapped = await RemapSeriesAsync(payload);
+            var diffs = MetadataRefreshDiffer.DiffSnapshot(book, remapped, spacing, punctuation).ToList();
             if (diffs.Count == 0)
             {
                 continue;
             }
 
             var decision = rules.Decide(diffs);
-            if (!decision.RequiresReview)
+            if (decision.RequiresReview)
             {
-                settleable.Add((row, decision.FieldsToApply.ToList()));
+                continue;
             }
+
+            var payloadJson = PendingRefreshPayload.Serialize(remapped);
+            if (!string.Equals(payloadJson, row.PayloadJson, StringComparison.Ordinal))
+            {
+                var changedFieldsJson = JsonSerializer.Serialize(diffs.Select(d => d.Field).ToList(), ChangedFieldsJsonOptions);
+                await _pendingRepository.UpdatePayloadAndChangedFieldsAsync(row.AudiobookId, payloadJson, changedFieldsJson);
+                row.PayloadJson = payloadJson;
+                row.ChangedFieldsJson = changedFieldsJson;
+            }
+
+            settleable.Add((row, decision.FieldsToApply.ToList()));
         }
 
-        var byId = settleable.ToDictionary(s => s.Row.AudiobookId);
+        return settleable;
+    }
+
+    /// <summary>How many pending rows <see cref="ApplyPendingByRulesAsync"/> would settle right now.</summary>
+    public async Task<int> CountPendingSettleableByRulesAsync() =>
+        (await FindRowsSettleableByRulesAsync()).Count;
+
+    /// <summary>
+    /// Settles the pending snapshots the automated apply rules can settle, as they stand now - the
+    /// backlog counterpart of <see cref="TryApplyAutomaticallyAsync"/>, for rows parked before the
+    /// rules allowed them (or before the rules changed). A row is left alone when any differing field
+    /// is Ask me; otherwise the fields the rules select are applied through <see cref="ApplyOneAsync"/>
+    /// (save gate, relocation, recheck, pending cleanup) and the rest are dropped. Unlike
+    /// <see cref="ReevaluatePendingRefreshesAsync"/> this rewrites tags and moves files, so it runs
+    /// per book with the bulk contract: one failure (path taken, book busy) leaves that row pending
+    /// and the batch carries on. It needs no prior re-evaluation: the series remap is part of the
+    /// decision (see <see cref="FindRowsSettleableByRulesAsync"/>).
+    /// </summary>
+    public async Task<(int Processed, int Succeeded, int Failed)> ApplyPendingByRulesAsync(
+        Func<int, int, int, int, Task> progressAction)
+    {
+        // Decided up front so the batch total counts only rows the rules settle - a row that waits
+        // for a person is neither a success nor a failure here.
+        var byId = (await FindRowsSettleableByRulesAsync()).ToDictionary(s => s.Row.AudiobookId);
+
         return await BulkOperationRunner.RunAsync(
             byId.Keys.ToList(),
             async id =>

@@ -359,6 +359,7 @@ public class MetadataRefreshControllerTests
     {
         _metadataRefreshService.Setup(s => s.ReevaluatePendingRefreshesAsync())
             .ReturnsAsync(new MetadataRefreshReevaluateResult(5, 2, 1));
+        _metadataRefreshService.Setup(s => s.CountPendingSettleableByRulesAsync()).ReturnsAsync(1);
 
         var finished = RegisterApplyFinishedWaiter();
 
@@ -375,10 +376,29 @@ public class MetadataRefreshControllerTests
     }
 
     [TestMethod]
+    public async Task ReevaluatePending_NothingTheRulesSettle_StartsNoApplyAndReportsSo()
+    {
+        // Regression (review finding): the flag used to mean "the apply lock was free", so the client
+        // announced an apply that would have done nothing.
+        _metadataRefreshService.Setup(s => s.ReevaluatePendingRefreshesAsync())
+            .ReturnsAsync(new MetadataRefreshReevaluateResult(3, 0, 0));
+        _metadataRefreshService.Setup(s => s.CountPendingSettleableByRulesAsync()).ReturnsAsync(0);
+
+        var result = await _controller.ReevaluatePending();
+
+        var dto = (result.Result as OkObjectResult)?.Value as MetadataRefreshReevaluateResultDto;
+        Assert.IsNotNull(dto);
+        Assert.IsFalse(dto.AutoApplyStarted);
+        _metadataRefreshService.Verify(s => s.ApplyPendingByRulesAsync(It.IsAny<Func<int, int, int, int, Task>>()), Times.Never);
+        _serviceScopeFactory.Verify(f => f.CreateScope(), Times.Never);
+    }
+
+    [TestMethod]
     public async Task ReevaluatePending_StartsTheRuleBasedApplyInTheBackground()
     {
         _metadataRefreshService.Setup(s => s.ReevaluatePendingRefreshesAsync())
             .ReturnsAsync(new MetadataRefreshReevaluateResult(0, 0, 0));
+        _metadataRefreshService.Setup(s => s.CountPendingSettleableByRulesAsync()).ReturnsAsync(2);
         _metadataRefreshService.Setup(s => s.ApplyPendingByRulesAsync(It.IsAny<Func<int, int, int, int, Task>>()))
             .ReturnsAsync((0, 0, 0));
 

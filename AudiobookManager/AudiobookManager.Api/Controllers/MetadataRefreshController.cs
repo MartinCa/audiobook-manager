@@ -358,15 +358,18 @@ public class MetadataRefreshController : ControllerBase
     /// reflected without waiting for the book's next scheduled refresh. The re-diff is synchronous
     /// (pure DB/CPU work, no scraper calls). It then settles whatever the automated apply rules can
     /// settle - which rewrites tags and moves files - as a fire-and-forget apply sharing
-    /// <see cref="StartApplySelected"/>'s lock, key and SignalR events. When that lock is busy the
-    /// re-diff still stands and <c>AutoApplyStarted</c> is false.
+    /// <see cref="StartApplySelected"/>'s lock, key and SignalR events. <c>AutoApplyStarted</c> is false when no row is
+    /// settleable or when that lock is busy; the re-diff stands either way.
     /// </summary>
     [HttpPost("reevaluate")]
     public async Task<ActionResult<MetadataRefreshReevaluateResultDto>> ReevaluatePending()
     {
         var result = await _metadataRefreshService.ReevaluatePendingRefreshesAsync();
 
-        var started = BackgroundOperationRunner.Start(
+        // Only start an apply when the rules settle at least one row, so the caller is never told one
+        // is running when it would be a no-op.
+        var started = await _metadataRefreshService.CountPendingSettleableByRulesAsync() > 0
+            && BackgroundOperationRunner.Start(
             _applyLock,
             _serviceScopeFactory,
             _logger,

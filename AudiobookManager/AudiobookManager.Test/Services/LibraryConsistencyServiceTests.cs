@@ -1408,6 +1408,31 @@ public class LibraryConsistencyServiceTests
         }
     }
 
+    // Regression (review finding): the resolve held the non-reentrant per-book gate for the whole
+    // retry, and the retry's automatic apply takes that same gate - so it threw, was swallowed, and
+    // the changeset was left pending while the failure issue was deleted.
+    [TestMethod]
+    public async Task ResolveIssue_MetadataRefreshFailed_DoesNotHoldTheBookGateAgainstTheRetrysOwnApply()
+    {
+        var issue = MakeIssue(31, 5301, BookConsistencyIssueType.MetadataRefreshFailed);
+        _issueRepository.Setup(r => r.GetByIdAsync(31)).ReturnsAsync(issue);
+        var gateWasFree = false;
+        var refreshService = new Mock<IMetadataRefreshService>();
+        refreshService.Setup(s => s.RefreshAudiobookAutomatedAsync(5301))
+            .Returns(() =>
+            {
+                // What ApplyOneAsync does when the rules settle the changeset.
+                using var lease = _saveGate.Acquire(5301);
+                gateWasFree = true;
+                return Task.FromResult(new MetadataRefreshResult { Success = true });
+            });
+
+        var service = CreateService(metadataRefreshService: refreshService.Object);
+        await service.ResolveIssue(31);
+
+        Assert.IsTrue(gateWasFree, "the retry's own apply could not take the per-book gate");
+    }
+
     // The bulk path must not abort over one busy book: it is counted as a failure, the rest are
     // resolved, and the next check picks the skipped issue up again.
     [TestMethod]
