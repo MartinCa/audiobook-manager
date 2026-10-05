@@ -173,6 +173,34 @@ describe("LibrarySettingsPage", () => {
     });
   });
 
+  it("does not leave Save disabled by an invalid narrator limit once the narrator is switched off", async () => {
+    const user = userEvent.setup();
+    vi.mocked(settingsApi.getLibrarySettings).mockResolvedValue(
+      makeSettings({ includeNarratorInPath: true, maxNarratorsInPath: 4 }),
+    );
+    vi.mocked(settingsApi.updateLibrarySettings).mockResolvedValue(
+      makeSettings({ includeNarratorInPath: false, maxNarratorsInPath: 4 }),
+    );
+
+    renderPage();
+
+    const limit = await screen.findByRole("spinbutton", { name: /maximum narrators/i });
+    await waitFor(() => expect(limit).toBeEnabled());
+    await user.clear(limit);
+    expect(screen.getByRole("button", { name: /^Save$/ })).toBeDisabled();
+
+    await user.click(screen.getByRole("checkbox", { name: /include narrator in folder name/i }));
+    expect(screen.getByRole("button", { name: /^Save$/ })).toBeEnabled();
+    await user.click(screen.getByRole("button", { name: /^Save$/ }));
+
+    // The cleared text is not sent: the stored limit goes back unchanged.
+    await waitFor(() => {
+      expect(settingsApi.updateLibrarySettings).toHaveBeenCalledWith(
+        expect.objectContaining({ includeNarratorInPath: false, maxNarratorsInPath: 4 }),
+      );
+    });
+  });
+
   it.each(["0", "11", ""])(
     "blocks saving when the narrator limit is %j, which the server would refuse",
     async (typed) => {

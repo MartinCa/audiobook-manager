@@ -116,6 +116,9 @@ export function LibrarySettingsPage() {
     Number.isInteger(currentMaxNarratorsInPath) &&
     currentMaxNarratorsInPath >= MIN_NARRATORS_IN_PATH &&
     currentMaxNarratorsInPath <= MAX_NARRATORS_IN_PATH;
+  // The limit only matters while the narrator is in the folder name: with it off the field is
+  // read-only, so a half-edited value must not leave Save disabled with no way to fix it.
+  const maxNarratorsInPathBlocksSave = currentIncludeNarratorInPath && !maxNarratorsInPathValid;
 
   const handleSave = () => {
     if (
@@ -134,7 +137,11 @@ export function LibrarySettingsPage() {
       defaultPageSize: currentDefaultPageSize,
       searchInitialsHandling: currentSearchInitialsHandling,
       includeNarratorInPath: currentIncludeNarratorInPath,
-      maxNarratorsInPath: currentMaxNarratorsInPath,
+      // Off, the typed text is ignored and the stored limit is sent back unchanged (the server
+      // validates the field either way).
+      maxNarratorsInPath: currentIncludeNarratorInPath
+        ? currentMaxNarratorsInPath
+        : (data?.maxNarratorsInPath ?? currentMaxNarratorsInPath),
     });
   };
 
@@ -290,7 +297,7 @@ export function LibrarySettingsPage() {
                   value={currentMaxNarratorsInPathText}
                   onChange={(e) => setMaxNarratorsInPath(e.target.value)}
                   disabled={mutation.isPending || !currentIncludeNarratorInPath}
-                  aria-invalid={!maxNarratorsInPathValid}
+                  aria-invalid={maxNarratorsInPathBlocksSave}
                   className="w-full sm:w-32"
                 />
                 <p className="text-muted-foreground text-xs">
@@ -396,7 +403,7 @@ export function LibrarySettingsPage() {
             !currentPunctuation ||
             !currentDefaultPageSize ||
             !currentSearchInitialsHandling ||
-            !maxNarratorsInPathValid ||
+            maxNarratorsInPathBlocksSave ||
             isLoading
           }
         >
