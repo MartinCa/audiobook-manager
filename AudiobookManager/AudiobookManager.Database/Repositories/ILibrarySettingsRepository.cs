@@ -16,7 +16,8 @@ public interface ILibrarySettingsRepository
         string upcomingReleasesCronSchedule,
         int defaultPageSize,
         SearchInitialsHandling searchInitialsHandling,
-        bool includeNarratorInPath);
+        bool includeNarratorInPath,
+        int maxNarratorsInPath);
 
     /// <summary>
     /// Replaces only the online-metadata apply rules JSON (null = all defaults), leaving every other

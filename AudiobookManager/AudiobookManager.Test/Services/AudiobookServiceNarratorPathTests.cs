@@ -16,11 +16,15 @@ namespace AudiobookManager.Test.Services;
 [TestClass]
 public class AudiobookServiceNarratorPathTests
 {
-    private static AudiobookService MakeService(bool includeNarratorInPath)
+    private static AudiobookService MakeService(bool includeNarratorInPath, int maxNarratorsInPath = 3)
     {
         var settingsService = new Mock<ISettingsService>();
         settingsService.Setup(s => s.GetLibrarySettings())
-            .ReturnsAsync(new LibrarySettings { IncludeNarratorInPath = includeNarratorInPath });
+            .ReturnsAsync(new LibrarySettings
+            {
+                IncludeNarratorInPath = includeNarratorInPath,
+                MaxNarratorsInPath = maxNarratorsInPath,
+            });
 
         return new AudiobookService(
             Mock.Of<IAudiobookTagHandler>(),
@@ -49,6 +53,27 @@ public class AudiobookServiceNarratorPathTests
         var path = await MakeService(true).GenerateLibraryPathAsync(MakeBook());
 
         Assert.IsTrue(path.Contains("2020 - Title {Narrator A}"), path);
+    }
+
+    [TestMethod]
+    public async Task GenerateLibraryPathAsync_SettingOn_HonoursTheConfiguredNarratorLimit()
+    {
+        var book = MakeBook();
+        book.Narrators = new List<Person> { new("Narrator A"), new("Narrator B"), new("Narrator C") };
+
+        var one = await MakeService(true, 1).GenerateLibraryPathAsync(book);
+        var two = await MakeService(true, 2).GenerateLibraryPathAsync(book);
+
+        Assert.IsTrue(one.Contains("{Narrator A}"), one);
+        Assert.IsTrue(two.Contains("{Narrator A, Narrator B}"), two);
+    }
+
+    [TestMethod]
+    public async Task GenerateLibraryPathAsync_SettingOff_IgnoresTheNarratorLimit()
+    {
+        var path = await MakeService(false, 5).GenerateLibraryPathAsync(MakeBook());
+
+        Assert.IsFalse(path.Contains('{'), path);
     }
 
     [TestMethod]

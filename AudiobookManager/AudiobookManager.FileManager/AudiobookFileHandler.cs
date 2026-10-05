@@ -369,15 +369,24 @@ public class AudiobookFileHandler : IAudiobookFileHandler
     /// not fit the byte budget is skipped (later, shorter ones are still kept) rather than cut
     /// mid-name - and a first name longer than the budget is cut on a character (not UTF-16 unit)
     /// boundary.
+    ///
+    /// <paramref name="maxNarrators"/> caps how many narrators are listed (the first ones, in tag
+    /// order); 0 or less lists none, so the result is empty.
     /// </summary>
-    public static string GetNarratorFolderSuffix(Audiobook audiobook)
+    public static string GetNarratorFolderSuffix(Audiobook audiobook, int maxNarrators)
     {
+        if (maxNarrators <= 0)
+        {
+            return "";
+        }
+
         // A brace inside a name would end the group early, and Audiobookshelf would read a
         // truncated narrator.
         var names = audiobook.Narrators
             .Select(n => n.Name.Replace("{", "").Replace("}", "").Trim())
             .Where(n => n.Length > 0)
             .Distinct()
+            .Take(maxNarrators)
             .ToList();
         if (names.Count == 0)
         {
@@ -423,12 +432,14 @@ public class AudiobookFileHandler : IAudiobookFileHandler
         return builder.ToString().TrimEnd();
     }
 
-    /// <param name="includeNarratorInPath">
+    /// <param name="maxNarratorsInPath">
     /// The library setting that appends <c>{Narrator}</c> to the book folder so several narrations
-    /// of one book can live side by side. Required rather than defaulted: a caller that forgot it
-    /// would compute a different path from the rest of the app.
+    /// of one book can live side by side: how many narrators the folder names, 0 meaning the
+    /// narrator is not part of the path at all (<c>LibrarySettings.NarratorsInPath</c>). Required
+    /// rather than defaulted: a caller that forgot it would compute a different path from the rest
+    /// of the app.
     /// </param>
-    public static string GenerateRelativeAudiobookPath(Audiobook audiobook, bool includeNarratorInPath)
+    public static string GenerateRelativeAudiobookPath(Audiobook audiobook, int maxNarratorsInPath)
     {
         if (audiobook.FileInfo is null)
         {
@@ -440,7 +451,7 @@ public class AudiobookFileHandler : IAudiobookFileHandler
         var series = audiobook.EffectiveSeries;
         // Directory only: the file name is unique within its folder, and Audiobookshelf reads the
         // narrator from the folder.
-        var narratorSuffix = includeNarratorInPath ? GetNarratorFolderSuffix(audiobook) : "";
+        var narratorSuffix = GetNarratorFolderSuffix(audiobook, maxNarratorsInPath);
 
         var fileName = $"{audiobook.Year} - {bookName}";
 

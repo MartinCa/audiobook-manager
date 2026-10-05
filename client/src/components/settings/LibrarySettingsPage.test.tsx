@@ -56,6 +56,7 @@ function makeSettings(overrides: Partial<LibrarySettings> = {}): LibrarySettings
     defaultPageSize: 20,
     searchInitialsHandling: "AsStored",
     includeNarratorInPath: false,
+    maxNarratorsInPath: 3,
     ...overrides,
   };
 }
@@ -136,6 +137,62 @@ describe("LibrarySettingsPage", () => {
     });
   });
 
+  it("shows the stored narrator limit, disabled while the narrator is not in the folder name", async () => {
+    vi.mocked(settingsApi.getLibrarySettings).mockResolvedValue(
+      makeSettings({ includeNarratorInPath: false, maxNarratorsInPath: 4 }),
+    );
+
+    renderPage();
+
+    const limit = await screen.findByRole("spinbutton", { name: /maximum narrators/i });
+    expect(limit).toHaveValue(4);
+    expect(limit).toBeDisabled();
+  });
+
+  it("sends the edited narrator limit on save", async () => {
+    const user = userEvent.setup();
+    vi.mocked(settingsApi.getLibrarySettings).mockResolvedValue(
+      makeSettings({ includeNarratorInPath: true }),
+    );
+    vi.mocked(settingsApi.updateLibrarySettings).mockResolvedValue(
+      makeSettings({ includeNarratorInPath: true, maxNarratorsInPath: 2 }),
+    );
+
+    renderPage();
+
+    const limit = await screen.findByRole("spinbutton", { name: /maximum narrators/i });
+    await waitFor(() => expect(limit).toBeEnabled());
+    await user.clear(limit);
+    await user.type(limit, "2");
+    await user.click(screen.getByRole("button", { name: /^Save$/ }));
+
+    await waitFor(() => {
+      expect(settingsApi.updateLibrarySettings).toHaveBeenCalledWith(
+        expect.objectContaining({ includeNarratorInPath: true, maxNarratorsInPath: 2 }),
+      );
+    });
+  });
+
+  it.each(["0", "11", ""])(
+    "blocks saving when the narrator limit is %j, which the server would refuse",
+    async (typed) => {
+      const user = userEvent.setup();
+      vi.mocked(settingsApi.getLibrarySettings).mockResolvedValue(
+        makeSettings({ includeNarratorInPath: true }),
+      );
+
+      renderPage();
+
+      const limit = await screen.findByRole("spinbutton", { name: /maximum narrators/i });
+      await waitFor(() => expect(limit).toBeEnabled());
+      await user.clear(limit);
+      if (typed) await user.type(limit, typed);
+
+      expect(screen.getByRole("button", { name: /^Save$/ })).toBeDisabled();
+      expect(settingsApi.updateLibrarySettings).not.toHaveBeenCalled();
+    },
+  );
+
   it("sends the chosen search initials handling on save", async () => {
     const user = userEvent.setup();
     vi.mocked(settingsApi.getLibrarySettings).mockResolvedValue(makeSettings());
@@ -162,6 +219,7 @@ describe("LibrarySettingsPage", () => {
         defaultPageSize: 20,
         searchInitialsHandling: "Compact",
         includeNarratorInPath: false,
+        maxNarratorsInPath: 3,
       });
     });
   });
@@ -216,6 +274,7 @@ describe("LibrarySettingsPage", () => {
         defaultPageSize: 20,
         searchInitialsHandling: "AsStored",
         includeNarratorInPath: false,
+        maxNarratorsInPath: 3,
       });
     });
     expect(notifications.success).toHaveBeenCalledWith("Library settings saved");
@@ -249,6 +308,7 @@ describe("LibrarySettingsPage", () => {
         defaultPageSize: 20,
         searchInitialsHandling: "AsStored",
         includeNarratorInPath: false,
+        maxNarratorsInPath: 3,
       });
     });
     expect(notifications.success).toHaveBeenCalledWith("Library settings saved");
@@ -277,6 +337,7 @@ describe("LibrarySettingsPage", () => {
         defaultPageSize: 20,
         searchInitialsHandling: "AsStored",
         includeNarratorInPath: false,
+        maxNarratorsInPath: 3,
       });
     });
   });

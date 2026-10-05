@@ -34,7 +34,7 @@ public class PathMismatchDetectorNarratorTests
 
     private static List<BookConsistencyIssue> Run(string storedPath, bool includeNarrator) =>
         new PathMismatchDetector().Detect(new AudiobookCheckContext(
-            MakeDbBook(storedPath), MakeParsed(), "/library", "/library", includeNarrator)).ToList();
+            MakeDbBook(storedPath), MakeParsed(), "/library", "/library", includeNarrator ? 3 : 0)).ToList();
 
     [TestMethod]
     public void SettingOff_BookWithoutNarratorFolder_IsInPlace()

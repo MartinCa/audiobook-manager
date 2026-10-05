@@ -104,14 +104,14 @@ public class AudiobookIssueDetectionService : IAudiobookIssueDetectionService
 
     public async Task<List<BookConsistencyIssue>> DetectIssuesAsync(Audiobook audiobook)
     {
-        var includeNarratorInPath = (await _settingsService.GetLibrarySettings()).IncludeNarratorInPath;
+        var maxNarratorsInPath = (await _settingsService.GetLibrarySettings()).NarratorsInPath;
 
         // Blocking work - an ATL parse of the whole m4b plus several file reads - so never on the
         // calling (request) thread.
-        return await Task.Run(() => DetectIssues(audiobook, includeNarratorInPath));
+        return await Task.Run(() => DetectIssues(audiobook, maxNarratorsInPath));
     }
 
-    public List<BookConsistencyIssue> DetectIssues(Audiobook audiobook, bool includeNarratorInPath)
+    public List<BookConsistencyIssue> DetectIssues(Audiobook audiobook, int maxNarratorsInPath)
     {
         var (state, detail) = ProbeMediaFile(audiobook.FileInfoFullPath);
 
@@ -164,7 +164,7 @@ public class AudiobookIssueDetectionService : IAudiobookIssueDetectionService
             // is stored with: a title that merely looks qualified is never split.
             BookQualifiers.ApplyExpected(parsed, QualifierColumn.Parse(audiobook.Qualifiers));
             var directoryPath = Path.GetDirectoryName(audiobook.FileInfoFullPath)!;
-            var context = new AudiobookCheckContext(audiobook, parsed, directoryPath, _settings.AudiobookLibraryPath, includeNarratorInPath);
+            var context = new AudiobookCheckContext(audiobook, parsed, directoryPath, _settings.AudiobookLibraryPath, maxNarratorsInPath);
 
             return _detectors.SelectMany(detector => detector.Detect(context)).ToList();
         }

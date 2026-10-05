@@ -28,7 +28,8 @@ public class SettingsService : ISettingsService
             settings.UpcomingReleasesCronSchedule,
             settings.DefaultPageSize,
             settings.SearchInitialsHandling.ToDb(),
-            settings.IncludeNarratorInPath);
+            settings.IncludeNarratorInPath,
+            settings.MaxNarratorsInPath);
         return dbSettings.ToDomain();
     }
 

@@ -74,14 +74,14 @@ public class AudiobookService : IAudiobookService
         return parsed;
     }
 
-    public string GenerateLibraryPath(Audiobook audiobook, bool includeNarratorInPath)
+    public string GenerateLibraryPath(Audiobook audiobook, int maxNarratorsInPath)
     {
-        var newRelativePath = AudiobookFileHandler.GenerateRelativeAudiobookPath(audiobook, includeNarratorInPath);
+        var newRelativePath = AudiobookFileHandler.GenerateRelativeAudiobookPath(audiobook, maxNarratorsInPath);
         return AudiobookFileHandler.JoinLibraryPath(_settings.AudiobookLibraryPath, newRelativePath);
     }
 
     public async Task<string> GenerateLibraryPathAsync(Audiobook audiobook) =>
-        GenerateLibraryPath(audiobook, (await _settingsService.GetLibrarySettings()).IncludeNarratorInPath);
+        GenerateLibraryPath(audiobook, (await _settingsService.GetLibrarySettings()).NarratorsInPath);
 
     /// <summary>
     /// Checks whether a file already occupies the audiobook's generated library path, so a

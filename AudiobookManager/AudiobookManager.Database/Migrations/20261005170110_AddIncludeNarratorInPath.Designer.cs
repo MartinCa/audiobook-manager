@@ -11,7 +11,7 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace AudiobookManager.Database.Migrations
 {
     [DbContext(typeof(DatabaseContext))]
-    [Migration("20261005160019_AddIncludeNarratorInPath")]
+    [Migration("20261005170110_AddIncludeNarratorInPath")]
     partial class AddIncludeNarratorInPath
     {
         /// <inheritdoc />
@@ -641,6 +641,10 @@ namespace AudiobookManager.Database.Migrations
                     b.Property<int>("InitialsSpacing")
                         .HasColumnType("INTEGER")
                         .HasColumnName("initials_spacing");
+
+                    b.Property<int>("MaxNarratorsInPath")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("max_narrators_in_path");
 
                     b.Property<string>("MetadataApplyRulesJson")
                         .HasColumnType("TEXT")

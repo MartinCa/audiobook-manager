@@ -639,6 +639,10 @@ namespace AudiobookManager.Database.Migrations
                         .HasColumnType("INTEGER")
                         .HasColumnName("initials_spacing");
 
+                    b.Property<int>("MaxNarratorsInPath")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("max_narrators_in_path");
+
                     b.Property<string>("MetadataApplyRulesJson")
                         .HasColumnType("TEXT")
                         .HasColumnName("metadata_apply_rules_json");

@@ -156,10 +156,10 @@ public class LibraryController : ControllerBase
 
         if (pairs.Count > 0)
         {
-            var includeNarratorInPath = (await _settingsService.GetLibrarySettings()).IncludeNarratorInPath;
+            var maxNarratorsInPath = (await _settingsService.GetLibrarySettings()).NarratorsInPath;
             await Task.Run(() => Parallel.ForEach(
                 pairs,
-                pair => pair.dto.IsDuplicate = _libraryScanService.IsDuplicateTarget(pair.item, includeNarratorInPath)));
+                pair => pair.dto.IsDuplicate = _libraryScanService.IsDuplicateTarget(pair.item, maxNarratorsInPath)));
         }
 
         return new DiscoveredAudiobookPageDto(mapped.Count, total, wellTaggedTotal, mapped);

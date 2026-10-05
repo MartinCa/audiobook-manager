@@ -6253,6 +6253,8 @@ export interface components {
             defaultPageSize?: number;
             searchInitialsHandling?: string | null;
             includeNarratorInPath?: boolean;
+            /** Format: int32 */
+            maxNarratorsInPath?: number;
         };
         MatchAuthorDto: {
             sourceId?: string | null;
@@ -6830,6 +6832,8 @@ export interface components {
             defaultPageSize?: number | null;
             searchInitialsHandling?: string | null;
             includeNarratorInPath?: boolean | null;
+            /** Format: int32 */
+            maxNarratorsInPath?: number | null;
         };
         UpdateMetadataApplyRulesDto: {
             rules?: components["schemas"]["MetadataApplyRuleInputDto"][] | null;

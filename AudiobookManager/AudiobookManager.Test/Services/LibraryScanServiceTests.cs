@@ -552,9 +552,9 @@ public class LibraryScanServiceTests
             Year = 2022
         };
 
-        _audiobookService.Setup(s => s.GenerateLibraryPath(It.IsAny<DomainAudiobook>(), false)).Returns(targetPath);
+        _audiobookService.Setup(s => s.GenerateLibraryPath(It.IsAny<DomainAudiobook>(), 0)).Returns(targetPath);
 
-        var isDuplicate = _service.IsDuplicateTarget(discovered, false);
+        var isDuplicate = _service.IsDuplicateTarget(discovered, 0);
 
         Assert.IsTrue(isDuplicate);
     }
@@ -570,9 +570,9 @@ public class LibraryScanServiceTests
             Year = 2022
         };
 
-        _audiobookService.Setup(s => s.GenerateLibraryPath(It.IsAny<DomainAudiobook>(), false)).Returns(targetPath);
+        _audiobookService.Setup(s => s.GenerateLibraryPath(It.IsAny<DomainAudiobook>(), 0)).Returns(targetPath);
 
-        var isDuplicate = _service.IsDuplicateTarget(discovered, false);
+        var isDuplicate = _service.IsDuplicateTarget(discovered, 0);
 
         Assert.IsFalse(isDuplicate);
     }
@@ -589,9 +589,9 @@ public class LibraryScanServiceTests
             Year = 2022
         };
 
-        _audiobookService.Setup(s => s.GenerateLibraryPath(It.IsAny<DomainAudiobook>(), false)).Returns(targetPath);
+        _audiobookService.Setup(s => s.GenerateLibraryPath(It.IsAny<DomainAudiobook>(), 0)).Returns(targetPath);
 
-        var isDuplicate = _service.IsDuplicateTarget(discovered, false);
+        var isDuplicate = _service.IsDuplicateTarget(discovered, 0);
 
         Assert.IsFalse(isDuplicate);
     }
@@ -605,10 +605,10 @@ public class LibraryScanServiceTests
             Year = 2022
         };
 
-        var isDuplicate = _service.IsDuplicateTarget(discovered, false);
+        var isDuplicate = _service.IsDuplicateTarget(discovered, 0);
 
         Assert.IsFalse(isDuplicate);
-        _audiobookService.Verify(s => s.GenerateLibraryPath(It.IsAny<DomainAudiobook>(), false), Times.Never);
+        _audiobookService.Verify(s => s.GenerateLibraryPath(It.IsAny<DomainAudiobook>(), 0), Times.Never);
     }
 
     [TestMethod]

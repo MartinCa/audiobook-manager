@@ -210,7 +210,7 @@ public class AudiobookServiceTests
             2024,
             new AudiobookFileInfo("/import/test.m4b", "test.m4b", 1000));
 
-        var result = _service.GenerateLibraryPath(audiobook, false);
+        var result = _service.GenerateLibraryPath(audiobook, 0);
 
         Assert.IsTrue(result.StartsWith("/library"));
         Assert.IsTrue(result.Contains("John Smith"));
@@ -231,7 +231,7 @@ public class AudiobookServiceTests
             Series = ".."
         };
 
-        var result = _service.GenerateLibraryPath(audiobook, false);
+        var result = _service.GenerateLibraryPath(audiobook, 0);
 
         Assert.IsTrue(
             AudiobookFileHandler.PathStartsWith(result, "/library"),
@@ -391,7 +391,7 @@ public class AudiobookServiceTests
         // updated metadata will generate a path for - i.e. only non-path fields change.
         var author = new Person("Same Author");
         var probe = new Audiobook(new List<Person> { author }, "Same Book", 2020, new AudiobookFileInfo("/unused/unused.m4b", "unused.m4b", 0));
-        var expectedPath = _service.GenerateLibraryPath(probe, false);
+        var expectedPath = _service.GenerateLibraryPath(probe, 0);
 
         var existing = CreateExistingDbAudiobook(1, expectedPath);
         existing.BookName = "Same Book";
@@ -449,7 +449,7 @@ public class AudiobookServiceTests
 
         var author = new Person("Same Author");
         var probe = new Audiobook(new List<Person> { author }, "Same Book", 2020, new AudiobookFileInfo("/unused/unused.m4b", "unused.m4b", 0));
-        var expectedPath = _service.GenerateLibraryPath(probe, false);
+        var expectedPath = _service.GenerateLibraryPath(probe, 0);
 
         var existing = CreateExistingDbAudiobook(1, expectedPath);
         existing.BookName = "Same Book";
@@ -509,7 +509,7 @@ public class AudiobookServiceTests
             Narrators = new List<Person> { new Person("New Narrator") }
         };
 
-        var expectedNewPath = _service.GenerateLibraryPath(new Audiobook(new List<Person> { newAuthor }, "New Book Name", 2024, new AudiobookFileInfo("/unused/unused.m4b", "unused.m4b", 0)), false);
+        var expectedNewPath = _service.GenerateLibraryPath(new Audiobook(new List<Person> { newAuthor }, "New Book Name", 2024, new AudiobookFileInfo("/unused/unused.m4b", "unused.m4b", 0)), 0);
 
         _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>()))
             .Returns((FileInfo fi, bool _) => new Audiobook(new List<Person> { newAuthor }, "New Book Name", 2024, new AudiobookFileInfo(fi.FullName, fi.Name, 1000))
@@ -570,7 +570,7 @@ public class AudiobookServiceTests
             });
 
         var expectedNewPath = _service.GenerateLibraryPath(
-            new Audiobook(new List<Person> { author }, "New Name", 2020, new AudiobookFileInfo("/unused/unused.m4b", "unused.m4b", 0)), false);
+            new Audiobook(new List<Person> { author }, "New Name", 2020, new AudiobookFileInfo("/unused/unused.m4b", "unused.m4b", 0)), 0);
         var newDirectory = Path.GetDirectoryName(expectedNewPath)!;
         Directory.CreateDirectory(newDirectory);
 
@@ -609,7 +609,7 @@ public class AudiobookServiceTests
             .Returns((FileInfo fi, bool _) => new Audiobook(new List<Person> { author }, "New Name", 2020, new AudiobookFileInfo(fi.FullName, fi.Name, 1000)));
 
         var expectedNewPath = _service.GenerateLibraryPath(
-            new Audiobook(new List<Person> { author }, "New Name", 2020, new AudiobookFileInfo("/unused/unused.m4b", "unused.m4b", 0)), false);
+            new Audiobook(new List<Person> { author }, "New Name", 2020, new AudiobookFileInfo("/unused/unused.m4b", "unused.m4b", 0)), 0);
         var newDirectory = Path.GetDirectoryName(expectedNewPath)!;
 
         var result = await _service.UpdateAudiobook(1, updateDto);
@@ -632,7 +632,7 @@ public class AudiobookServiceTests
         // The book stays where it is, so nothing but the sidecar rules can explain the deletions.
         var author = new Person("Same Author");
         var probe = new Audiobook(new List<Person> { author }, "A Book", 2020, new AudiobookFileInfo("/unused/unused.m4b", "unused.m4b", 0));
-        var expectedPath = _service.GenerateLibraryPath(probe, false);
+        var expectedPath = _service.GenerateLibraryPath(probe, 0);
         var bookDirectory = Path.GetDirectoryName(expectedPath)!;
         Directory.CreateDirectory(bookDirectory);
         File.WriteAllText(expectedPath, "fake audio");
@@ -1057,7 +1057,7 @@ public class AudiobookServiceTests
             Narrators = new List<Person> { new Person("New Narrator") }
         };
 
-        var expectedPath = _service.GenerateLibraryPath(audiobook, false);
+        var expectedPath = _service.GenerateLibraryPath(audiobook, 0);
 
         _tagHandler.Setup(t => t.SaveAudiobookTagsToFile(It.IsAny<Audiobook>(), It.IsAny<Action<float>?>()));
         _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>()))
@@ -1208,7 +1208,7 @@ public class AudiobookServiceTests
         Assert.IsNull(result.ExistingAudiobookId);
         Assert.IsNull(result.ExistingSizeInBytes);
         Assert.IsNull(result.ExistingDurationInSeconds);
-        Assert.AreEqual(_service.GenerateLibraryPath(book, false), result.TargetPath);
+        Assert.AreEqual(_service.GenerateLibraryPath(book, 0), result.TargetPath);
     }
 
     [TestMethod]
@@ -1216,7 +1216,7 @@ public class AudiobookServiceTests
     {
         SetupUpdateAudiobookTest();
         var book = MakeAudiobookForCollisionCheck();
-        var targetPath = _service.GenerateLibraryPath(book, false);
+        var targetPath = _service.GenerateLibraryPath(book, 0);
         Directory.CreateDirectory(Path.GetDirectoryName(targetPath)!);
         await File.WriteAllTextAsync(targetPath, "existing audio");
 
@@ -1241,7 +1241,7 @@ public class AudiobookServiceTests
     {
         SetupUpdateAudiobookTest();
         var book = MakeAudiobookForCollisionCheck();
-        var targetPath = _service.GenerateLibraryPath(book, false);
+        var targetPath = _service.GenerateLibraryPath(book, 0);
         Directory.CreateDirectory(Path.GetDirectoryName(targetPath)!);
         var content = "orphaned file contents";
         await File.WriteAllTextAsync(targetPath, content);
@@ -1267,7 +1267,7 @@ public class AudiobookServiceTests
         try
         {
             var book = MakeAudiobookForCollisionCheck();
-            var targetPath = _service.GenerateLibraryPath(book, false);
+            var targetPath = _service.GenerateLibraryPath(book, 0);
             Directory.CreateDirectory(Path.GetDirectoryName(targetPath)!);
             await File.WriteAllTextAsync(targetPath, "existing target");
 
@@ -1300,7 +1300,7 @@ public class AudiobookServiceTests
             await File.WriteAllTextAsync(sourcePath, "new source content");
 
             var book = MakeAudiobookForCollisionCheck(sourcePath: sourcePath);
-            var targetPath = _service.GenerateLibraryPath(book, false);
+            var targetPath = _service.GenerateLibraryPath(book, 0);
             Directory.CreateDirectory(Path.GetDirectoryName(targetPath)!);
             await File.WriteAllTextAsync(targetPath, "existing target");
 
@@ -1532,7 +1532,7 @@ public class AudiobookServiceTests
 
         var author = new Person("Same Author");
         var probe = new Audiobook(new List<Person> { author }, "Same Book", 2020, new AudiobookFileInfo("/unused/unused.m4b", "unused.m4b", 0));
-        var expectedPath = _service.GenerateLibraryPath(probe, false);
+        var expectedPath = _service.GenerateLibraryPath(probe, 0);
 
         var existing = CreateExistingDbAudiobook(1, expectedPath);
         existing.BookName = "Same Book";
@@ -1563,7 +1563,7 @@ public class AudiobookServiceTests
 
         var author = new Person("Same Author");
         var probe = new Audiobook(new List<Person> { author }, "Same Book", 2020, new AudiobookFileInfo("/unused/unused.m4b", "unused.m4b", 0));
-        var expectedPath = _service.GenerateLibraryPath(probe, false);
+        var expectedPath = _service.GenerateLibraryPath(probe, 0);
 
         var existing = CreateExistingDbAudiobook(1, expectedPath);
         existing.BookName = "Same Book";
@@ -1591,7 +1591,7 @@ public class AudiobookServiceTests
 
         var author = new Person("Same Author");
         var probe = new Audiobook(new List<Person> { author }, "Same Book", 2020, new AudiobookFileInfo("/unused/unused.m4b", "unused.m4b", 0));
-        var expectedPath = _service.GenerateLibraryPath(probe, false);
+        var expectedPath = _service.GenerateLibraryPath(probe, 0);
 
         var existing = CreateExistingDbAudiobook(1, expectedPath);
         existing.BookName = "Same Book";
@@ -1619,7 +1619,7 @@ public class AudiobookServiceTests
 
         var author = new Person("Same Author");
         var probe = new Audiobook(new List<Person> { author }, "Same Book", 2020, new AudiobookFileInfo("/unused/unused.m4b", "unused.m4b", 0));
-        var expectedPath = _service.GenerateLibraryPath(probe, false);
+        var expectedPath = _service.GenerateLibraryPath(probe, 0);
 
         var existing = CreateExistingDbAudiobook(1, expectedPath);
         existing.BookName = "Same Book";

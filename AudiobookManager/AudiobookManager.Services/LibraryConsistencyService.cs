@@ -113,14 +113,14 @@ public class LibraryConsistencyService : ILibraryConsistencyService
         var pending = new List<BookConsistencyIssue>(InsertBatchSize);
 
         // Read once for the whole run: it is the same for every book.
-        var includeNarratorInPath = (await _librarySettingsRepository.GetOrCreateAsync()).IncludeNarratorInPath;
+        var maxNarratorsInPath = (await _librarySettingsRepository.GetOrCreateAsync()).NarratorsInPath;
 
         foreach (var audiobook in audiobooks)
         {
             booksChecked++;
             var bookLabel = $"{string.Join(", ", audiobook.Authors.Select(a => a.Name))} — {audiobook.BookName}";
 
-            var issues = _detectionService.DetectIssues(audiobook, includeNarratorInPath);
+            var issues = _detectionService.DetectIssues(audiobook, maxNarratorsInPath);
             issuesFound += issues.Count;
             pending.AddRange(issues);
 

@@ -36,6 +36,7 @@ describe("usePageSize", () => {
       defaultPageSize: 100,
       searchInitialsHandling: "AsStored",
       includeNarratorInPath: false,
+      maxNarratorsInPath: 3,
     });
 
     const { result } = renderHook(() => usePageSize(), { wrapper });
@@ -53,6 +54,7 @@ describe("usePageSize", () => {
       defaultPageSize: 20,
       searchInitialsHandling: "AsStored",
       includeNarratorInPath: false,
+      maxNarratorsInPath: 3,
     });
 
     const { result } = renderHook(() => usePageSize(), { wrapper });

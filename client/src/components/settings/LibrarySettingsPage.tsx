@@ -42,6 +42,9 @@ const SEARCH_INITIALS_HANDLING_OPTIONS: { value: SearchInitialsHandling; label: 
   { value: "Spaced", label: "Spaced (George R. R. Martin)" },
 ];
 
+const MIN_NARRATORS_IN_PATH = 1;
+const MAX_NARRATORS_IN_PATH = 10;
+
 const PAGE_SIZE_SELECT_OPTIONS: { value: PageSizeOption; label: string }[] = PAGE_SIZE_OPTIONS.map(
   (size) => ({ value: size, label: `${size} rows per page` }),
 );
@@ -62,6 +65,8 @@ export function LibrarySettingsPage() {
   const [searchInitialsHandling, setSearchInitialsHandling] =
     useState<SearchInitialsHandling | null>(null);
   const [includeNarratorInPath, setIncludeNarratorInPath] = useState<boolean | null>(null);
+  // Held as the typed text so a half-edited field ("", "1") is not snapped back under the cursor.
+  const [maxNarratorsInPath, setMaxNarratorsInPath] = useState<string | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: queryKeys.librarySettings(),
@@ -77,6 +82,7 @@ export function LibrarySettingsPage() {
       defaultPageSize: number;
       searchInitialsHandling: SearchInitialsHandling;
       includeNarratorInPath: boolean;
+      maxNarratorsInPath: number;
     }) => settingsApi.updateLibrarySettings(settings),
     onSuccess: () => {
       notifications.success("Library settings saved");
@@ -102,6 +108,14 @@ export function LibrarySettingsPage() {
     searchInitialsHandling ?? data?.searchInitialsHandling ?? null;
   const currentIncludeNarratorInPath =
     includeNarratorInPath ?? data?.includeNarratorInPath ?? false;
+  const currentMaxNarratorsInPathText =
+    maxNarratorsInPath ?? (data ? String(data.maxNarratorsInPath) : "");
+  const currentMaxNarratorsInPath = Number(currentMaxNarratorsInPathText);
+  // Mirrors the server's bounds (SettingsController refuses anything else with a 400).
+  const maxNarratorsInPathValid =
+    Number.isInteger(currentMaxNarratorsInPath) &&
+    currentMaxNarratorsInPath >= MIN_NARRATORS_IN_PATH &&
+    currentMaxNarratorsInPath <= MAX_NARRATORS_IN_PATH;
 
   const handleSave = () => {
     if (
@@ -120,6 +134,7 @@ export function LibrarySettingsPage() {
       defaultPageSize: currentDefaultPageSize,
       searchInitialsHandling: currentSearchInitialsHandling,
       includeNarratorInPath: currentIncludeNarratorInPath,
+      maxNarratorsInPath: currentMaxNarratorsInPath,
     });
   };
 
@@ -259,6 +274,31 @@ export function LibrarySettingsPage() {
                   that has a narrator: they show up as &ldquo;wrong file path&rdquo; in the
                   consistency check, where resolving them moves the files.
                 </p>
+
+                <label
+                  htmlFor="max-narrators-in-path"
+                  className="mt-2 mb-1 block text-xs font-medium"
+                >
+                  Maximum narrators in folder name
+                </label>
+                <Input
+                  id="max-narrators-in-path"
+                  type="number"
+                  inputMode="numeric"
+                  min={MIN_NARRATORS_IN_PATH}
+                  max={MAX_NARRATORS_IN_PATH}
+                  value={currentMaxNarratorsInPathText}
+                  onChange={(e) => setMaxNarratorsInPath(e.target.value)}
+                  disabled={mutation.isPending || !currentIncludeNarratorInPath}
+                  aria-invalid={!maxNarratorsInPathValid}
+                  className="w-full sm:w-32"
+                />
+                <p className="text-muted-foreground text-xs">
+                  How many narrators the folder names ({MIN_NARRATORS_IN_PATH}&ndash;
+                  {MAX_NARRATORS_IN_PATH}); the first ones in the book&apos;s narrator order. Casts
+                  longer than that are cut, so two books that share their first narrators get the
+                  same folder name. Changing it moves the books it affects the same way.
+                </p>
               </div>
 
               <div className="space-y-1.5">
@@ -356,6 +396,7 @@ export function LibrarySettingsPage() {
             !currentPunctuation ||
             !currentDefaultPageSize ||
             !currentSearchInitialsHandling ||
+            !maxNarratorsInPathValid ||
             isLoading
           }
         >

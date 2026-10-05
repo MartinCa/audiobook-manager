@@ -163,6 +163,13 @@ public class SettingsController : ControllerBase
                 $"{string.Join(", ", Enum.GetNames<SearchInitialsHandling>())}.");
         }
 
+        var maxNarratorsInPath = dto.MaxNarratorsInPath ?? current.MaxNarratorsInPath;
+        if (maxNarratorsInPath < 1 || maxNarratorsInPath > Domain.LibrarySettings.MaxNarratorsInPathLimit)
+        {
+            return this.InvalidRequest(
+                $"MaxNarratorsInPath must be between 1 and {Domain.LibrarySettings.MaxNarratorsInPathLimit}.");
+        }
+
         var updated = await _settingsService.UpdateLibrarySettings(new Domain.LibrarySettings
         {
             InitialsSpacing = parsed,
@@ -173,6 +180,7 @@ public class SettingsController : ControllerBase
             DefaultPageSize = defaultPageSize,
             SearchInitialsHandling = searchInitialsHandling,
             IncludeNarratorInPath = dto.IncludeNarratorInPath ?? current.IncludeNarratorInPath,
+            MaxNarratorsInPath = maxNarratorsInPath,
         });
         return Ok(ToDto(updated));
     }
@@ -300,5 +308,6 @@ public class SettingsController : ControllerBase
             settings.UpcomingReleasesCronSchedule,
             settings.DefaultPageSize,
             settings.SearchInitialsHandling.ToString(),
-            settings.IncludeNarratorInPath);
+            settings.IncludeNarratorInPath,
+            settings.MaxNarratorsInPath);
 }

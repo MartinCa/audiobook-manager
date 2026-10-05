@@ -15,6 +15,7 @@ public static class LibrarySettingsMapping
             DefaultPageSize = dbModel.DefaultPageSize,
             SearchInitialsHandling = ToDomain(dbModel.SearchInitialsHandling),
             IncludeNarratorInPath = dbModel.IncludeNarratorInPath,
+            MaxNarratorsInPath = dbModel.MaxNarratorsInPath,
             MetadataApplyRules = MetadataApplyRuleSet.Deserialize(dbModel.MetadataApplyRulesJson),
         };
 

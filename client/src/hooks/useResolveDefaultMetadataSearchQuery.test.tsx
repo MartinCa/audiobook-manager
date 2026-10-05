@@ -26,6 +26,7 @@ function settingsWith(handling: SearchInitialsHandling): LibrarySettings {
     defaultPageSize: 20,
     searchInitialsHandling: handling,
     includeNarratorInPath: false,
+    maxNarratorsInPath: 3,
   };
 }
 

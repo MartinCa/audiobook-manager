@@ -11,7 +11,7 @@ public interface IAudiobookService
     Task<Audiobook> InsertAudiobook(Audiobook audiobook);
 
     /// <summary>The library path for <paramref name="audiobook"/> under the given narrator-in-path setting.</summary>
-    string GenerateLibraryPath(Audiobook audiobook, bool includeNarratorInPath);
+    string GenerateLibraryPath(Audiobook audiobook, int maxNarratorsInPath);
 
     /// <summary>The library path for <paramref name="audiobook"/> under the library's current narrator-in-path setting.</summary>
     Task<string> GenerateLibraryPathAsync(Audiobook audiobook);
