@@ -109,15 +109,67 @@ public class NarratorInPathTests
     }
 
     [TestMethod]
-    public void SettingOn_ALongCastList_IsCappedSoTheFolderNameStaysUsable()
+    public void SettingOn_ALongCastList_IsCappedAtWholeNamesWithinTheByteBudget()
     {
         var narrators = Enumerable.Range(0, 40).Select(i => $"Narrator Number {i}").ToArray();
 
-        var path = AudiobookFileHandler.GenerateRelativeAudiobookPath(MakeBook(null, null, narrators), true);
+        var suffix = AudiobookFileHandler.GetNarratorFolderSuffix(MakeBook(null, null, narrators));
 
-        var folder = path.Split(Sep)[1];
-        Assert.IsTrue(folder.Length < 140, $"Folder name is {folder.Length} characters: {folder}");
-        Assert.IsTrue(folder.EndsWith('}'));
+        // " {" + group + "}" - the group is the first names that fit 100 bytes, never a partial one.
+        var group = suffix[2..^1];
+        Assert.IsTrue(System.Text.Encoding.UTF8.GetByteCount(group) <= 100, group);
+        Assert.IsTrue(narrators.Take(group.Split(", ").Length).SequenceEqual(group.Split(", ")), group);
+        Assert.IsTrue(group.Split(", ").Length < narrators.Length);
+    }
+
+    [TestMethod]
+    public void SettingOn_MultiByteCast_IsCappedInBytesNotCharacters()
+    {
+        // 60 two-byte characters is 120 bytes: under any character cap, over the byte budget.
+        var name = new string('é', 60);
+
+        var suffix = AudiobookFileHandler.GetNarratorFolderSuffix(MakeBook(null, null, name));
+
+        var group = suffix[2..^1];
+        Assert.IsTrue(System.Text.Encoding.UTF8.GetByteCount(group) <= 100, $"{group.Length} chars");
+        Assert.IsTrue(group.Length > 0);
+    }
+
+    [TestMethod]
+    public void SettingOn_ASingleNameCutOnTheBoundary_NeverEndsInALoneSurrogate()
+    {
+        // 4-byte characters: 100 bytes is exactly 25 of them, so a cut at 24.5 must drop the half.
+        var name = string.Concat(Enumerable.Repeat("\U0001F3A7", 30));
+
+        var suffix = AudiobookFileHandler.GetNarratorFolderSuffix(MakeBook(null, null, name));
+
+        var group = suffix[2..^1];
+        // A lone surrogate does not survive a UTF-8 round trip (it comes back as U+FFFD).
+        var roundTripped = System.Text.Encoding.UTF8.GetString(System.Text.Encoding.UTF8.GetBytes(group));
+        Assert.AreEqual(group, roundTripped);
+        Assert.AreEqual(25, group.EnumerateRunes().Count());
+        Assert.IsTrue(System.Text.Encoding.UTF8.GetByteCount(group) <= 100);
+        Assert.IsFalse(group.Contains('\uFFFD'));
+    }
+
+    [TestMethod]
+    public void SettingOn_DuplicateNarrators_AreListedOnce()
+    {
+        var suffix = AudiobookFileHandler.GetNarratorFolderSuffix(MakeBook(null, null, "A One", "A One", "B Two"));
+
+        Assert.AreEqual(" {A One, B Two}", suffix);
+    }
+
+    [TestMethod]
+    public void SettingOn_TheBraceGroupIsLastInTheFolderName_SoAudiobookshelfsFolderPatternMatchesIt()
+    {
+        // Audiobookshelf reads the narrator with /^(?<title>.*) \{(?<narrators>.*)\}$/ on the folder name.
+        var path = AudiobookFileHandler.GenerateRelativeAudiobookPath(MakeBook("Saga", "1", "A One", "B Two"), true);
+
+        var folder = path.Split(Sep)[2];
+        var match = System.Text.RegularExpressions.Regex.Match(folder, @"^(?<title>.*) \{(?<narrators>.*)\}$");
+        Assert.IsTrue(match.Success, folder);
+        Assert.AreEqual("A One, B Two", match.Groups["narrators"].Value);
     }
 
     [TestMethod]

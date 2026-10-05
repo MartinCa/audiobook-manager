@@ -1,3 +1,4 @@
+using System.Text;
 using System.Xml.Linq;
 using AudiobookManager.Domain;
 
@@ -350,32 +351,74 @@ public class AudiobookFileHandler : IAudiobookFileHandler
     public static void RemoveSidecarFilesStatic(string directoryPath) =>
         new AudiobookFileHandler(_defaultFileOperations).RemoveSidecarFiles(directoryPath);
 
-    /// <summary>Longest narrator text put in a folder name, so a long cast list cannot push the segment past the file system's name limit.</summary>
-    private const int MaxNarratorFolderLength = 80;
+    /// <summary>
+    /// Longest narrator text put in a folder name, in UTF-8 bytes: file systems limit a name in
+    /// bytes (255 on ext4), not characters, so a cast of multi-byte names must not be measured in
+    /// UTF-16 units.
+    /// </summary>
+    private const int MaxNarratorFolderBytes = 100;
 
     /// <summary>
     /// The <c>{Narrator}</c> suffix Audiobookshelf reads a book folder's narrator from, or an empty
-    /// string when the book has no narrator. Several narrators are joined like the narrator tag.
+    /// string when the book has no narrator. Audiobookshelf matches <c>^(.*) \{(.*)\}$</c> against
+    /// the folder name, so the group has to be last and preceded by a space.
+    ///
+    /// Several narrators are joined like the narrator tag (", "). That join is best-effort: the
+    /// scanner takes everything between the braces as one string, and how it later splits it into
+    /// individual narrators has not been confirmed. Names are kept whole - narrators that do not
+    /// fit the byte budget are dropped rather than cut mid-name - and a single name longer than the
+    /// budget is cut on a character (not UTF-16 unit) boundary.
     /// </summary>
     public static string GetNarratorFolderSuffix(Audiobook audiobook)
     {
-        var narrators = AudiobookTagHandler.GetStringFromListOfPersons(
-            audiobook.Narrators.Where(n => !string.IsNullOrWhiteSpace(n.Name)));
-        if (narrators.Length == 0)
+        // A brace inside a name would end the group early, and Audiobookshelf would read a
+        // truncated narrator.
+        var names = audiobook.Narrators
+            .Select(n => n.Name.Replace("{", "").Replace("}", "").Trim())
+            .Where(n => n.Length > 0)
+            .Distinct()
+            .ToList();
+        if (names.Count == 0)
         {
             return "";
         }
 
-        if (narrators.Length > MaxNarratorFolderLength)
+        var kept = new List<string>();
+        foreach (var name in names)
         {
-            narrators = narrators[..MaxNarratorFolderLength].TrimEnd(' ', ',');
+            var candidate = string.Join(", ", kept.Append(name));
+            if (Encoding.UTF8.GetByteCount(candidate) > MaxNarratorFolderBytes)
+            {
+                break;
+            }
+
+            kept.Add(name);
         }
 
-        // A brace inside the name would end the group early, and Audiobookshelf would read a
-        // truncated narrator.
-        narrators = narrators.Replace("{", "").Replace("}", "");
+        if (kept.Count == 0)
+        {
+            kept.Add(TruncateToUtf8Bytes(names[0], MaxNarratorFolderBytes));
+        }
 
-        return narrators.Length == 0 ? "" : $" {{{narrators}}}";
+        return $" {{{string.Join(", ", kept)}}}";
+    }
+
+    private static string TruncateToUtf8Bytes(string value, int maxBytes)
+    {
+        var builder = new StringBuilder();
+        var bytes = 0;
+        foreach (var rune in value.EnumerateRunes())
+        {
+            bytes += rune.Utf8SequenceLength;
+            if (bytes > maxBytes)
+            {
+                break;
+            }
+
+            builder.Append(rune.ToString());
+        }
+
+        return builder.ToString().TrimEnd();
     }
 
     /// <param name="includeNarratorInPath">
