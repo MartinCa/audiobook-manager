@@ -6,7 +6,7 @@ import { ArrowLeft, ChevronDown, ChevronRight, Loader2, Search, X } from "lucide
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
-import { LinkButton } from "../LinkButton";
+import { LinkButton } from "../link-button";
 import { PendingOnlineMatchRowPanel } from "./PendingOnlineMatchRowPanel";
 import { SectionPager } from "./SectionPager";
 import { pendingOnlineMatchApi } from "@/services/api";

@@ -1349,7 +1349,7 @@ describe("SeriesDetail", () => {
     renderWithProviders();
     await screen.findByRole("heading", { name: "Mistborn" });
 
-    const backLink = await screen.findByRole("button", { name: /back to series/i });
+    const backLink = await screen.findByRole("link", { name: /back to series/i });
     expect(backLink.tagName).toBe("A");
     expect(backLink).toHaveAttribute("href", "/library/series");
   });
@@ -1360,7 +1360,7 @@ describe("SeriesDetail", () => {
     renderWithProviders("/library/series/Mistborn?authorId=5");
     await screen.findByRole("heading", { name: "Mistborn" });
 
-    const backLink = await screen.findByRole("button", { name: /back to author/i });
+    const backLink = await screen.findByRole("link", { name: /back to author/i });
     expect(backLink.tagName).toBe("A");
     expect(backLink).toHaveAttribute("href", "/library/authors/5");
   });

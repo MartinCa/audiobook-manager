@@ -34,7 +34,7 @@ import { useOperationResync } from "@/hooks/useOperationResync";
 import { OwnedBookList } from "./OwnedBookList";
 import { SeriesFollowButton } from "./SeriesFollowButton";
 import { UpcomingReleasesList } from "./UpcomingReleasesList";
-import { LinkButton } from "../LinkButton";
+import { LinkButton } from "../link-button";
 import { CollapsibleCountSection } from "@/components/CollapsibleCountSection";
 import { ExpectedBookList } from "./ExpectedBookList";
 import { SectionPager } from "./SectionPager";

@@ -4,7 +4,7 @@ import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Search, X, Loader2, BookOpen, Users, BookMarked, ChevronRight } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import { LinkButton } from "../link-button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { BookListRow } from "./BookListRow";
@@ -133,19 +133,13 @@ export function SearchResultsPage() {
     }
   };
 
-  const handleTabChange = (value: string | number) => {
-    const nextTab = value as SearchTab;
-    if (nextTab !== tab) {
-      void navigate({
-        to: "/library/search",
-        search: (prev) => ({
-          ...prev,
-          tab: nextTab === "all" ? undefined : nextTab,
-          page: undefined,
-        }),
-      });
-    }
-  };
+  // The search a tab (or a "View all" link) points at: the tab goes in the URL and the page resets.
+  // The tab you are already on points at the current search unchanged, so following it is a no-op
+  // (as the old click handler was) instead of dropping you back to page 1.
+  const searchForTab = <P extends object>(prev: P, nextTab: SearchTab) =>
+    nextTab === tab
+      ? prev
+      : { ...prev, tab: nextTab === "all" ? undefined : nextTab, page: undefined };
 
   const handlePageChange = (newPage: number) => {
     void navigate({
@@ -292,20 +286,46 @@ export function SearchResultsPage() {
         </div>
       ) : (
         <>
-          <Tabs value={tab} onValueChange={handleTabChange}>
+          <Tabs value={tab}>
             <TabsList className="h-9">
-              <TabsTrigger value="all" className="text-xs">
+              <TabsTrigger
+                value="all"
+                nativeButton={false}
+                render={<Link to="/library/search" search={(prev) => searchForTab(prev, "all")} />}
+                className="text-xs"
+              >
                 All
               </TabsTrigger>
-              <TabsTrigger value="books" className="text-xs">
+              <TabsTrigger
+                value="books"
+                nativeButton={false}
+                render={
+                  <Link to="/library/search" search={(prev) => searchForTab(prev, "books")} />
+                }
+                className="text-xs"
+              >
                 <BookOpen className="mr-1.5 h-3.5 w-3.5" />
                 Books ({booksTotal})
               </TabsTrigger>
-              <TabsTrigger value="authors" className="text-xs">
+              <TabsTrigger
+                value="authors"
+                nativeButton={false}
+                render={
+                  <Link to="/library/search" search={(prev) => searchForTab(prev, "authors")} />
+                }
+                className="text-xs"
+              >
                 <Users className="mr-1.5 h-3.5 w-3.5" />
                 Authors ({authorsTotal})
               </TabsTrigger>
-              <TabsTrigger value="series" className="text-xs">
+              <TabsTrigger
+                value="series"
+                nativeButton={false}
+                render={
+                  <Link to="/library/search" search={(prev) => searchForTab(prev, "series")} />
+                }
+                className="text-xs"
+              >
                 <BookMarked className="mr-1.5 h-3.5 w-3.5" />
                 Series ({seriesTotal})
               </TabsTrigger>
@@ -339,14 +359,16 @@ export function SearchResultsPage() {
                     </label>
                   </div>
                   {booksTotal > SEARCH_PREVIEW_LIMIT && (
-                    <Button
+                    <LinkButton
                       variant="link"
                       size="sm"
                       className="h-auto p-0 text-xs"
-                      onClick={() => handleTabChange("books")}
+                      render={
+                        <Link to="/library/search" search={(prev) => searchForTab(prev, "books")} />
+                      }
                     >
                       View all {booksTotal} books &rarr;
-                    </Button>
+                    </LinkButton>
                   )}
                 </div>
                 {books.length === 0 ? (
@@ -370,14 +392,19 @@ export function SearchResultsPage() {
                 <div className="flex items-center justify-between">
                   <h2 className="text-foreground text-lg font-bold">Authors ({authorsTotal})</h2>
                   {authorsTotal > SEARCH_PREVIEW_LIMIT && (
-                    <Button
+                    <LinkButton
                       variant="link"
                       size="sm"
                       className="h-auto p-0 text-xs"
-                      onClick={() => handleTabChange("authors")}
+                      render={
+                        <Link
+                          to="/library/search"
+                          search={(prev) => searchForTab(prev, "authors")}
+                        />
+                      }
                     >
                       View all {authorsTotal} authors &rarr;
-                    </Button>
+                    </LinkButton>
                   )}
                 </div>
                 {authors.length === 0 ? (
@@ -395,14 +422,19 @@ export function SearchResultsPage() {
                 <div className="flex items-center justify-between">
                   <h2 className="text-foreground text-lg font-bold">Series ({seriesTotal})</h2>
                   {seriesTotal > SEARCH_PREVIEW_LIMIT && (
-                    <Button
+                    <LinkButton
                       variant="link"
                       size="sm"
                       className="h-auto p-0 text-xs"
-                      onClick={() => handleTabChange("series")}
+                      render={
+                        <Link
+                          to="/library/search"
+                          search={(prev) => searchForTab(prev, "series")}
+                        />
+                      }
                     >
                       View all {seriesTotal} series &rarr;
-                    </Button>
+                    </LinkButton>
                   )}
                 </div>
                 {series.length === 0 ? (

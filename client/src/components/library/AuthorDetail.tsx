@@ -25,7 +25,7 @@ import { AuthorFollowSection } from "./AuthorFollowSection";
 import { UpcomingReleasesList } from "./UpcomingReleasesList";
 import { ExpectedBookList } from "./ExpectedBookList";
 import { SectionPager } from "./SectionPager";
-import { LinkButton } from "../LinkButton";
+import { LinkButton } from "../link-button";
 import { CollapsibleCountSection } from "@/components/CollapsibleCountSection";
 import { LastRefreshedHint } from "@/components/LastRefreshedHint";
 import { RenameValueDialog } from "@/components/RenameValueDialog";

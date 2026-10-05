@@ -182,6 +182,42 @@ describe("SearchResultsPage", () => {
     expect(browseApi.searchSeries).toHaveBeenCalledWith("mist", 5, 0);
   });
 
+  // The tabs and the "View all" controls change the URL, so they must be real links: otherwise
+  // middle-click, Ctrl/Cmd-click and "Open in new tab" do nothing (DESIGN.md section 3).
+  it("renders the result tabs as links that carry the query and reset the page, except the active tab", async () => {
+    renderWithRouter("/library/search?q=mist&tab=books&page=2");
+
+    const tabs = await screen.findAllByRole("tab");
+    expect(tabs.map((tab) => [tab.tagName, tab.getAttribute("href")])).toEqual([
+      ["A", "/library/search?q=mist"],
+      // The tab you are already on points at the current URL, page included.
+      ["A", "/library/search?q=mist&tab=books&page=2"],
+      ["A", "/library/search?q=mist&tab=authors"],
+      ["A", "/library/search?q=mist&tab=series"],
+    ]);
+  });
+
+  // The old click handler returned early for the active tab. As a link it must not drop the user
+  // from page 3 back to page 1, nor push a history entry for the URL they are already on.
+  it("clicking the already-active tab keeps the page and does not add a history entry", async () => {
+    const { router, history } = renderWithRouter("/library/search?q=mist&tab=books&page=2");
+
+    const booksTab = await screen.findByRole("tab", { name: /Books \(8\)/i });
+    const entriesBefore = history.length;
+    fireEvent.click(booksTab);
+
+    await waitFor(() => expect(router.state.status).toBe("idle"));
+    expect(router.state.location.search).toEqual({ q: "mist", tab: "books", page: 2 });
+    expect(history.length).toBe(entriesBefore);
+  });
+
+  it("renders 'View all' as a link to the matching tab", async () => {
+    renderWithRouter("/library/search?q=mist");
+
+    const viewAllBooks = await screen.findByRole("link", { name: /View all 8 books/i });
+    expect(viewAllBooks).toHaveAttribute("href", "/library/search?q=mist&tab=books");
+  });
+
   it("switches to the books tab when 'View all' is clicked", async () => {
     renderWithRouter("/library/search?q=mist");
 
