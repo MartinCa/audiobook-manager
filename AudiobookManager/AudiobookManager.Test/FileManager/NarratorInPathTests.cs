@@ -153,6 +153,26 @@ public class NarratorInPathTests
     }
 
     [TestMethod]
+    public void SettingOn_AnOverLongNameInTheMiddle_IsSkippedAndLaterShortNamesAreStillKept()
+    {
+        var tooLong = new string('x', 95);
+
+        var suffix = AudiobookFileHandler.GetNarratorFolderSuffix(MakeBook(null, null, "A One", tooLong, "B Two"));
+
+        Assert.AreEqual(" {A One, B Two}", suffix);
+    }
+
+    [TestMethod]
+    public void SettingOn_AnOverLongFirstName_IsCutToTheBudgetAndNothingFollowsIt()
+    {
+        var tooLong = new string('x', 150);
+
+        var suffix = AudiobookFileHandler.GetNarratorFolderSuffix(MakeBook(null, null, tooLong, "B Two"));
+
+        Assert.AreEqual($" {{{new string('x', 100)}}}", suffix);
+    }
+
+    [TestMethod]
     public void SettingOn_DuplicateNarrators_AreListedOnce()
     {
         var suffix = AudiobookFileHandler.GetNarratorFolderSuffix(MakeBook(null, null, "A One", "A One", "B Two"));

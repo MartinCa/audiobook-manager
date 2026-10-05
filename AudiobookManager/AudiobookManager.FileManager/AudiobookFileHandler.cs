@@ -365,9 +365,10 @@ public class AudiobookFileHandler : IAudiobookFileHandler
     ///
     /// Several narrators are joined like the narrator tag (", "). That join is best-effort: the
     /// scanner takes everything between the braces as one string, and how it later splits it into
-    /// individual narrators has not been confirmed. Names are kept whole - narrators that do not
-    /// fit the byte budget are dropped rather than cut mid-name - and a single name longer than the
-    /// budget is cut on a character (not UTF-16 unit) boundary.
+    /// individual narrators has not been confirmed. Names are kept whole - a narrator that does
+    /// not fit the byte budget is skipped (later, shorter ones are still kept) rather than cut
+    /// mid-name - and a first name longer than the budget is cut on a character (not UTF-16 unit)
+    /// boundary.
     /// </summary>
     public static string GetNarratorFolderSuffix(Audiobook audiobook)
     {
@@ -383,21 +384,22 @@ public class AudiobookFileHandler : IAudiobookFileHandler
             return "";
         }
 
+        // Keep every name that still fits, in order: one over-long name is skipped rather than
+        // ending the list, so shorter narrators after it are not lost with it. Only when the first
+        // name alone exceeds the budget is it cut (that cut uses the whole budget, so nothing
+        // after it could fit anyway).
         var kept = new List<string>();
         foreach (var name in names)
         {
             var candidate = string.Join(", ", kept.Append(name));
-            if (Encoding.UTF8.GetByteCount(candidate) > MaxNarratorFolderBytes)
+            if (Encoding.UTF8.GetByteCount(candidate) <= MaxNarratorFolderBytes)
             {
-                break;
+                kept.Add(name);
             }
-
-            kept.Add(name);
-        }
-
-        if (kept.Count == 0)
-        {
-            kept.Add(TruncateToUtf8Bytes(names[0], MaxNarratorFolderBytes));
+            else if (kept.Count == 0)
+            {
+                kept.Add(TruncateToUtf8Bytes(name, MaxNarratorFolderBytes));
+            }
         }
 
         return $" {{{string.Join(", ", kept)}}}";
