@@ -22,6 +22,10 @@ type LinkButtonProps = ComponentProps<"a"> &
  * link built that way is announced as a button; this one stays an `<a href>` with link semantics,
  * plus middle-click, Ctrl/Cmd-click, "Open in new tab" and the URL preview.
  * Navigation must never be an `onClick` + `navigate()` on a button — see DESIGN.md section 3.
+ *
+ * `render` is typed as anchor-compatible props, which cannot strictly reject a non-anchor element
+ * (a `<button>`'s props are structurally assignable): that it is a link is a convention, enforced
+ * by review and the preset's navigate() lint rule rather than by the type.
  */
 export function LinkButton({
   render,

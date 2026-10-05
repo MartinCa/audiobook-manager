@@ -231,7 +231,10 @@ src/
 - Colocate first. A component used by exactly one feature belongs in that feature folder.
   Promote to `src/components/` on the second consumer, not in anticipation of one.
 - One component per file. File name matches the export. `PascalCase.tsx` for components,
-  `camelCase.ts` for everything else.
+  `camelCase.ts` for everything else. The exception is a component installed from a frontend-kit
+  registry item (`action-button.tsx`, `theme-toggle.tsx`, `link-button.tsx`): it keeps the kit's
+  kebab-case file name, like shadcn's own `ui/` files, so `shadcn add … --overwrite` updates it in
+  place instead of creating a second copy.
 - Named exports everywhere except route files.
 - Import alias `@/` for `src/`. No `../../..`.
 
