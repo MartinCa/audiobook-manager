@@ -455,6 +455,7 @@ export interface paths {
                     refreshedAfter?: string;
                     refreshedBefore?: string;
                     neverRefreshed?: boolean;
+                    queueStates?: string[];
                 };
                 header?: never;
                 path?: never;
@@ -545,6 +546,7 @@ export interface paths {
                     refreshedAfter?: string;
                     refreshedBefore?: string;
                     neverRefreshed?: boolean;
+                    queueStates?: string[];
                 };
                 header?: never;
                 path?: never;
@@ -678,6 +680,7 @@ export interface paths {
                     refreshedBefore?: string;
                     neverRefreshed?: boolean;
                     sources?: string[];
+                    queueStates?: string[];
                 };
                 header?: never;
                 path?: never;
@@ -733,6 +736,7 @@ export interface paths {
                     refreshedAfter?: string;
                     refreshedBefore?: string;
                     neverRefreshed?: boolean;
+                    queueStates?: string[];
                 };
                 header?: never;
                 path: {
@@ -2090,6 +2094,136 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/filter-presets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    scope?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["FilterPresetDto"][];
+                        "application/json": components["schemas"]["FilterPresetDto"][];
+                        "text/json": components["schemas"]["FilterPresetDto"][];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["CreateFilterPresetRequest"];
+                    "text/json": components["schemas"]["CreateFilterPresetRequest"];
+                    "application/*+json": components["schemas"]["CreateFilterPresetRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["FilterPresetDto"];
+                        "application/json": components["schemas"]["FilterPresetDto"];
+                        "text/json": components["schemas"]["FilterPresetDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/filter-presets/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["UpdateFilterPresetRequest"];
+                    "text/json": components["schemas"]["UpdateFilterPresetRequest"];
+                    "application/*+json": components["schemas"]["UpdateFilterPresetRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["FilterPresetDto"];
+                        "application/json": components["schemas"]["FilterPresetDto"];
+                        "text/json": components["schemas"]["FilterPresetDto"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/library/scan": {
         parameters: {
             query?: never;
@@ -3074,6 +3208,7 @@ export interface paths {
                     refreshedAfter?: string;
                     refreshedBefore?: string;
                     neverRefreshed?: boolean;
+                    queueStates?: string[];
                 };
                 header?: never;
                 path?: never;
@@ -3632,6 +3767,7 @@ export interface paths {
                     refreshedBefore?: string;
                     neverRefreshed?: boolean;
                     sources?: string[];
+                    queueStates?: string[];
                 };
                 header?: never;
                 path?: never;
@@ -3749,6 +3885,7 @@ export interface paths {
                     refreshedAfter?: string;
                     refreshedBefore?: string;
                     neverRefreshed?: boolean;
+                    queueStates?: string[];
                 };
                 header?: never;
                 path?: never;
@@ -6012,6 +6149,9 @@ export interface components {
             sources?: string[] | null;
             genres?: string[] | null;
             languages?: string[] | null;
+            bookQueueStates?: components["schemas"]["QueueStateOptionDto"][] | null;
+            seriesQueueStates?: components["schemas"]["QueueStateOptionDto"][] | null;
+            authorQueueStates?: components["schemas"]["QueueStateOptionDto"][] | null;
         };
         BulkApplyFilteredMetadataRefreshDto: {
             fields?: string[] | null;
@@ -6089,6 +6229,13 @@ export interface components {
         };
         BulkSelectionDto: {
             audiobookIds: number[];
+        };
+        CreateFilterPresetRequest: {
+            scope: string;
+            name: string;
+            filters: {
+                [key: string]: unknown;
+            };
         };
         DefaultSearchQueryDto: {
             query?: string | null;
@@ -6180,6 +6327,17 @@ export interface components {
             lastFailureReason?: string | null;
             /** Format: date-time */
             lastFailureAt?: string | null;
+        };
+        FilterPresetDto: {
+            /** Format: int64 */
+            id?: number;
+            scope?: string | null;
+            name?: string | null;
+            filters?: {
+                [key: string]: unknown;
+            } | null;
+            /** Format: date-time */
+            updatedAt?: string;
         };
         IgnoreSimilarValuePairDto: {
             valueType?: string | null;
@@ -6508,6 +6666,10 @@ export interface components {
         QualifierIndicatorsDto: {
             indicators?: components["schemas"]["QualifierIndicatorDto"][] | null;
         };
+        QueueStateOptionDto: {
+            value?: string | null;
+            label?: string | null;
+        };
         RenameSimilarValueDto: {
             valueType?: string | null;
             oldValue?: string | null;
@@ -6821,6 +6983,12 @@ export interface components {
             /** Format: int32 */
             total?: number;
             items?: components["schemas"]["UpcomingReleaseDto"][] | null;
+        };
+        UpdateFilterPresetRequest: {
+            name: string;
+            filters: {
+                [key: string]: unknown;
+            };
         };
         UpdateLibrarySettingsDto: {
             initialsSpacing?: string | null;

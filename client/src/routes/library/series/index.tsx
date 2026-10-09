@@ -24,6 +24,7 @@ const seriesSearchSchema = z.object({
     .transform((v) => normalizeRefreshBound(v, "before")),
   neverRefreshed: z.boolean().optional(),
   sources: z.array(z.string()).optional(),
+  queueStates: z.array(z.string()).optional(),
 });
 
 export const Route = createFileRoute("/library/series/")({

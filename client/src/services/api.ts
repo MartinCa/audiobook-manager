@@ -17,6 +17,7 @@ import type {
 import type { DiscoveredAudiobookPage } from "@/types/DiscoveredAudiobookPage";
 import type { AuthorListFilters, BookListFilters, SeriesListFilters } from "@/types/EntityFilters";
 import type { BrowseFilterOptions } from "@/types/BrowseFilterOptions";
+import type { FilterPreset, FilterPresetScope } from "@/types/FilterPreset";
 import type { EntryStatus } from "@/types/EntryStatus";
 import type { FailedOrganizeTask } from "@/types/FailedOrganizeTask";
 import type { BookQualifierOptions } from "@/types/BookQualifier";
@@ -1050,6 +1051,22 @@ export const settingsApi = {
     api.put<LibrarySettings>("/settings/library", settings),
 
   getScheduledTasks: () => api.get<ScheduledTask[]>("/settings/tasks"),
+};
+
+// Saved filter presets of the library lists (books, series, authors). A preset is the list's
+// filters as its endpoint takes them; the search text is not part of one.
+export const filterPresetsApi = {
+  list: (scope: FilterPresetScope) =>
+    api.get<FilterPreset[]>("/filter-presets", { query: { scope } }),
+
+  create: (scope: FilterPresetScope, name: string, filters: Record<string, unknown>) =>
+    api.post<FilterPreset>("/filter-presets", { scope, name, filters }),
+
+  // Renaming and overwriting with the current filters are the same call: it replaces both.
+  update: (id: number, name: string, filters: Record<string, unknown>) =>
+    api.put<FilterPreset>(`/filter-presets/${id}`, { name, filters }),
+
+  remove: (id: number) => api.delete<void>(`/filter-presets/${id}`),
 };
 
 // Files

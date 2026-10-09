@@ -10,6 +10,8 @@ import { OperationKeys, SignalREvents } from "@/constants/signalrEvents";
 import { EntityFilterBar, type FilterFieldDef } from "@/components/filters/EntityFilterBar";
 import { countActiveFilters } from "@/components/filters/filterUtils";
 import { FilterToggleButton } from "@/components/filters/FilterToggleButton";
+import { FilterPresets } from "@/components/filters/FilterPresets";
+import { queueStateField } from "@/components/filters/queueStateField";
 import { LibraryViewTabs } from "./LibraryViewTabs";
 import { OperationProgressBar } from "@/components/OperationProgressBar";
 import { SeriesMatchDialog } from "./SeriesMatchDialog";
@@ -108,6 +110,7 @@ export function SeriesOverviewPage() {
         optionLabels: SOURCE_OPTION_LABELS,
         selectAllOption: { label: "Any supported", excludeValues: [UNSUPPORTED_SOURCE_VALUE] },
       },
+      queueStateField(filterOptionsQuery.data?.seriesQueueStates),
     ],
     [filterOptionsQuery.data],
   );
@@ -115,7 +118,10 @@ export function SeriesOverviewPage() {
   // Collapsed by default; a filter already active on load (a shared/bookmarked URL) starts
   // expanded so the list isn't filtered with no visible explanation.
   const [filtersExpanded, setFiltersExpanded] = useState(
-    () => countActiveFilters(BASE_FILTER_FIELDS, filters) > 0 || (filters.sources?.length ?? 0) > 0,
+    () =>
+      countActiveFilters(BASE_FILTER_FIELDS, filters) > 0 ||
+      (filters.sources?.length ?? 0) > 0 ||
+      (filters.queueStates?.length ?? 0) > 0,
   );
   // Page is internal state rather than a route param: like CleanBookUrls, the list renders one
   // page at a time and the pager clamps it; a filter change drops back to page 0.
@@ -383,7 +389,13 @@ export function SeriesOverviewPage() {
       </div>
 
       {filtersExpanded && (
-        <div id="series-filter-panel">
+        <div id="series-filter-panel" className="space-y-3">
+          <FilterPresets
+            scope="series"
+            filters={filters}
+            fields={FILTER_FIELDS}
+            onApply={handleFiltersChange}
+          />
           <EntityFilterBar fields={FILTER_FIELDS} values={filters} onChange={handleFiltersChange} />
         </div>
       )}

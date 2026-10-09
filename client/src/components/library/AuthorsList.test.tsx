@@ -1,17 +1,23 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, act, within } from "@testing-library/react";
 import { createRouter, createMemoryHistory, RouterProvider } from "@tanstack/react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { routeTree } from "@/routeTree.gen";
 import { SignalRContext } from "@/context/SignalRContext";
 import { ThemeProvider } from "@/components/theme-provider";
-import { browseApi } from "@/services/api";
+import { browseApi, filterPresetsApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
 
 vi.mock("@/services/api", () => ({
   browseApi: {
     getAuthorPage: vi.fn(),
     getFilterOptions: vi.fn().mockResolvedValue({ sources: [], genres: [], languages: [] }),
+  },
+  filterPresetsApi: {
+    list: vi.fn().mockResolvedValue([]),
+    create: vi.fn(),
+    update: vi.fn(),
+    remove: vi.fn(),
   },
 }));
 
@@ -116,13 +122,18 @@ describe("AuthorsList", () => {
       sources: ["Hardcover", "Unsupported"],
       genres: [],
       languages: [],
+      bookQueueStates: [],
+      seriesQueueStates: [],
+      authorQueueStates: [],
     });
     vi.mocked(browseApi.getAuthorPage).mockResolvedValue({ count: 0, total: 0, items: [] });
 
     renderWithProviders();
     await screen.findByPlaceholderText("Filter authors...");
     fireEvent.click(screen.getByRole("button", { name: /Filters/ }));
-    fireEvent.click(await screen.findByRole("button", { name: "Any" }));
+    // Scoped to the field: the Queue status field's trigger is also an "Any" button.
+    const sourceField = (await screen.findByText("Matched source")).parentElement!;
+    fireEvent.click(within(sourceField).getByRole("button"));
 
     expect(screen.getByText("Unsupported/None")).toBeInTheDocument();
     expect(screen.getByText("Any supported")).toBeInTheDocument();
@@ -267,5 +278,98 @@ describe("AuthorsList", () => {
     });
     expect(await screen.findByText("Author 01")).toBeInTheDocument();
     expect(await screen.findByText(/Authors \(50\)/)).toBeInTheDocument();
+  });
+
+  describe("queue status filter and presets", () => {
+    const AUTHOR_QUEUE_STATES = [
+      { value: "NotQueued", label: "Not in any queue" },
+      { value: "RenamePending", label: "Name change awaiting review" },
+      { value: "RefreshFailed", label: "Refresh failed" },
+    ];
+
+    beforeEach(() => {
+      // The filter-options query is cached across this file's shared QueryClient (5-minute
+      // staleTime), so earlier tests' answers would otherwise be served here.
+      queryClient.removeQueries({ queryKey: queryKeys.browseFilterOptions() });
+      queryClient.removeQueries({ queryKey: queryKeys.filterPresets.all() });
+      vi.mocked(browseApi.getFilterOptions).mockResolvedValue({
+        sources: ["Hardcover", "Unsupported"],
+        genres: [],
+        languages: [],
+        bookQueueStates: [],
+        seriesQueueStates: [],
+        authorQueueStates: AUTHOR_QUEUE_STATES,
+      });
+      vi.mocked(browseApi.getAuthorPage).mockResolvedValue({ count: 0, total: 0, items: [] });
+      vi.mocked(filterPresetsApi.list).mockResolvedValue([]);
+    });
+
+    it("offers the served Queue status options and sends the chosen one to the server", async () => {
+      renderWithProviders();
+      await screen.findByPlaceholderText("Filter authors...");
+      fireEvent.click(screen.getByRole("button", { name: /Filters/ }));
+
+      const field = (await screen.findByText("Queue status")).parentElement!;
+      fireEvent.click(within(field).getByRole("button"));
+      fireEvent.click(await screen.findByRole("menuitemcheckbox", { name: "Not in any queue" }));
+
+      await waitFor(() => {
+        expect(browseApi.getAuthorPage).toHaveBeenLastCalledWith(50, 0, "", {
+          queueStates: ["NotQueued"],
+        });
+      });
+      expect(await screen.findByText("Queue status: Not in any queue")).toBeInTheDocument();
+    });
+
+    // Regression: the panel opened on load only for the base filters and sources, so a link whose
+    // only filter was the queue status loaded a filtered list with the filter bar collapsed and
+    // nothing to explain it.
+    it("starts expanded when the queue status is the only filter in the URL", async () => {
+      // The router writes an array search param as JSON.
+      renderWithProviders(
+        `/library/authors?queueStates=${encodeURIComponent(JSON.stringify(["RefreshFailed"]))}`,
+      );
+
+      expect(await screen.findByText("Queue status: Refresh failed")).toBeInTheDocument();
+      expect(screen.getByLabelText("Book count minimum")).toBeInTheDocument();
+      await waitFor(() => {
+        expect(browseApi.getAuthorPage).toHaveBeenCalledWith(50, 0, "", {
+          queueStates: ["RefreshFailed"],
+        });
+      });
+    });
+
+    it("applies a saved preset, replacing the filters already set", async () => {
+      vi.mocked(filterPresetsApi.list).mockResolvedValue([
+        {
+          id: 1,
+          scope: "authors",
+          name: "Unmatched, untouched",
+          filters: { sources: ["Unsupported"], queueStates: ["NotQueued"] },
+          updatedAt: "2026-10-09T00:00:00Z",
+        },
+      ]);
+      renderWithProviders("/library/authors?followed=true&minBookCount=3");
+      await screen
+        .findByText("Queue status: Not in any queue", {}, { timeout: 100 })
+        .catch(() => null);
+
+      const presetsButton = await screen.findByRole("button", { name: "Apply a preset" });
+      await waitFor(() => expect(presetsButton).toBeEnabled());
+      fireEvent.click(presetsButton);
+      fireEvent.click(await screen.findByRole("menuitemradio", { name: "Unmatched, untouched" }));
+
+      await waitFor(() => {
+        // Exactly the preset's filters: followed and minBookCount are gone, not layered under it.
+        expect(browseApi.getAuthorPage).toHaveBeenLastCalledWith(50, 0, "", {
+          sources: ["Unsupported"],
+          queueStates: ["NotQueued"],
+        });
+      });
+      expect(filterPresetsApi.list).toHaveBeenCalledWith("authors");
+      expect(
+        await screen.findByRole("button", { name: /Unmatched, untouched/ }),
+      ).toBeInTheDocument();
+    });
   });
 });

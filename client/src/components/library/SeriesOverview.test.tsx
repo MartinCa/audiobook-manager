@@ -1,12 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { createRouter, createMemoryHistory, RouterProvider } from "@tanstack/react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { routeTree } from "@/routeTree.gen";
 import { OperationKeys, SignalREvents } from "@/constants/signalrEvents";
 import { SignalRContext } from "@/context/SignalRContext";
 import { ThemeProvider } from "@/components/theme-provider";
-import { browseApi, operationsApi, seriesApi } from "@/services/api";
+import { browseApi, filterPresetsApi, operationsApi, seriesApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
 import type { HubEventHandler, SignalRContextValue } from "@/context/SignalRContext";
 
@@ -16,6 +16,12 @@ vi.mock("@/services/api", () => ({
   },
   browseApi: {
     getFilterOptions: vi.fn().mockResolvedValue({ sources: [], genres: [], languages: [] }),
+  },
+  filterPresetsApi: {
+    list: vi.fn().mockResolvedValue([]),
+    create: vi.fn(),
+    update: vi.fn(),
+    remove: vi.fn(),
   },
   seriesApi: {
     getSeriesPage: vi.fn(),
@@ -194,12 +200,17 @@ describe("SeriesOverview", () => {
       sources: ["Hardcover", "Unsupported"],
       genres: [],
       languages: [],
+      bookQueueStates: [],
+      seriesQueueStates: [],
+      authorQueueStates: [],
     });
 
     renderWithProviders();
     await screen.findByText("Series 01");
     fireEvent.click(screen.getByRole("button", { name: /Filters/ }));
-    fireEvent.click(await screen.findByRole("button", { name: "Any" }));
+    // Scoped to the field: the Queue status field's trigger is also an "Any" button.
+    const sourceField = (await screen.findByText("Matched source")).parentElement!;
+    fireEvent.click(within(sourceField).getByRole("button"));
 
     expect(screen.getByText("Unsupported/None")).toBeInTheDocument();
     expect(screen.getByText("Any supported")).toBeInTheDocument();
@@ -356,5 +367,80 @@ describe("SeriesOverview", () => {
     });
     expect(screen.getByRole("button", { name: "Refresh All Series" })).toBeEnabled();
     expect(getStatus).toHaveBeenCalledWith(OperationKeys.seriesRefresh);
+  });
+
+  describe("queue status filter and presets", () => {
+    const SERIES_QUEUE_STATES = [
+      { value: "NotQueued", label: "Not in any queue" },
+      { value: "RefreshPending", label: "Refresh awaiting review" },
+      { value: "RefreshFailed", label: "Refresh failed" },
+    ];
+
+    beforeEach(() => {
+      queryClient.removeQueries({ queryKey: queryKeys.browseFilterOptions() });
+      queryClient.removeQueries({ queryKey: queryKeys.filterPresets.all() });
+      vi.mocked(browseApi.getFilterOptions).mockResolvedValue({
+        sources: ["Hardcover", "Unsupported"],
+        genres: [],
+        languages: [],
+        bookQueueStates: [],
+        seriesQueueStates: SERIES_QUEUE_STATES,
+        authorQueueStates: [],
+      });
+      vi.mocked(filterPresetsApi.list).mockResolvedValue([]);
+    });
+
+    it("offers the served Queue status options and sends the chosen one to the server", async () => {
+      renderWithProviders();
+      await screen.findByText("Series 01");
+      fireEvent.click(screen.getByRole("button", { name: /Filters/ }));
+
+      const field = (await screen.findByText("Queue status")).parentElement!;
+      fireEvent.click(within(field).getByRole("button"));
+      fireEvent.click(await screen.findByRole("menuitemcheckbox", { name: "Refresh failed" }));
+
+      await waitFor(() => {
+        expect(seriesApi.getSeriesPage).toHaveBeenLastCalledWith(0, 50, "", {
+          queueStates: ["RefreshFailed"],
+        });
+      });
+    });
+
+    it("starts expanded when the queue status is the only filter in the URL", async () => {
+      // The router writes an array search param as JSON.
+      renderWithProviders(
+        `/library/series?queueStates=${encodeURIComponent(JSON.stringify(["NotQueued"]))}`,
+      );
+
+      expect(await screen.findByText("Queue status: Not in any queue")).toBeInTheDocument();
+      expect(screen.getByLabelText("Owned books minimum")).toBeInTheDocument();
+    });
+
+    it("applies a saved preset to the series list, replacing the filters already set", async () => {
+      vi.mocked(filterPresetsApi.list).mockResolvedValue([
+        {
+          id: 4,
+          scope: "series",
+          name: "Unmatched, untouched",
+          filters: { sources: ["Unsupported"], queueStates: ["NotQueued"] },
+          updatedAt: "2026-10-09T00:00:00Z",
+        },
+      ]);
+      renderWithProviders("/library/series?minOwnedBooks=3");
+      await screen.findByText("Series 01");
+
+      const presetsButton = await screen.findByRole("button", { name: "Apply a preset" });
+      await waitFor(() => expect(presetsButton).toBeEnabled());
+      fireEvent.click(presetsButton);
+      fireEvent.click(await screen.findByRole("menuitemradio", { name: "Unmatched, untouched" }));
+
+      await waitFor(() => {
+        expect(seriesApi.getSeriesPage).toHaveBeenLastCalledWith(0, 50, "", {
+          sources: ["Unsupported"],
+          queueStates: ["NotQueued"],
+        });
+      });
+      expect(filterPresetsApi.list).toHaveBeenCalledWith("series");
+    });
   });
 });

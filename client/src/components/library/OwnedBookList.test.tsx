@@ -37,6 +37,12 @@ vi.mock("@/services/api", () => ({
       .fn()
       .mockResolvedValue({ sources: ["Hardcover"], genres: ["Fantasy"], languages: ["en"] }),
   },
+  filterPresetsApi: {
+    list: vi.fn().mockResolvedValue([]),
+    create: vi.fn(),
+    update: vi.fn(),
+    remove: vi.fn(),
+  },
   settingsApi: {
     getLanguages: vi.fn().mockResolvedValue({ languages: [] }),
     getBookQualifiers: vi.fn().mockResolvedValue({

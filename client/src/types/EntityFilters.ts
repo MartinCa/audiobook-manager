@@ -36,6 +36,8 @@ export interface EntityListFilters {
   refreshedBefore?: string;
   neverRefreshed?: boolean;
   sources?: string[];
+  /** Where the item sits in the review queues - see the backend's QueueState. Served options. */
+  queueStates?: string[];
 }
 
 export interface SeriesListFilters extends EntityListFilters {
@@ -67,6 +69,9 @@ export interface BookListFilters {
   refreshedAfter?: string;
   refreshedBefore?: string;
   neverRefreshed?: boolean;
+  // Where the book sits in the online-metadata review queues (a bulk search awaiting a pick or
+  // rejected, a refresh awaiting review) - options come from GET /browse/filter-options.
+  queueStates?: string[];
 }
 
 /** Whether any filter field is actually set - lets a caller skip sending an empty filter object. */

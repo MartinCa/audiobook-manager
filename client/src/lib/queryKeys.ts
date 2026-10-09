@@ -29,6 +29,12 @@ export const queryKeys = {
   // list's genre/language filter options - see BrowseController.GetFilterOptions.
   browseFilterOptions: () => ["browseFilterOptions"] as const,
 
+  // Saved filter presets of one library list (books / series / authors).
+  filterPresets: {
+    all: () => ["filterPresets"] as const,
+    byScope: (scope: string) => ["filterPresets", scope] as const,
+  },
+
   directoryContents: (path: string) => ["directoryContents", path] as const,
 
   metadataRefresh: {

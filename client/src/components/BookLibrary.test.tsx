@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createRouter, createMemoryHistory, RouterProvider } from "@tanstack/react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -43,6 +43,12 @@ vi.mock("@/services/api", () => ({
     getDirectoryContents: vi.fn().mockResolvedValue([]),
     deleteBook: vi.fn(),
   },
+  filterPresetsApi: {
+    list: vi.fn().mockResolvedValue([]),
+    create: vi.fn(),
+    update: vi.fn(),
+    remove: vi.fn(),
+  },
   settingsApi: {
     getLanguages: vi.fn().mockResolvedValue({ languages: [] }),
     // The library list's own historical page size (20) - mocked so usePageSize resolves to it
@@ -63,7 +69,7 @@ vi.mock("@/services/api", () => ({
   },
 }));
 
-import { browseApi, metadataRefreshApi } from "@/services/api";
+import { browseApi, filterPresetsApi, metadataRefreshApi } from "@/services/api";
 import type { ManagedAudiobook } from "@/types/ManagedAudiobook";
 import type { AudiobookDetail } from "@/types/AudiobookDetail";
 
@@ -477,5 +483,113 @@ describe("BookLibrary", () => {
       await screen.findByRole("status", { name: "Loading library audiobooks..." }),
     ).toBeInTheDocument();
     expect(container.querySelectorAll('[data-slot="skeleton"]').length).toBeGreaterThan(0);
+  });
+
+  describe("queue status filter and presets", () => {
+    const BOOK_QUEUE_STATES = [
+      { value: "NotQueued", label: "Not in any queue" },
+      { value: "MatchPending", label: "Online match awaiting a pick" },
+      { value: "MatchRejected", label: "Online match rejected" },
+      { value: "RefreshPending", label: "Refresh awaiting review" },
+    ];
+
+    beforeEach(() => {
+      vi.mocked(browseApi.getFilterOptions).mockResolvedValue({
+        sources: ["Hardcover", "Unsupported"],
+        genres: [],
+        languages: [],
+        bookQueueStates: BOOK_QUEUE_STATES,
+        seriesQueueStates: [],
+        authorQueueStates: [],
+      });
+      vi.mocked(filterPresetsApi.list).mockResolvedValue([]);
+    });
+
+    it("offers the served Queue status options and sends the chosen one to the server", async () => {
+      renderWithRouter();
+      await screen.findByText("The Way of Kings");
+      fireEvent.click(screen.getByRole("button", { name: /Filters/ }));
+
+      const field = (await screen.findByText("Queue status")).parentElement!;
+      fireEvent.click(within(field).getByRole("button"));
+      fireEvent.click(
+        await screen.findByRole("menuitemcheckbox", { name: "Online match rejected" }),
+      );
+
+      await waitFor(() => {
+        expect(browseApi.getAudiobooks).toHaveBeenLastCalledWith(20, 0, {
+          queueStates: ["MatchRejected"],
+        });
+      });
+    });
+
+    it("does not filter the normal view: with no filter set nothing about the queue is sent", async () => {
+      renderWithRouter();
+
+      expect(await screen.findByText("The Way of Kings")).toBeInTheDocument();
+      expect(browseApi.getAudiobooks).toHaveBeenCalledWith(20, 0, {});
+      expect(screen.getByText("Words of Radiance")).toBeInTheDocument();
+    });
+
+    // The use case this exists for: the books with no online source that no bulk search has
+    // touched yet, one click after saving the preset once.
+    it("applies the 'Unsupported backlog' preset - source none and not in any queue", async () => {
+      vi.mocked(filterPresetsApi.list).mockResolvedValue([
+        {
+          id: 1,
+          scope: "books",
+          name: "Unsupported backlog",
+          filters: { sources: ["Unsupported"], queueStates: ["NotQueued"] },
+          updatedAt: "2026-10-09T00:00:00Z",
+        },
+      ]);
+      renderWithRouter();
+      await screen.findByText("The Way of Kings");
+      fireEvent.click(screen.getByRole("button", { name: /Filters/ }));
+
+      const presetsButton = await screen.findByRole("button", { name: "Apply a preset" });
+      await waitFor(() => expect(presetsButton).toBeEnabled());
+      fireEvent.click(presetsButton);
+      fireEvent.click(await screen.findByRole("menuitemradio", { name: "Unsupported backlog" }));
+
+      await waitFor(() => {
+        expect(browseApi.getAudiobooks).toHaveBeenLastCalledWith(20, 0, {
+          sources: ["Unsupported"],
+          queueStates: ["NotQueued"],
+        });
+      });
+      expect(filterPresetsApi.list).toHaveBeenCalledWith("books");
+    });
+
+    it("saves the filters that are set as a named preset", async () => {
+      vi.mocked(filterPresetsApi.create).mockResolvedValue({
+        id: 9,
+        scope: "books",
+        name: "Backlog",
+        filters: {},
+        updatedAt: "2026-10-09T00:00:00Z",
+      });
+      const sources = encodeURIComponent(JSON.stringify(["Unsupported"]));
+      const queueStates = encodeURIComponent(JSON.stringify(["NotQueued"]));
+      renderWithRouter(`/library?sources=${sources}&queueStates=${queueStates}&q=Kings`);
+      await screen.findByText("The Way of Kings");
+
+      const presetsButton = await screen.findByRole("button", { name: "Apply a preset" });
+      await waitFor(() => expect(presetsButton).toBeEnabled());
+      fireEvent.click(presetsButton);
+      fireEvent.click(await screen.findByRole("menuitem", { name: "Save current filters..." }));
+      fireEvent.change(await screen.findByLabelText("Preset name"), {
+        target: { value: "Backlog" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Save preset" }));
+
+      // The search text (q=Kings) is not part of the preset.
+      await waitFor(() =>
+        expect(filterPresetsApi.create).toHaveBeenCalledWith("books", "Backlog", {
+          sources: ["Unsupported"],
+          queueStates: ["NotQueued"],
+        }),
+      );
+    });
   });
 });
