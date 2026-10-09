@@ -76,4 +76,5 @@ public class DatabaseContext : DbContext
     public DbSet<ExpectedBookAuthor> ExpectedBookAuthors { get; set; }
     public DbSet<ScheduledTaskRun> ScheduledTaskRuns { get; set; }
     public DbSet<IgnoredSimilarValuePair> IgnoredSimilarValuePairs { get; set; }
+    public DbSet<FilterPreset> FilterPresets { get; set; }
 }

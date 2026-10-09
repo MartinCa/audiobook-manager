@@ -18,7 +18,8 @@ public record AuthorSummaryFilter(
     DateTime? RefreshedAfter = null,
     DateTime? RefreshedBefore = null,
     bool? NeverRefreshed = null,
-    IReadOnlyCollection<string>? Sources = null)
+    IReadOnlyCollection<string>? Sources = null,
+    IReadOnlyCollection<string>? QueueStates = null)
 {
     /// <summary>
     /// Synthetic <see cref="Sources"/> value for an unmatched author - there is no source-capable
@@ -31,7 +32,8 @@ public record AuthorSummaryFilter(
         Followed is null && MinBookCount is null && MaxBookCount is null &&
         HasMissingBooks is null && HasUpcomingBooks is null && Matched is null &&
         RefreshedAfter is null && RefreshedBefore is null && NeverRefreshed is null &&
-        (Sources is null || Sources.Count == 0);
+        (Sources is null || Sources.Count == 0) &&
+        (QueueStates is null || QueueStates.Count == 0);
 
     public bool NeedsReconciliation => HasMissingBooks is not null || HasUpcomingBooks is not null;
 }

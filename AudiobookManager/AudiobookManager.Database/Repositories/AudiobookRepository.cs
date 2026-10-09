@@ -192,7 +192,7 @@ public class AudiobookRepository : IAudiobookRepository
     /// Shared narrowing for <see cref="GetAllAsync"/>/<see cref="SearchAsync"/> - every field on
     /// <see cref="BookSummaryFilter"/> is independent, see its doc.
     /// </summary>
-    private static IQueryable<Audiobook> ApplyBookSummaryFilter(IQueryable<Audiobook> query, BookSummaryFilter? filter)
+    private IQueryable<Audiobook> ApplyBookSummaryFilter(IQueryable<Audiobook> query, BookSummaryFilter? filter)
     {
         if (filter is null || filter.IsEmpty)
         {
@@ -207,6 +207,32 @@ public class AudiobookRepository : IAudiobookRepository
             query = query.Where(a =>
                 (realSources.Count > 0 && a.MatchedSourceName != null && realSources.Contains(a.MatchedSourceName))
                 || (wantsUnsupported && (a.MatchedSourceName == null || a.MatchedSourceName == "")));
+        }
+
+        if (filter.QueueStates is { Count: > 0 } queueStates)
+        {
+            // Where the book sits in the online-metadata review queues (QueueState): a union of the
+            // chosen states, NotQueued being "in none of them". Each queue is read as an id
+            // subquery (not an Include), so the page query stays a plain filtered scan.
+            var wantsNotQueued = queueStates.Contains(QueueState.NotQueued);
+            var wantsMatchPending = queueStates.Contains(QueueState.MatchPending);
+            var wantsMatchRejected = queueStates.Contains(QueueState.MatchRejected);
+            var wantsRefreshPending = queueStates.Contains(QueueState.RefreshPending);
+
+            var anyMatchIds = _db.PendingOnlineMatches.AsNoTracking().Select(m => m.AudiobookId);
+            var pendingMatchIds = _db.PendingOnlineMatches.AsNoTracking()
+                .Where(m => m.Status == PendingOnlineMatchStatus.Pending)
+                .Select(m => m.AudiobookId);
+            var rejectedMatchIds = _db.PendingOnlineMatches.AsNoTracking()
+                .Where(m => m.Status == PendingOnlineMatchStatus.Rejected)
+                .Select(m => m.AudiobookId);
+            var pendingRefreshIds = _db.PendingMetadataRefreshes.AsNoTracking().Select(r => r.AudiobookId);
+
+            query = query.Where(a =>
+                (wantsMatchPending && pendingMatchIds.Contains(a.Id))
+                || (wantsMatchRejected && rejectedMatchIds.Contains(a.Id))
+                || (wantsRefreshPending && pendingRefreshIds.Contains(a.Id))
+                || (wantsNotQueued && !anyMatchIds.Contains(a.Id) && !pendingRefreshIds.Contains(a.Id)));
         }
 
         if (filter.Genres is { Count: > 0 } genres)
@@ -1007,6 +1033,26 @@ public class AudiobookRepository : IAudiobookRepository
                 || (wantsUnsupportedSeriesSource && !matchedAnyNames.Contains(r.SeriesName)));
         }
 
+        // The review-queue filter (QueueState): a series sits in a queue by name (a pending roster
+        // refresh is keyed by the series value) or through its catalog row (a failed refresh).
+        // Applied to both halves of the value space below - owned values and catalog-only rows.
+        var seriesQueueStates = filter?.QueueStates is { Count: > 0 } chosenQueueStates ? chosenQueueStates : null;
+        var seriesWantsNotQueued = seriesQueueStates?.Contains(QueueState.NotQueued) == true;
+        var seriesWantsRefreshPending = seriesQueueStates?.Contains(QueueState.RefreshPending) == true;
+        var seriesWantsRefreshFailed = seriesQueueStates?.Contains(QueueState.RefreshFailed) == true;
+        var seriesRefreshPendingNames = _db.PendingSeriesRefreshes.AsNoTracking().Select(p => p.SeriesName);
+        var seriesRefreshFailedNames = _db.SeriesConsistencyIssues.AsNoTracking().Select(i => i.Series.Name);
+
+        if (seriesQueueStates is not null)
+        {
+            booksQuery = booksQuery.Where(r =>
+                (seriesWantsRefreshPending && seriesRefreshPendingNames.Contains(r.SeriesName))
+                || (seriesWantsRefreshFailed && seriesRefreshFailedNames.Contains(r.SeriesName))
+                || (seriesWantsNotQueued
+                    && !seriesRefreshPendingNames.Contains(r.SeriesName)
+                    && !seriesRefreshFailedNames.Contains(r.SeriesName)));
+        }
+
         if (filter?.MinOwnedBooks is not null || filter?.MaxOwnedBooks is not null)
         {
             // Owned count is evaluated over every book of the series regardless of the other
@@ -1075,6 +1121,16 @@ public class AudiobookRepository : IAudiobookRepository
             catalogQuery = catalogQuery.Where(s =>
                 (realSeriesSources.Count > 0 && s.MatchedSourceName != null && realSeriesSources.Contains(s.MatchedSourceName))
                 || (wantsUnsupportedSeriesSource && (s.MatchedSourceName == null || s.MatchedSourceName == "")));
+        }
+
+        if (seriesQueueStates is not null)
+        {
+            catalogQuery = catalogQuery.Where(s =>
+                (seriesWantsRefreshPending && seriesRefreshPendingNames.Contains(s.Name))
+                || (seriesWantsRefreshFailed && seriesRefreshFailedNames.Contains(s.Name))
+                || (seriesWantsNotQueued
+                    && !seriesRefreshPendingNames.Contains(s.Name)
+                    && !seriesRefreshFailedNames.Contains(s.Name)));
         }
 
         if (filter?.MinOwnedBooks is not null || filter?.MaxOwnedBooks is not null)

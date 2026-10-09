@@ -327,6 +327,22 @@ public class PersonRepository : IPersonRepository
                 || (wantsUnsupported && (p.MatchedSourceName == null || p.MatchedSourceName == "")));
         }
 
+        if (filter?.QueueStates is { Count: > 0 } queueStates)
+        {
+            // The review-queue filter (QueueState): a union of the chosen states, NotQueued being
+            // "in none of them". Each queue is an id subquery so the page stays a filtered scan.
+            var wantsNotQueued = queueStates.Contains(QueueState.NotQueued);
+            var wantsRenamePending = queueStates.Contains(QueueState.RenamePending);
+            var wantsRefreshFailed = queueStates.Contains(QueueState.RefreshFailed);
+            var renamePendingIds = _db.PendingAuthorRefreshes.AsNoTracking().Select(r => r.PersonId);
+            var refreshFailedIds = _db.AuthorConsistencyIssues.AsNoTracking().Select(i => i.PersonId);
+
+            dbQuery = dbQuery.Where(p =>
+                (wantsRenamePending && renamePendingIds.Contains(p.Id))
+                || (wantsRefreshFailed && refreshFailedIds.Contains(p.Id))
+                || (wantsNotQueued && !renamePendingIds.Contains(p.Id) && !refreshFailedIds.Contains(p.Id)));
+        }
+
         if (filter?.NeverRefreshed == true)
         {
             dbQuery = dbQuery.Where(p => p.LastRefreshedAt == null);

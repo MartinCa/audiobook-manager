@@ -19,7 +19,8 @@ public record SeriesOverviewFilter(
     DateTime? RefreshedAfter = null,
     DateTime? RefreshedBefore = null,
     bool? NeverRefreshed = null,
-    IReadOnlyCollection<string>? Sources = null)
+    IReadOnlyCollection<string>? Sources = null,
+    IReadOnlyCollection<string>? QueueStates = null)
 {
     /// <summary>
     /// Synthetic <see cref="Sources"/> value for a series with no matched source - mirrors
@@ -32,7 +33,8 @@ public record SeriesOverviewFilter(
         Followed is null && MinOwnedBooks is null && MaxOwnedBooks is null &&
         HasMissingBooks is null && HasUpcomingBooks is null &&
         RefreshedAfter is null && RefreshedBefore is null && NeverRefreshed is null &&
-        (Sources is null || Sources.Count == 0);
+        (Sources is null || Sources.Count == 0) &&
+        (QueueStates is null || QueueStates.Count == 0);
 
     /// <summary>Whether resolving this filter needs the fuzzy roster reconciliation (a whole-library computation - see the type doc).</summary>
     public bool NeedsReconciliation => HasMissingBooks is not null || HasUpcomingBooks is not null;
