@@ -30,6 +30,7 @@ public static class DependencyInjection
             .AddScoped<IUpcomingReleaseRepository, UpcomingReleaseRepository>()
             .AddScoped<IExpectedBookRepository, ExpectedBookRepository>()
             .AddScoped<IScheduledTaskRunRepository, ScheduledTaskRunRepository>()
-            .AddScoped<IIgnoredSimilarValuePairRepository, IgnoredSimilarValuePairRepository>();
+            .AddScoped<IIgnoredSimilarValuePairRepository, IgnoredSimilarValuePairRepository>()
+            .AddScoped<IFilterPresetRepository, FilterPresetRepository>();
 
 }

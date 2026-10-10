@@ -255,4 +255,22 @@ public class MissingTagsControllerTests
             s => s.FindAudiobooksMissingTagsPageAsync(It.IsAny<IEnumerable<string>>(), It.IsAny<string?>(), It.IsAny<int>(), It.IsAny<int>()),
             Times.Never);
     }
+
+    [TestMethod]
+    public async Task GetAudiobooksMissingTags_PassesQueueStatesThrough()
+    {
+        BookSummaryFilter? captured = null;
+        _missingTagService
+            .Setup(s => s.FindAudiobooksMissingTagsPageAsync(
+                new[] { "Year" }, null, 0, 50, It.IsAny<BookSummaryFilter?>()))
+            .Callback((IEnumerable<string> _, string? _, int _, int _, BookSummaryFilter? filter) => captured = filter)
+            .ReturnsAsync((new List<AudiobookMissingTags>(), 0));
+
+        await _controller.GetAudiobooksMissingTags(
+            fields: new List<string> { "Year" },
+            queueStates: new List<string> { QueueState.NotQueued });
+
+        Assert.IsNotNull(captured);
+        CollectionAssert.AreEqual(new List<string> { QueueState.NotQueued }, captured!.QueueStates!.ToList());
+    }
 }

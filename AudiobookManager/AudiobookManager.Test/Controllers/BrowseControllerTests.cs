@@ -1532,4 +1532,113 @@ public class BrowseControllerTests
         _pendingAuthorRefreshRepository.Verify(r => r.DeleteByPersonIdAsync(7), Times.Once);
         _personRepo.Verify(r => r.MergeAuthorAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
     }
+
+    // The "Queue status" filter (QueueState) has to reach the repository from every endpoint that
+    // takes a BookSummaryFilter/AuthorSummaryFilter, or a saved preset that carries it silently
+    // lists the unfiltered set on that surface.
+    [TestMethod]
+    public async Task GetAudiobooks_PassesQueueStatesThrough()
+    {
+        _audiobookRepo
+            .Setup(r => r.GetAllAsync(20, 0, It.IsAny<BookSummaryFilter?>()))
+            .ReturnsAsync((new List<Audiobook>(), 0));
+
+        await _controller.GetAudiobooks(
+            sources: new List<string> { "Unsupported" },
+            queueStates: new List<string> { QueueState.NotQueued, QueueState.MatchRejected });
+
+        _audiobookRepo.Verify(r => r.GetAllAsync(20, 0, It.Is<BookSummaryFilter?>(f =>
+            f != null
+            && f.Sources!.SequenceEqual(new[] { "Unsupported" })
+            && f.QueueStates!.SequenceEqual(new[] { QueueState.NotQueued, QueueState.MatchRejected }))), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task GetAudiobooks_OnlyQueueStates_IsNotTreatedAsAnEmptyFilter()
+    {
+        _audiobookRepo
+            .Setup(r => r.GetAllAsync(20, 0, It.IsAny<BookSummaryFilter?>()))
+            .ReturnsAsync((new List<Audiobook>(), 0));
+
+        await _controller.GetAudiobooks(queueStates: new List<string> { QueueState.NotQueued });
+
+        _audiobookRepo.Verify(r => r.GetAllAsync(20, 0, It.Is<BookSummaryFilter?>(f => f != null)), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task SearchAudiobooks_PassesQueueStatesThrough()
+    {
+        _audiobookRepo
+            .Setup(r => r.SearchAsync("dune", 20, 0, true, true, It.IsAny<BookSummaryFilter?>()))
+            .ReturnsAsync((new List<Audiobook>(), 0));
+
+        await _controller.SearchAudiobooks("dune", queueStates: new List<string> { QueueState.RefreshPending });
+
+        _audiobookRepo.Verify(r => r.SearchAsync("dune", 20, 0, true, true, It.Is<BookSummaryFilter?>(f =>
+            f != null && f.QueueStates!.SequenceEqual(new[] { QueueState.RefreshPending }))), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task SearchAudiobooks_BlankQuery_StillPassesQueueStatesToTheUnsearchedList()
+    {
+        _audiobookRepo
+            .Setup(r => r.GetAllAsync(20, 0, It.IsAny<BookSummaryFilter?>()))
+            .ReturnsAsync((new List<Audiobook>(), 0));
+
+        await _controller.SearchAudiobooks("  ", queueStates: new List<string> { QueueState.NotQueued });
+
+        _audiobookRepo.Verify(r => r.GetAllAsync(20, 0, It.Is<BookSummaryFilter?>(f =>
+            f != null && f.QueueStates!.SequenceEqual(new[] { QueueState.NotQueued }))), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task GetAuthors_PassesQueueStatesThrough()
+    {
+        _personRepo
+            .Setup(r => r.GetAuthorSummariesPagedAsync(null, 50, 0, It.IsAny<AuthorSummaryFilter?>(), null, null))
+            .ReturnsAsync((new List<AuthorSummaryRow>(), 0));
+
+        await _controller.GetAuthors(queueStates: new List<string> { QueueState.RenamePending });
+
+        _personRepo.Verify(r => r.GetAuthorSummariesPagedAsync(null, 50, 0, It.Is<AuthorSummaryFilter?>(f =>
+            f != null && f.QueueStates!.SequenceEqual(new[] { QueueState.RenamePending })), null, null), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task GetAuthorDetail_PassesQueueStatesToTheStandaloneSection()
+    {
+        _personRepo.Setup(r => r.GetAuthorSummaryAsync(7)).ReturnsAsync(new AuthorSummaryRow(7, "Brandon Sanderson", 5));
+        _seriesService.Setup(s => s.GetSeriesOverviewPageAsync(0, 50, null, null, 7))
+            .ReturnsAsync(new SeriesOverviewPage { Items = new List<SeriesOverview>(), TotalCount = 0 });
+        _audiobookRepo
+            .Setup(r => r.GetStandaloneBooksByAuthorAsync(7, 50, 0, null, It.IsAny<BookSummaryFilter?>()))
+            .ReturnsAsync((new List<Audiobook>(), 0));
+
+        await _controller.GetAuthorDetail(authorId: 7, queueStates: new List<string> { QueueState.NotQueued });
+
+        _audiobookRepo.Verify(r => r.GetStandaloneBooksByAuthorAsync(7, 50, 0, null, It.Is<BookSummaryFilter?>(f =>
+            f != null && f.QueueStates!.SequenceEqual(new[] { QueueState.NotQueued }))), Times.Once);
+    }
+
+    // The option lists - values and wording - come from the backend; the client holds none.
+    [TestMethod]
+    public async Task GetFilterOptions_ServesEachListsQueueStateOptions()
+    {
+        _genreRepo.Setup(r => r.GetAllGenreNamesAsync()).ReturnsAsync(new List<string>());
+        _audiobookRepo.Setup(r => r.GetAllLanguagesAsync()).ReturnsAsync(new List<string>());
+
+        var options = await _controller.GetFilterOptions();
+
+        CollectionAssert.AreEqual(
+            new[] { "NotQueued", "MatchPending", "MatchRejected", "RefreshPending" },
+            options.BookQueueStates.Select(o => o.Value).ToList());
+        CollectionAssert.AreEqual(
+            new[] { "NotQueued", "RefreshPending", "RefreshFailed" },
+            options.SeriesQueueStates.Select(o => o.Value).ToList());
+        CollectionAssert.AreEqual(
+            new[] { "NotQueued", "RenamePending", "RefreshFailed" },
+            options.AuthorQueueStates.Select(o => o.Value).ToList());
+        Assert.IsTrue(options.BookQueueStates.All(o => !string.IsNullOrWhiteSpace(o.Label)));
+        Assert.AreEqual("Not in any queue", options.BookQueueStates[0].Label);
+    }
 }

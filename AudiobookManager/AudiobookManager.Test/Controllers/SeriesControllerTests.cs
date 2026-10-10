@@ -1847,4 +1847,42 @@ public class SeriesControllerTests
         _seriesConsistencyIssueRepository.Verify(
             r => r.GetPageWithSeriesAsync(It.IsAny<int>(), It.IsAny<int>()), Times.Never);
     }
+
+    [TestMethod]
+    public async Task GetSeries_PassesQueueStatesThrough()
+    {
+        _seriesService
+            .Setup(s => s.GetSeriesOverviewPageAsync(0, 50, null, null, null, It.IsAny<SeriesOverviewFilter?>()))
+            .ReturnsAsync(new SeriesOverviewPage { Items = new List<SeriesOverview>(), TotalCount = 0 });
+
+        await _controller.GetSeries(queueStates: new List<string> { QueueState.NotQueued, QueueState.RefreshFailed });
+
+        _seriesService.Verify(
+            s => s.GetSeriesOverviewPageAsync(0, 50, null, null, null, It.Is<SeriesOverviewFilter?>(f =>
+                f != null && f.QueueStates!.SequenceEqual(new[] { QueueState.NotQueued, QueueState.RefreshFailed }))),
+            Times.Once);
+    }
+
+    [TestMethod]
+    public async Task GetSeriesDetail_PassesQueueStatesToTheOwnedBooksFilter()
+    {
+        _seriesService
+            .Setup(s => s.GetSeriesDetailPageAsync(
+                "Mistborn", ownedSkip: 0, ownedTake: 50, missingSkip: 0, missingTake: 50,
+                ignoredMissingSkip: 0, ignoredMissingTake: 50, ignoredUpcomingSkip: 0, ignoredUpcomingTake: 50,
+                partMismatchSkip: 0, partMismatchTake: 50, upcomingSkip: 0, upcomingTake: 50,
+                ownedSearch: null, ownedFilter: It.IsAny<BookSummaryFilter?>()))
+            .ReturnsAsync((SeriesDetailPage?)null);
+
+        await _controller.GetSeriesDetail("Mistborn", queueStates: new List<string> { QueueState.MatchRejected });
+
+        _seriesService.Verify(
+            s => s.GetSeriesDetailPageAsync(
+                "Mistborn", ownedSkip: 0, ownedTake: 50, missingSkip: 0, missingTake: 50,
+                ignoredMissingSkip: 0, ignoredMissingTake: 50, ignoredUpcomingSkip: 0, ignoredUpcomingTake: 50,
+                partMismatchSkip: 0, partMismatchTake: 50, upcomingSkip: 0, upcomingTake: 50,
+                ownedSearch: null, ownedFilter: It.Is<BookSummaryFilter?>(f =>
+                    f != null && f.QueueStates!.SequenceEqual(new[] { QueueState.MatchRejected }))),
+            Times.Once);
+    }
 }

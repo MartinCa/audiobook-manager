@@ -7,6 +7,8 @@ import { Card } from "@/components/ui/card";
 import { EntityFilterBar, type FilterFieldDef } from "@/components/filters/EntityFilterBar";
 import { countActiveFilters } from "@/components/filters/filterUtils";
 import { FilterToggleButton } from "@/components/filters/FilterToggleButton";
+import { FilterPresets } from "@/components/filters/FilterPresets";
+import { queueStateField } from "@/components/filters/queueStateField";
 import { LibraryViewTabs } from "./LibraryViewTabs";
 import { MatchSourceBadge } from "./MatchSourceBadge";
 import { SectionPager } from "./SectionPager";
@@ -87,6 +89,7 @@ export function AuthorsList() {
         optionLabels: SOURCE_OPTION_LABELS,
         selectAllOption: { label: "Any supported", excludeValues: [UNSUPPORTED_SOURCE_VALUE] },
       },
+      queueStateField(filterOptionsQuery.data?.authorQueueStates),
     ],
     [filterOptionsQuery.data],
   );
@@ -94,7 +97,10 @@ export function AuthorsList() {
   // Collapsed by default; a filter already active on load (a shared/bookmarked URL) starts
   // expanded so the list isn't filtered with no visible explanation.
   const [filtersExpanded, setFiltersExpanded] = useState(
-    () => countActiveFilters(BASE_FILTER_FIELDS, filters) > 0 || (filters.sources?.length ?? 0) > 0,
+    () =>
+      countActiveFilters(BASE_FILTER_FIELDS, filters) > 0 ||
+      (filters.sources?.length ?? 0) > 0 ||
+      (filters.queueStates?.length ?? 0) > 0,
   );
 
   if (prevQ !== q) {
@@ -228,7 +234,13 @@ export function AuthorsList() {
       </div>
 
       {filtersExpanded && (
-        <div id="authors-filter-panel">
+        <div id="authors-filter-panel" className="space-y-3">
+          <FilterPresets
+            scope="authors"
+            filters={filters}
+            fields={FILTER_FIELDS}
+            onApply={handleFiltersChange}
+          />
           <EntityFilterBar fields={FILTER_FIELDS} values={filters} onChange={handleFiltersChange} />
         </div>
       )}

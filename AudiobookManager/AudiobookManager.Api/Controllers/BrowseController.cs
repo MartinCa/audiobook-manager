@@ -94,8 +94,13 @@ public class BrowseController : ControllerBase
         var genres = await _genreRepo.GetAllGenreNamesAsync();
         var languages = await _audiobookRepo.GetAllLanguagesAsync();
 
-        return new BrowseFilterOptionsDto(sources, genres, languages);
+        return new BrowseFilterOptionsDto(
+            sources, genres, languages,
+            ToOptionDtos(QueueState.ForBooks), ToOptionDtos(QueueState.ForSeries), ToOptionDtos(QueueState.ForAuthors));
     }
+
+    private static List<QueueStateOptionDto> ToOptionDtos(IEnumerable<QueueStateOption> options) =>
+        options.Select(o => new QueueStateOptionDto(o.Value, o.Label)).ToList();
 
     [HttpGet("audiobooks")]
     public async Task<PaginatedResult<AudiobookSummaryDto>> GetAudiobooks(
@@ -108,9 +113,10 @@ public class BrowseController : ControllerBase
         [FromQuery] List<string>? qualifiers = null,
         [FromQuery] DateTime? refreshedAfter = null,
         [FromQuery] DateTime? refreshedBefore = null,
-        [FromQuery] bool? neverRefreshed = null)
+        [FromQuery] bool? neverRefreshed = null,
+        [FromQuery] List<string>? queueStates = null)
     {
-        var filter = new BookSummaryFilter(sources, genres, languages, minDurationInSeconds, maxDurationInSeconds, qualifiers, refreshedAfter, refreshedBefore, neverRefreshed);
+        var filter = new BookSummaryFilter(sources, genres, languages, minDurationInSeconds, maxDurationInSeconds, qualifiers, refreshedAfter, refreshedBefore, neverRefreshed, queueStates);
         var (items, total) = await _audiobookRepo.GetAllAsync(limit, offset, filter.IsEmpty ? null : filter);
         var dtos = items.Select(MapToSummaryDto).ToList();
         return new PaginatedResult<AudiobookSummaryDto>(dtos.Count, total, dtos);
@@ -168,14 +174,15 @@ public class BrowseController : ControllerBase
         [FromQuery] List<string>? qualifiers = null,
         [FromQuery] DateTime? refreshedAfter = null,
         [FromQuery] DateTime? refreshedBefore = null,
-        [FromQuery] bool? neverRefreshed = null)
+        [FromQuery] bool? neverRefreshed = null,
+        [FromQuery] List<string>? queueStates = null)
     {
         if (string.IsNullOrWhiteSpace(q))
         {
-            return await GetAudiobooks(limit, offset, sources, genres, languages, minDurationInSeconds, maxDurationInSeconds, qualifiers, refreshedAfter, refreshedBefore, neverRefreshed);
+            return await GetAudiobooks(limit, offset, sources, genres, languages, minDurationInSeconds, maxDurationInSeconds, qualifiers, refreshedAfter, refreshedBefore, neverRefreshed, queueStates);
         }
 
-        var filter = new BookSummaryFilter(sources, genres, languages, minDurationInSeconds, maxDurationInSeconds, qualifiers, refreshedAfter, refreshedBefore, neverRefreshed);
+        var filter = new BookSummaryFilter(sources, genres, languages, minDurationInSeconds, maxDurationInSeconds, qualifiers, refreshedAfter, refreshedBefore, neverRefreshed, queueStates);
         var (items, total) = await _audiobookRepo.SearchAsync(q, limit, offset, filter: filter.IsEmpty ? null : filter);
         var dtos = items.Select(MapToSummaryDto).ToList();
         return new PaginatedResult<AudiobookSummaryDto>(dtos.Count, total, dtos);
@@ -260,7 +267,8 @@ public class BrowseController : ControllerBase
         [FromQuery] DateTime? refreshedAfter = null,
         [FromQuery] DateTime? refreshedBefore = null,
         [FromQuery] bool? neverRefreshed = null,
-        [FromQuery] List<string>? sources = null)
+        [FromQuery] List<string>? sources = null,
+        [FromQuery] List<string>? queueStates = null)
     {
         var clampError = ValidateSearchPaging(limit, offset);
         if (clampError != null)
@@ -285,7 +293,7 @@ public class BrowseController : ControllerBase
 
         var filter = new AuthorSummaryFilter(
             followed, minBookCount, maxBookCount, hasMissingBooks, hasUpcomingBooks, matched,
-            refreshedAfter, refreshedBefore, neverRefreshed, sources);
+            refreshedAfter, refreshedBefore, neverRefreshed, sources, queueStates);
 
         // HasMissingBooks/HasUpcomingBooks depend on the fuzzy roster reconciliation, which this
         // controller already holds a provider for (the author detail page's missing-books
@@ -362,7 +370,8 @@ public class BrowseController : ControllerBase
         [FromQuery] List<string>? qualifiers = null,
         [FromQuery] DateTime? refreshedAfter = null,
         [FromQuery] DateTime? refreshedBefore = null,
-        [FromQuery] bool? neverRefreshed = null)
+        [FromQuery] bool? neverRefreshed = null,
+        [FromQuery] List<string>? queueStates = null)
     {
         var clampError = ValidateSearchPaging(seriesLimit, seriesOffset)
             ?? ValidateSearchPaging(standaloneLimit, standaloneOffset)
@@ -395,7 +404,7 @@ public class BrowseController : ControllerBase
             search: null,
             matched: null,
             authorId: authorId);
-        var standaloneFilter = new BookSummaryFilter(sources, genres, languages, minDurationInSeconds, maxDurationInSeconds, qualifiers, refreshedAfter, refreshedBefore, neverRefreshed);
+        var standaloneFilter = new BookSummaryFilter(sources, genres, languages, minDurationInSeconds, maxDurationInSeconds, qualifiers, refreshedAfter, refreshedBefore, neverRefreshed, queueStates);
         var (standalone, standaloneTotal) = await _audiobookRepo.GetStandaloneBooksByAuthorAsync(
             authorId, standaloneLimit, standaloneOffset,
             string.IsNullOrWhiteSpace(q) ? null : q.Trim(),

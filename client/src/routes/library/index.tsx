@@ -21,6 +21,7 @@ const librarySearchSchema = z.object({
     .optional()
     .transform((v) => normalizeRefreshBound(v, "before")),
   neverRefreshed: z.boolean().optional(),
+  queueStates: z.array(z.string()).optional(),
 });
 
 export const Route = createFileRoute("/library/")({

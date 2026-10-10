@@ -15,7 +15,8 @@ public record BookSummaryFilter(
     IReadOnlyCollection<string>? Qualifiers = null,
     DateTime? RefreshedAfter = null,
     DateTime? RefreshedBefore = null,
-    bool? NeverRefreshed = null)
+    bool? NeverRefreshed = null,
+    IReadOnlyCollection<string>? QueueStates = null)
 {
     /// <summary>
     /// Synthetic <see cref="Qualifiers"/> value for a book that carries no qualifier at all. It
@@ -37,5 +38,6 @@ public record BookSummaryFilter(
         (Languages is null || Languages.Count == 0) &&
         (Qualifiers is null || Qualifiers.Count == 0) &&
         MinDurationInSeconds is null && MaxDurationInSeconds is null &&
-        RefreshedAfter is null && RefreshedBefore is null && NeverRefreshed is null;
+        RefreshedAfter is null && RefreshedBefore is null && NeverRefreshed is null &&
+        (QueueStates is null || QueueStates.Count == 0);
 }

@@ -45,6 +45,7 @@ public static class DependencyInjection
         .AddScoped<IMetadataRefreshService, MetadataRefreshService>()
         .AddScoped<IPendingOnlineMatchService, PendingOnlineMatchService>()
         .AddScoped<IBulkEditService, BulkEditService>()
+        .AddScoped<IFilterPresetService, FilterPresetService>()
         .AddScoped<IUpcomingReleaseService, UpcomingReleaseService>()
         .SetupFileManager()
         .SetupScraping()

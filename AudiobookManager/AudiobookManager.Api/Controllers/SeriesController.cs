@@ -138,7 +138,8 @@ public class SeriesController : ControllerBase
         [FromQuery] DateTime? refreshedAfter = null,
         [FromQuery] DateTime? refreshedBefore = null,
         [FromQuery] bool? neverRefreshed = null,
-        [FromQuery] List<string>? sources = null)
+        [FromQuery] List<string>? sources = null,
+        [FromQuery] List<string>? queueStates = null)
     {
         var pagingError = ValidatePageSelection(page, pageSize, "series");
         if (pagingError != null)
@@ -163,7 +164,7 @@ public class SeriesController : ControllerBase
 
         var filter = new SeriesOverviewFilter(
             followed, minOwnedBooks, maxOwnedBooks, hasMissingBooks, hasUpcomingBooks,
-            refreshedAfter, refreshedBefore, neverRefreshed, sources);
+            refreshedAfter, refreshedBefore, neverRefreshed, sources, queueStates);
 
         var overviewPage = await _seriesService.GetSeriesOverviewPageAsync(
             page, pageSize, search, matched, authorId: null, filter: filter.IsEmpty ? null : filter);
@@ -204,7 +205,8 @@ public class SeriesController : ControllerBase
         [FromQuery] List<string>? qualifiers = null,
         [FromQuery] DateTime? refreshedAfter = null,
         [FromQuery] DateTime? refreshedBefore = null,
-        [FromQuery] bool? neverRefreshed = null)
+        [FromQuery] bool? neverRefreshed = null,
+        [FromQuery] List<string>? queueStates = null)
     {
         foreach (var check in new[]
         {
@@ -222,7 +224,7 @@ public class SeriesController : ControllerBase
             }
         }
 
-        var ownedFilter = new BookSummaryFilter(sources, genres, languages, minDurationInSeconds, maxDurationInSeconds, qualifiers, refreshedAfter, refreshedBefore, neverRefreshed);
+        var ownedFilter = new BookSummaryFilter(sources, genres, languages, minDurationInSeconds, maxDurationInSeconds, qualifiers, refreshedAfter, refreshedBefore, neverRefreshed, queueStates);
         var detail = await _seriesService.GetSeriesDetailPageAsync(
             seriesName,
             ownedSkip: (int)((long)ownedPage * ownedPageSize), ownedTake: ownedPageSize,

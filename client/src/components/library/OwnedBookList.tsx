@@ -10,6 +10,8 @@ import { SectionPager } from "./SectionPager";
 import { EntityFilterBar, type FilterFieldDef } from "@/components/filters/EntityFilterBar";
 import { countActiveFilters } from "@/components/filters/filterUtils";
 import { FilterToggleButton } from "@/components/filters/FilterToggleButton";
+import { FilterPresets } from "@/components/filters/FilterPresets";
+import { queueStateField } from "@/components/filters/queueStateField";
 import type { PageSizeOption } from "@/constants/paging";
 import { browseApi, consistencyApi, metadataRefreshApi, settingsApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
@@ -194,6 +196,7 @@ export function OwnedBookList({
         optionLabels: SOURCE_OPTION_LABELS,
         selectAllOption: { label: "Any supported", excludeValues: [UNSUPPORTED_SOURCE_VALUE] },
       },
+      queueStateField(filterOptionsQuery.data?.bookQueueStates),
       {
         type: "multiselect",
         key: "genres",
@@ -345,7 +348,13 @@ export function OwnedBookList({
       </div>
 
       {filtersExpanded && (
-        <div id={filterPanelId}>
+        <div id={filterPanelId} className="space-y-3">
+          <FilterPresets
+            scope="books"
+            filters={filters}
+            fields={FILTER_FIELDS}
+            onApply={onFiltersChange}
+          />
           <EntityFilterBar fields={FILTER_FIELDS} values={filters} onChange={onFiltersChange} />
         </div>
       )}

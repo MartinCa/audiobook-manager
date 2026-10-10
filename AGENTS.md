@@ -732,6 +732,66 @@ only to a field that actually differs. "Empty" is no text (a year of 0 included)
   has no rule and stays selected when it changed. With the rules unloaded or unreachable a review
   ticks everything that changed.
 
+### The "Queue status" filter and saved filter presets
+
+Working through a large backlog ("every book with no online source") only works if the items already
+touched by the online-metadata flow stop coming back: a book that was bulk-searched keeps no matched
+source until its result is picked _and_ applied, so the plain "Unsupported" source filter keeps
+listing it. Two features cover that, on the book, series and author lists alike.
+
+**The "Queue status" filter (`queueStates`) says where an item sits in the review queues.** The
+vocabulary is `QueueState` (`AudiobookManager.Database/Repositories/QueueState.cs`) - the only place
+the values and their wording live; they are served per list in `GET api/browse/filter-options`
+(`bookQueueStates`/`seriesQueueStates`/`authorQueueStates`) and **the frontend holds no list of its
+own**. The values are wire strings that saved presets store, so they never change meaning (renaming one
+would be a data migration of stored presets, not just a code change).
+
+- Books: `NotQueued`, `MatchPending` / `MatchRejected` (`pending_online_match` by status),
+  `RefreshPending` (`pending_metadata_refresh`). Series: `NotQueued`, `RefreshPending`
+  (`pending_series_refresh`, keyed by series name), `RefreshFailed` (`series_consistency_issues`, via
+  the catalog row's name). Authors: `NotQueued`, `RenamePending` (`pending_author_refresh`),
+  `RefreshFailed` (`author_consistency_issues`).
+- Several states are a **union** ("any of these"); `NotQueued` is "in none of the queues" and combines
+  the same way, so "not queued or rejected" re-offers rejected books. A value no state knows matches
+  nothing (like an unknown qualifier) rather than everything.
+- **It is an opt-in filter, never a default.** An empty selection is `IsEmpty` on `BookSummaryFilter`/
+  `SeriesOverviewFilter`/`AuthorSummaryFilter` and the normal list view stays unfiltered; the
+  "backlog" view is the saved preset `Source = Unsupported/None` + `NotQueued`, not a changed default.
+- It is applied in SQL as id/name subqueries (`ApplyBookSummaryFilter`, `GetSeriesValuesPageAsync` on
+  both halves of the value space - owned values and catalog-only rows - and
+  `GetAuthorSummariesPagedAsync`), so every surface that takes a `BookSummaryFilter` (library, series
+  owned books, author standalone books, search, Missing Tags) honours it. **A new review-queue table
+  needs a `QueueState` entry, a branch in the matching repository query and a case in
+  `QueueStateFilterTests`**, or the backlog it feeds silently reappears.
+
+**Filter presets (`api/filter-presets`) are the list's query string, named and saved.**
+`FilterPresetService` is the only writer of `filter_preset` (`scope` = `books`/`series`/`authors`,
+`name` unique per scope ignoring case via a `NOCASE` unique index, `filters_json`). It validates and
+_normalizes_ what it stores (`FilterPresetRules`): unknown keys are refused by name, value shapes are
+checked per key, empty lists are dropped, instants become UTC ISO strings, ranges the endpoints would
+refuse (min > max, after > before) are refused, and a preset of no filters is refused. The search
+text is never part of a preset.
+
+- **The vocabulary is pinned to the endpoints.** `FilterPresetRules.Keys` must list exactly the filter
+  parameters of `BrowseController.GetAudiobooks`, `SeriesController.GetSeries` and
+  `BrowseController.GetAuthors` (`FilterPresetRulesTests` reflects over the actions and fails on any
+  drift) - a filter added to an endpoint without a `Keys` entry, or the reverse, is a build failure
+  instead of presets that silently do nothing. A new filter parameter also needs adding to the other
+  `BookSummaryFilter` call sites (series detail, author detail, Missing Tags) and to the client's route
+  search schema and `*ListFilters` types.
+- **Bounded:** at most `MaxPresetsPerScope` (50) presets per list, returned whole and sorted by name in
+  .NET (SQLite's collation would put "Zebra" before "apple"); a name clash that two requests race to is
+  decided by the unique index (`SqliteErrors.IsUniqueViolation`), not by the service's own check.
+  Presets are addressed by numeric id; the free-text name is only ever in a request body.
+- **Applying a preset replaces the filters** (`applyPresetTo` clears every filter currently set, then
+  sets the preset's), and the preset menu names the preset the current filters equal
+  (`sameFilters`, order-insensitive), so a hand-tweaked set no longer reads as a preset. The panel
+  (`FilterPresets`) sits above the `EntityFilterBar` of each of the three lists; `OwnedBookList` mounts
+  it for every surface that lists owned books (library, search, series detail, author detail, Missing
+  Tags), all under the one `books` scope **on purpose**: they share one filter vocabulary, so a preset
+  saved on one applies on the others (`FilterPresetRulesTests` pins that every one of those endpoints
+  accepts every books key).
+
 ### Metadata sidecar files
 
 Alongside each m4b, `WriteMetadata()` creates `desc.txt` (description), `reader.txt` (narrators)
