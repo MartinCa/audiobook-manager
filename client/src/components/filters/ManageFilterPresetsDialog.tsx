@@ -116,6 +116,7 @@ export function ManageFilterPresetsDialog({
                       <Input
                         autoFocus
                         value={draftName}
+                        maxLength={MAX_PRESET_NAME_LENGTH}
                         aria-label={`New name for preset ${preset.name}`}
                         disabled={busy}
                         onChange={(e) => setDraftName(e.target.value)}
@@ -134,7 +135,11 @@ export function ManageFilterPresetsDialog({
                         size="icon-sm"
                         variant="outline"
                         aria-label="Save new name"
-                        disabled={busy || draftName.trim() === ""}
+                        disabled={
+                          busy ||
+                          draftName.trim() === "" ||
+                          draftName.trim().length > MAX_PRESET_NAME_LENGTH
+                        }
                         onClick={() => {
                           void commitRename(preset);
                         }}

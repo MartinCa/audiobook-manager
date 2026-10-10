@@ -167,6 +167,30 @@ public class FilterPresetRulesTests
             FilterPresetRules.Keys[FilterPresetScopes.Books].Keys.ToList());
     }
 
+    // The books scope is one vocabulary shared by every endpoint that lists owned books (a book
+    // preset is applied from the library, search, series detail, author detail and Missing Tags),
+    // so each of them must accept every key, or a preset saved on one would 400 or silently not
+    // filter on another.
+    [TestMethod]
+    public void Keys_Books_AreAcceptedByEveryEndpointThatListsOwnedBooks()
+    {
+        var bookKeys = FilterPresetRules.Keys[FilterPresetScopes.Books].Keys.ToList();
+        var endpoints = new (Type Controller, string Action)[]
+        {
+            (typeof(BrowseController), nameof(BrowseController.SearchAudiobooks)),
+            (typeof(BrowseController), nameof(BrowseController.GetAuthorDetail)),
+            (typeof(SeriesController), nameof(SeriesController.GetSeriesDetail)),
+            (typeof(MissingTagsController), nameof(MissingTagsController.GetAudiobooksMissingTags)),
+        };
+
+        foreach (var (controller, action) in endpoints)
+        {
+            var accepted = FilterParametersOf(controller, action);
+            var missing = bookKeys.Where(key => !accepted.Contains(key)).ToList();
+            Assert.AreEqual(0, missing.Count, $"{controller.Name}.{action} does not accept: {string.Join(", ", missing)}");
+        }
+    }
+
     [TestMethod]
     public void Keys_Series_AreExactlyTheFilterParametersOfTheSeriesListEndpoint()
     {

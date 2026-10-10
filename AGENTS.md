@@ -743,7 +743,8 @@ listing it. Two features cover that, on the book, series and author lists alike.
 vocabulary is `QueueState` (`AudiobookManager.Database/Repositories/QueueState.cs`) - the only place
 the values and their wording live; they are served per list in `GET api/browse/filter-options`
 (`bookQueueStates`/`seriesQueueStates`/`authorQueueStates`) and **the frontend holds no list of its
-own**. The values are wire strings that saved presets store, so they never change meaning.
+own**. The values are wire strings that saved presets store, so they never change meaning (renaming one
+would be a data migration of stored presets, not just a code change).
 
 - Books: `NotQueued`, `MatchPending` / `MatchRejected` (`pending_online_match` by status),
   `RefreshPending` (`pending_metadata_refresh`). Series: `NotQueued`, `RefreshPending`
@@ -786,7 +787,10 @@ text is never part of a preset.
   sets the preset's), and the preset menu names the preset the current filters equal
   (`sameFilters`, order-insensitive), so a hand-tweaked set no longer reads as a preset. The panel
   (`FilterPresets`) sits above the `EntityFilterBar` of each of the three lists; `OwnedBookList` mounts
-  it for every surface that lists owned books, all under the `books` scope.
+  it for every surface that lists owned books (library, search, series detail, author detail, Missing
+  Tags), all under the one `books` scope **on purpose**: they share one filter vocabulary, so a preset
+  saved on one applies on the others (`FilterPresetRulesTests` pins that every one of those endpoints
+  accepts every books key).
 
 ### Metadata sidecar files
 

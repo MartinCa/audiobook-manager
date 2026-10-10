@@ -40,8 +40,7 @@ export function SaveFilterPresetDialog({
   }
 
   const trimmed = name.trim();
-  const tooLong = trimmed.length > MAX_PRESET_NAME_LENGTH;
-  const canSave = trimmed !== "" && !tooLong && !saving;
+  const canSave = trimmed !== "" && !saving;
 
   const handleSave = async () => {
     if (!canSave) return;
@@ -96,7 +95,7 @@ export function SaveFilterPresetDialog({
           id="filter-preset-name"
           value={name}
           disabled={saving}
-          maxLength={MAX_PRESET_NAME_LENGTH + 20}
+          maxLength={MAX_PRESET_NAME_LENGTH}
           placeholder="e.g. Unsupported backlog"
           onChange={(e) => {
             setName(e.target.value);
@@ -108,13 +107,8 @@ export function SaveFilterPresetDialog({
               void handleSave();
             }
           }}
-          aria-invalid={error !== null || tooLong}
+          aria-invalid={error !== null}
         />
-        {tooLong ? (
-          <p className="text-destructive text-xs">
-            A preset name can be at most {MAX_PRESET_NAME_LENGTH} characters.
-          </p>
-        ) : null}
         {error ? <p className="text-destructive text-xs break-words">{error}</p> : null}
       </div>
     </AppDialog>

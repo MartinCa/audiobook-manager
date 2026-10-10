@@ -195,6 +195,15 @@ describe("FilterPresets", () => {
     expect(notifications.success).not.toHaveBeenCalled();
   });
 
+  it("stops typing at the longest name the backend accepts, so there is no dead Save click", async () => {
+    renderPresets({ filters: { sources: ["Unsupported"] } });
+
+    await openMenu();
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Save current filters..." }));
+
+    expect(await screen.findByLabelText("Preset name")).toHaveAttribute("maxlength", "80");
+  });
+
   it("does not offer to save a blank name", async () => {
     renderPresets({ filters: { sources: ["Unsupported"] } });
 
@@ -262,6 +271,18 @@ describe("FilterPresets", () => {
           queueStates: ["NotQueued"],
         }),
       );
+    });
+
+    it("limits a new name to the longest the backend accepts", async () => {
+      const dialog = await openManage();
+
+      fireEvent.click(
+        within(dialog).getByRole("button", { name: "Rename preset Unsupported backlog" }),
+      );
+
+      expect(
+        within(dialog).getByLabelText("New name for preset Unsupported backlog"),
+      ).toHaveAttribute("maxlength", "80");
     });
 
     it("replaces a preset's filters with the current ones, keeping its name", async () => {
