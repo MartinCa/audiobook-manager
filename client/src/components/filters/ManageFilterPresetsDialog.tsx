@@ -68,7 +68,7 @@ export function ManageFilterPresetsDialog({
 
   const commitRename = async (preset: FilterPreset) => {
     const name = draftName.trim();
-    if (name === "" || name.length > MAX_PRESET_NAME_LENGTH) return;
+    if (name === "") return;
     if (name === preset.name) {
       setRenamingId(null);
       return;
@@ -116,6 +116,7 @@ export function ManageFilterPresetsDialog({
                       <Input
                         autoFocus
                         value={draftName}
+                        // The one place the length limit is enforced: a name cannot be typed past it.
                         maxLength={MAX_PRESET_NAME_LENGTH}
                         aria-label={`New name for preset ${preset.name}`}
                         disabled={busy}
@@ -135,11 +136,7 @@ export function ManageFilterPresetsDialog({
                         size="icon-sm"
                         variant="outline"
                         aria-label="Save new name"
-                        disabled={
-                          busy ||
-                          draftName.trim() === "" ||
-                          draftName.trim().length > MAX_PRESET_NAME_LENGTH
-                        }
+                        disabled={busy || draftName.trim() === ""}
                         onClick={() => {
                           void commitRename(preset);
                         }}

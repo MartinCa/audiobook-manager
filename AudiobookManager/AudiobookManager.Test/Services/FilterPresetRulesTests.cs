@@ -169,7 +169,7 @@ public class FilterPresetRulesTests
 
     // The books scope is one vocabulary shared by every endpoint that lists owned books (a book
     // preset is applied from the library, search, series detail, author detail and Missing Tags),
-    // so each of them must accept every key, or a preset saved on one would 400 or silently not
+    // so each of them must accept every key, or a preset saved on one would silently not
     // filter on another.
     [TestMethod]
     public void Keys_Books_AreAcceptedByEveryEndpointThatListsOwnedBooks()
