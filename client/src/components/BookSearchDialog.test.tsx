@@ -127,6 +127,27 @@ describe("BookSearchDialog", () => {
     expect(screen.queryByText(/No results found/)).not.toBeInTheDocument();
   });
 
+  it("spells out why nothing came back when every one of several sources failed", async () => {
+    vi.mocked(metadataSearchApi.searchMultiple).mockResolvedValue({
+      results: [],
+      sourceStatuses: [
+        { source: "Audible", success: false, resultCount: 0, error: "timed out" },
+        { source: "Goodreads", success: false, resultCount: 0, error: "blocked" },
+      ],
+    });
+    const user = userEvent.setup();
+    renderDialog();
+    await user.type(
+      await screen.findByPlaceholderText("Search title, author, or paste URL..."),
+      "mole",
+    );
+    await user.click(screen.getByRole("button", { name: /search/i }));
+
+    expect(await screen.findByText("Audible search failed: timed out")).toBeInTheDocument();
+    expect(screen.getByText("Goodreads search failed: blocked")).toBeInTheDocument();
+    expect(screen.queryByText(/No results found/)).not.toBeInTheDocument();
+  });
+
   it("groups results into per-source tabs with counts, keeping a source with no results as a disabled tab", async () => {
     await searchWithResults([baseResult, { ...baseResult, bookName: "Second Audible" }]);
 

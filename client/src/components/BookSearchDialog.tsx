@@ -67,7 +67,8 @@ export function BookSearchDialog({
 
   // Every searched source errored: "no results" would be untrue, and the failure is shown instead.
   const allSourcesFailed =
-    searchedSources.length > 0 && searchedSources.every((name) => name in failedSources);
+    searchedSources.length > 0 &&
+    searchedSources.every((name) => Object.hasOwn(failedSources, name));
 
   const toggleSource = (sourceName: string) => {
     const current = activeSources;
@@ -215,6 +216,18 @@ export function BookSearchDialog({
 
           <div className="min-h-0 min-w-0 flex-1 space-y-3 overflow-y-auto">
             {error && <p className="text-destructive text-xs">{error}</p>}
+
+            {/* With several sources the tab strip only carries the reason as a tooltip, which a touch
+                user never sees, so spell out why nothing came back. A lone source prints its own. */}
+            {allSourcesFailed && searchedSources.length > 1 && (
+              <div className="text-destructive space-y-0.5 text-xs">
+                {searchedSources.map((name) => (
+                  <p key={name}>
+                    {name} search failed: {failedSources[name]}
+                  </p>
+                ))}
+              </div>
+            )}
 
             {results.length > 0 && (
               <div className="text-muted-foreground text-xs font-semibold uppercase">

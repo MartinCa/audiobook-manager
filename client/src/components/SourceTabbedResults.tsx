@@ -29,6 +29,10 @@ export function SourceTabbedResults({
   failedSources,
   renderActions,
 }: SourceTabbedResultsProps) {
+  // Own properties only: a source named like an Object.prototype member must not read as failed.
+  const failureOf = (name: string): string | undefined =>
+    failedSources && Object.hasOwn(failedSources, name) ? failedSources[name] : undefined;
+
   const groups = useMemo(() => {
     const byName = new Map<string, { result: MetadataSearchResult; index: number }[]>();
     for (const name of sources ?? []) byName.set(name, []);
@@ -79,7 +83,7 @@ export function SourceTabbedResults({
     // No tab strip here, so a lone source that failed has to say so itself rather than read as
     // an empty list.
     const only = groups[0];
-    const failure = only ? failedSources?.[only.name] : undefined;
+    const failure = only ? failureOf(only.name) : undefined;
     if (only && failure !== undefined) {
       return (
         <p className="text-destructive text-xs">
@@ -103,10 +107,10 @@ export function SourceTabbedResults({
             key={g.name}
             value={g.name}
             disabled={g.items.length === 0}
-            title={failedSources?.[g.name]}
+            title={failureOf(g.name)}
             className="min-h-9 flex-none px-3"
           >
-            {g.name} ({failedSources?.[g.name] !== undefined ? "failed" : g.items.length})
+            {g.name} ({failureOf(g.name) !== undefined ? "failed" : g.items.length})
           </TabsTrigger>
         ))}
       </TabsList>

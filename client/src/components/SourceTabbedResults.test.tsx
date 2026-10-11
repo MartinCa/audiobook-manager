@@ -211,4 +211,16 @@ describe("SourceTabbedResults", () => {
     );
     expect(screen.getByText("Goodreads search failed: timed out")).toBeInTheDocument();
   });
+
+  it("does not treat a source named like an Object.prototype member as failed", () => {
+    render(
+      <SourceTabbedResults
+        results={[make("constructor", "C"), make("Audible", "A")]}
+        sources={["constructor", "Audible"]}
+        failedSources={{}}
+        renderActions={() => null}
+      />,
+    );
+    expect(screen.getByRole("tab", { name: "constructor (1)" })).toBeInTheDocument();
+  });
 });
