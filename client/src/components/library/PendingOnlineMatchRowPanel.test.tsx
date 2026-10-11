@@ -1,3 +1,4 @@
+import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -61,12 +62,16 @@ describe("PendingOnlineMatchRowPanel", () => {
     vi.clearAllMocks();
   });
 
-  it("renders one result card per candidate", () => {
+  it("groups candidates into one tab per source with its count, showing the first source's card", () => {
     renderPanel();
 
+    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual([
+      "Audible (1)",
+      "Goodreads (1)",
+    ]);
     expect(screen.getByText("The Way of Kings")).toBeInTheDocument();
-    expect(screen.getByText("The Way of Kings (Goodreads)")).toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: /select this match/i })).toHaveLength(2);
+    expect(screen.queryByText("The Way of Kings (Goodreads)")).not.toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /select this match/i })).toHaveLength(1);
   });
 
   it("shows each candidate's rating and review count from the stored snapshot", () => {
@@ -89,8 +94,9 @@ describe("PendingOnlineMatchRowPanel", () => {
     vi.mocked(pendingOnlineMatchApi.selectResult).mockResolvedValue(undefined);
     const { invalidateSpy, onResolved } = renderPanel();
 
-    const buttons = screen.getAllByRole("button", { name: /select this match/i });
-    fireEvent.click(buttons[1]!); // Goodreads candidate, index 1
+    // Goodreads candidate: index 1 in the flat list although it is the only card in its tab
+    await userEvent.click(screen.getByRole("tab", { name: "Goodreads (1)" }));
+    fireEvent.click(screen.getByRole("button", { name: /select this match/i }));
 
     await waitFor(() => {
       expect(pendingOnlineMatchApi.selectResult).toHaveBeenCalledWith(1, 1);
@@ -127,11 +133,12 @@ describe("PendingOnlineMatchRowPanel", () => {
     );
     renderPanel();
 
-    const buttons = screen.getAllByRole("button", { name: /select this match/i });
-    fireEvent.click(buttons[0]!);
+    fireEvent.click(screen.getByRole("button", { name: /select this match/i }));
 
+    // The other source's tab is not mounted yet; its button must come up disabled too
+    await userEvent.click(screen.getByRole("tab", { name: "Goodreads (1)" }));
     await waitFor(() => {
-      expect(buttons[1]).toBeDisabled();
+      expect(screen.getByRole("button", { name: /select this match/i })).toBeDisabled();
     });
 
     resolveSelect?.();

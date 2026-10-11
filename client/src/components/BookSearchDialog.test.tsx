@@ -67,6 +67,19 @@ async function searchWithResults(
 }
 
 describe("BookSearchDialog", () => {
+  it("groups results into per-source tabs with counts, keeping a source with no results as a disabled tab", async () => {
+    await searchWithResults([baseResult, { ...baseResult, bookName: "Second Audible" }]);
+
+    expect((await screen.findAllByRole("tab")).map((t) => t.textContent)).toEqual([
+      "Audible (2)",
+      "Goodreads (0)",
+    ]);
+    expect(screen.getByRole("tab", { name: "Goodreads (0)" })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+  });
+
   it("shows duration and language on results when present", async () => {
     await searchWithResults([baseResult]);
 

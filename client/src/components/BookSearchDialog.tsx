@@ -5,7 +5,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { MetadataSourceSelector } from "@/components/MetadataSourceSelector";
-import { MetadataSearchResultCard } from "@/components/MetadataSearchResultCard";
+import { SourceTabbedResults } from "@/components/SourceTabbedResults";
 import { metadataSearchApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { handleApiError } from "@/lib/api";
@@ -34,6 +34,9 @@ export function BookSearchDialog({
   }
 
   const [results, setResults] = useState<MetadataSearchResult[]>([]);
+  // The sources the shown results were searched on, so a source that found nothing still gets
+  // its (disabled) tab.
+  const [searchedSources, setSearchedSources] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectingDetails, setSelectingDetails] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -106,10 +109,12 @@ export function BookSearchDialog({
     setLoading(true);
     setError(null);
     setResults([]);
+    setSearchedSources([]);
 
     try {
       const res = await metadataSearchApi.searchMultiple(activeSources, trimmedQuery);
       setResults(res.results || []);
+      setSearchedSources(activeSources);
     } catch (err: unknown) {
       setError(handleApiError(err).message);
     } finally {
@@ -217,30 +222,26 @@ export function BookSearchDialog({
               </div>
             )}
 
-            <div className="space-y-2">
-              {results.map((result, idx) => {
+            <SourceTabbedResults
+              results={results}
+              sources={searchedSources}
+              renderActions={(result) => {
                 const isBusy = selectingDetails === result.url;
                 return (
-                  <MetadataSearchResultCard
-                    key={`${result.source}-${result.bookName}-${idx}`}
-                    result={result}
-                    actions={
-                      <Button
-                        size="sm"
-                        disabled={isBusy}
-                        onClick={() => {
-                          void handleChoose(result);
-                        }}
-                        className="min-w-0 flex-1 sm:w-auto"
-                      >
-                        {isBusy ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
-                        Apply
-                      </Button>
-                    }
-                  />
+                  <Button
+                    size="sm"
+                    disabled={isBusy}
+                    onClick={() => {
+                      void handleChoose(result);
+                    }}
+                    className="min-w-0 flex-1 sm:w-auto"
+                  >
+                    {isBusy ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
+                    Apply
+                  </Button>
                 );
-              })}
-            </div>
+              }}
+            />
           </div>
         </div>
       </DialogContent>
