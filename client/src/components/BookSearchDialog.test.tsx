@@ -148,6 +148,26 @@ describe("BookSearchDialog", () => {
     expect(screen.queryByText(/No results found/)).not.toBeInTheDocument();
   });
 
+  it("spells out a failed source's reason even when another source succeeded", async () => {
+    vi.mocked(metadataSearchApi.searchMultiple).mockResolvedValue({
+      results: [baseResult],
+      sourceStatuses: [
+        { source: "Audible", success: true, resultCount: 1 },
+        { source: "Goodreads", success: false, resultCount: 0, error: "blocked" },
+      ],
+    });
+    const user = userEvent.setup();
+    renderDialog();
+    await user.type(
+      await screen.findByPlaceholderText("Search title, author, or paste URL..."),
+      "mole",
+    );
+    await user.click(screen.getByRole("button", { name: /search/i }));
+
+    expect(await screen.findByText("Goodreads search failed: blocked")).toBeInTheDocument();
+    expect(screen.queryByText("Audible search failed", { exact: false })).not.toBeInTheDocument();
+  });
+
   it("groups results into per-source tabs with counts, keeping a source with no results as a disabled tab", async () => {
     await searchWithResults([baseResult, { ...baseResult, bookName: "Second Audible" }]);
 
