@@ -75,7 +75,20 @@ export function SourceTabbedResults({
     </div>
   );
 
-  if (groups.length <= 1) return renderItems(groups[0]?.items ?? [], true);
+  if (groups.length <= 1) {
+    // No tab strip here, so a lone source that failed has to say so itself rather than read as
+    // an empty list.
+    const only = groups[0];
+    const failure = only ? failedSources?.[only.name] : undefined;
+    if (only && failure !== undefined) {
+      return (
+        <p className="text-destructive text-xs">
+          {only.name} search failed: {failure}
+        </p>
+      );
+    }
+    return renderItems(only?.items ?? [], true);
+  }
 
   return (
     <Tabs value={active} onValueChange={(value) => setChosen(String(value))}>

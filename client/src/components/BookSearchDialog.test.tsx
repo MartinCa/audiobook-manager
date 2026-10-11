@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -67,6 +67,11 @@ async function searchWithResults(
 }
 
 describe("BookSearchDialog", () => {
+  // useSelectedSearchSources remembers the chosen sources in localStorage; keep tests independent.
+  afterEach(() => {
+    localStorage.clear();
+  });
+
   it("drops the previous search's source tabs when a pasted URL fails to fetch", async () => {
     await searchWithResults([baseResult]);
     await screen.findByRole("tab", { name: "Goodreads (0)" });
@@ -100,6 +105,26 @@ describe("BookSearchDialog", () => {
       "title",
       "timed out",
     );
+  });
+
+  it("reports a lone failed source as failed rather than as no results", async () => {
+    vi.mocked(metadataSearchApi.getServices).mockResolvedValueOnce([
+      { name: "Goodreads", enabled: true },
+    ]);
+    vi.mocked(metadataSearchApi.searchMultiple).mockResolvedValue({
+      results: [],
+      sourceStatuses: [{ source: "Goodreads", success: false, resultCount: 0, error: "timed out" }],
+    });
+    const user = userEvent.setup();
+    renderDialog();
+    await user.type(
+      await screen.findByPlaceholderText("Search title, author, or paste URL..."),
+      "mole",
+    );
+    await user.click(screen.getByRole("button", { name: /search/i }));
+
+    expect(await screen.findByText("Goodreads search failed: timed out")).toBeInTheDocument();
+    expect(screen.queryByText(/No results found/)).not.toBeInTheDocument();
   });
 
   it("groups results into per-source tabs with counts, keeping a source with no results as a disabled tab", async () => {

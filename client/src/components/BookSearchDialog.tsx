@@ -65,6 +65,10 @@ export function BookSearchDialog({
   // treatment of the same shared hook.
   const activeSources = selectedSources;
 
+  // Every searched source errored: "no results" would be untrue, and the failure is shown instead.
+  const allSourcesFailed =
+    searchedSources.length > 0 && searchedSources.every((name) => name in failedSources);
+
   const toggleSource = (sourceName: string) => {
     const current = activeSources;
     setSelectedSources(
@@ -227,7 +231,7 @@ export function BookSearchDialog({
               </div>
             )}
 
-            {!loading && !error && results.length === 0 && query && (
+            {!loading && !error && results.length === 0 && query && !allSourcesFailed && (
               <div className="text-muted-foreground py-8 text-center text-sm">
                 No results found. Try changing your search query or sources.
               </div>

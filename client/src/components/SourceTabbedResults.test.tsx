@@ -199,4 +199,16 @@ describe("SourceTabbedResults", () => {
       "true",
     );
   });
+
+  it("says so when the only searched source failed, instead of rendering an empty list", () => {
+    render(
+      <SourceTabbedResults
+        results={[]}
+        sources={["Goodreads"]}
+        failedSources={{ Goodreads: "timed out" }}
+        renderActions={() => null}
+      />,
+    );
+    expect(screen.getByText("Goodreads search failed: timed out")).toBeInTheDocument();
+  });
 });
