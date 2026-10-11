@@ -37,6 +37,7 @@ export function BookSearchDialog({
   // The sources the shown results were searched on, so a source that found nothing still gets
   // its (disabled) tab.
   const [searchedSources, setSearchedSources] = useState<string[]>([]);
+  const [failedSources, setFailedSources] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [selectingDetails, setSelectingDetails] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -93,6 +94,7 @@ export function BookSearchDialog({
       setError(null);
       setResults([]);
       setSearchedSources([]);
+      setFailedSources({});
 
       try {
         const fullDetails = await metadataSearchApi.getBookDetails(trimmedQuery);
@@ -111,11 +113,19 @@ export function BookSearchDialog({
     setError(null);
     setResults([]);
     setSearchedSources([]);
+    setFailedSources({});
 
     try {
       const res = await metadataSearchApi.searchMultiple(activeSources, trimmedQuery);
       setResults(res.results || []);
       setSearchedSources(activeSources);
+      setFailedSources(
+        Object.fromEntries(
+          (res.sourceStatuses ?? [])
+            .filter((status) => !status.success)
+            .map((status) => [status.source, status.error ?? "Search failed"]),
+        ),
+      );
     } catch (err: unknown) {
       setError(handleApiError(err).message);
     } finally {
@@ -226,6 +236,7 @@ export function BookSearchDialog({
             <SourceTabbedResults
               results={results}
               sources={searchedSources}
+              failedSources={failedSources}
               renderActions={(result) => {
                 const isBusy = selectingDetails === result.url;
                 return (

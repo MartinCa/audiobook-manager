@@ -80,6 +80,28 @@ describe("BookSearchDialog", () => {
     expect(screen.queryByRole("tab")).not.toBeInTheDocument();
   });
 
+  it("shows a source whose search failed as failed rather than as zero results", async () => {
+    vi.mocked(metadataSearchApi.searchMultiple).mockResolvedValue({
+      results: [baseResult],
+      sourceStatuses: [
+        { source: "Audible", success: true, resultCount: 1 },
+        { source: "Goodreads", success: false, resultCount: 0, error: "timed out" },
+      ],
+    });
+    const user = userEvent.setup();
+    renderDialog();
+    await user.type(
+      await screen.findByPlaceholderText("Search title, author, or paste URL..."),
+      "mole",
+    );
+    await user.click(screen.getByRole("button", { name: /search/i }));
+
+    expect(await screen.findByRole("tab", { name: "Goodreads (failed)" })).toHaveAttribute(
+      "title",
+      "timed out",
+    );
+  });
+
   it("groups results into per-source tabs with counts, keeping a source with no results as a disabled tab", async () => {
     await searchWithResults([baseResult, { ...baseResult, bookName: "Second Audible" }]);
 

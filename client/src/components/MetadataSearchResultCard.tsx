@@ -9,6 +9,8 @@ interface MetadataSearchResultCardProps {
   /** The caller's own action button(s) (e.g. "Apply", "Select this match") - kept a slot rather
    * than a fixed prop so each flow's specific action stays with the flow, not this shared card. */
   actions?: ReactNode;
+  /** Hidden where a surrounding tab already names the source. */
+  showSourceBadge?: boolean;
 }
 
 /**
@@ -35,7 +37,11 @@ function formatRatingSummary(rating?: number, numberOfRatings?: number): string 
  * results: BookSearchDialog's interactive search and the bulk online-match pending list's
  * per-book expand panel. Extracted so both render a result identically - no drift.
  */
-export function MetadataSearchResultCard({ result, actions }: MetadataSearchResultCardProps) {
+export function MetadataSearchResultCard({
+  result,
+  actions,
+  showSourceBadge = true,
+}: MetadataSearchResultCardProps) {
   const ratingSummary = formatRatingSummary(result.rating, result.numberOfRatings);
 
   return (
@@ -54,9 +60,11 @@ export function MetadataSearchResultCard({ result, actions }: MetadataSearchResu
         <div className="min-w-0 flex-1 space-y-1">
           <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
             <span className="text-foreground font-semibold break-words">{result.bookName}</span>
-            <Badge variant="secondary" className="text-[10px]">
-              {result.source}
-            </Badge>
+            {showSourceBadge && (
+              <Badge variant="secondary" className="text-[10px]">
+                {result.source}
+              </Badge>
+            )}
             {result.year && <span className="text-muted-foreground text-xs">({result.year})</span>}
             {result.duration && (
               <span className="text-muted-foreground text-xs">· {result.duration}</span>

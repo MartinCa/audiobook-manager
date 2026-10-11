@@ -145,4 +145,34 @@ describe("SourceTabbedResults", () => {
       "Unknown (1)",
     ]);
   });
+
+  it("labels a source whose search failed as failed, not as having zero results", () => {
+    render(
+      <SourceTabbedResults
+        results={results}
+        sources={["Audible", "Goodreads"]}
+        failedSources={{ Goodreads: "timed out" }}
+        renderActions={() => null}
+      />,
+    );
+    const tab = screen.getByRole("tab", { name: "Goodreads (failed)" });
+    expect(tab).toHaveAttribute("title", "timed out");
+    expect(tab).toHaveAttribute("aria-disabled", "true");
+  });
+
+  it("drops the per-card source badge when tabs already name the source, keeps it for a single source", () => {
+    const { unmount } = renderTabs(["Audible", "Hardcover"]);
+    expect(
+      screen.queryByText("Audible", { selector: "[data-slot=badge]" }),
+    ).not.toBeInTheDocument();
+    unmount();
+    render(
+      <SourceTabbedResults
+        results={results.slice(0, 1)}
+        sources={["Audible"]}
+        renderActions={() => null}
+      />,
+    );
+    expect(screen.getByText("Audible", { selector: "[data-slot=badge]" })).toBeInTheDocument();
+  });
 });

@@ -8,6 +8,9 @@ interface SourceTabbedResultsProps {
   /** Every source that was searched, in display order. A source with no results still gets a
    * (disabled) tab so it is clear it was asked. Sources found only in `results` are appended. */
   sources?: string[];
+  /** Sources whose search failed, by name, with the reason. Such a tab reads "(failed)" instead of
+   * "(0)", so a request that never completed is not reported as "no results". */
+  failedSources?: Record<string, string>;
   /** The caller's action for a result. `index` is the result's position in the original flat
    * `results` array - flows that select by position (pending online matches) need that, not the
    * position within a tab. */
@@ -20,7 +23,12 @@ interface SourceTabbedResultsProps {
  * lets the user choose a match: BookSearchDialog and the pending online-match row panel.
  * Tab order follows `sources` (which callers take from the backend), never a hardcoded list.
  */
-export function SourceTabbedResults({ results, sources, renderActions }: SourceTabbedResultsProps) {
+export function SourceTabbedResults({
+  results,
+  sources,
+  failedSources,
+  renderActions,
+}: SourceTabbedResultsProps) {
   const groups = useMemo(() => {
     const byName = new Map<string, { result: MetadataSearchResult; index: number }[]>();
     for (const name of sources ?? []) byName.set(name, []);
@@ -49,19 +57,23 @@ export function SourceTabbedResults({ results, sources, renderActions }: SourceT
       ? chosen
       : firstWithResults;
 
-  const renderItems = (items: { result: MetadataSearchResult; index: number }[]) => (
+  const renderItems = (
+    items: { result: MetadataSearchResult; index: number }[],
+    showSourceBadge: boolean,
+  ) => (
     <div className="space-y-2">
       {items.map(({ result, index }) => (
         <MetadataSearchResultCard
           key={`${result.source}-${result.bookName}-${index}`}
           result={result}
+          showSourceBadge={showSourceBadge}
           actions={renderActions(result, index)}
         />
       ))}
     </div>
   );
 
-  if (groups.length <= 1) return renderItems(groups[0]?.items ?? []);
+  if (groups.length <= 1) return renderItems(groups[0]?.items ?? [], true);
 
   return (
     <Tabs value={active} onValueChange={(value) => setChosen(String(value))}>
@@ -76,15 +88,16 @@ export function SourceTabbedResults({ results, sources, renderActions }: SourceT
             key={g.name}
             value={g.name}
             disabled={g.items.length === 0}
+            title={failedSources?.[g.name]}
             className="min-h-9 flex-none px-3"
           >
-            {g.name} ({g.items.length})
+            {g.name} ({failedSources?.[g.name] !== undefined ? "failed" : g.items.length})
           </TabsTrigger>
         ))}
       </TabsList>
       {groups.map((g) => (
         <TabsContent key={g.name} value={g.name}>
-          {renderItems(g.items)}
+          {renderItems(g.items, false)}
         </TabsContent>
       ))}
     </Tabs>
