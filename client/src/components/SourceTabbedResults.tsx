@@ -42,11 +42,13 @@ export function SourceTabbedResults({
   }, [results, sources]);
 
   const [chosen, setChosen] = useState<string | null>(null);
-  // A new result set opens on the first source with results again, rather than remembering the
+  // A new result set (or source list) opens on the first source with results again, rather than remembering the
   // tab picked for the previous search (set during render, like BookSearchDialog's seed).
   const [prevResults, setPrevResults] = useState(results);
-  if (results !== prevResults) {
+  const [prevSources, setPrevSources] = useState(sources);
+  if (results !== prevResults || sources !== prevSources) {
     setPrevResults(results);
+    setPrevSources(sources);
     setChosen(null);
   }
   const firstWithResults = groups.find((g) => g.items.length > 0)?.name ?? null;

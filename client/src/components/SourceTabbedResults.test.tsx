@@ -175,4 +175,28 @@ describe("SourceTabbedResults", () => {
     );
     expect(screen.getByText("Audible", { selector: "[data-slot=badge]" })).toBeInTheDocument();
   });
+
+  it("opens on the first source with results again when only the source list changes", async () => {
+    const user = userEvent.setup();
+    const actions = () => null;
+    const { rerender } = render(
+      <SourceTabbedResults
+        results={results}
+        sources={["Audible", "Hardcover"]}
+        renderActions={actions}
+      />,
+    );
+    await user.click(screen.getByRole("tab", { name: "Hardcover (1)" }));
+    rerender(
+      <SourceTabbedResults
+        results={results}
+        sources={["Audible", "Hardcover", "Goodreads"]}
+        renderActions={actions}
+      />,
+    );
+    expect(screen.getByRole("tab", { name: "Audible (2)" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+  });
 });
