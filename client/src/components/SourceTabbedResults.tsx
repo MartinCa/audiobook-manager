@@ -25,7 +25,7 @@ export function SourceTabbedResults({ results, sources, renderActions }: SourceT
     const byName = new Map<string, { result: MetadataSearchResult; index: number }[]>();
     for (const name of sources ?? []) byName.set(name, []);
     results.forEach((result, index) => {
-      const name = result.source ?? "Unknown";
+      const name = result.source || "Unknown";
       const group = byName.get(name);
       if (group) group.push({ result, index });
       else byName.set(name, [{ result, index }]);
@@ -34,6 +34,13 @@ export function SourceTabbedResults({ results, sources, renderActions }: SourceT
   }, [results, sources]);
 
   const [chosen, setChosen] = useState<string | null>(null);
+  // A new result set opens on the first source with results again, rather than remembering the
+  // tab picked for the previous search (set during render, like BookSearchDialog's seed).
+  const [prevResults, setPrevResults] = useState(results);
+  if (results !== prevResults) {
+    setPrevResults(results);
+    setChosen(null);
+  }
   const firstWithResults = groups.find((g) => g.items.length > 0)?.name ?? null;
   // A chosen tab that no longer exists or has emptied out (new search) falls back to the first
   // populated one rather than leaving a blank panel.
@@ -58,9 +65,11 @@ export function SourceTabbedResults({ results, sources, renderActions }: SourceT
 
   return (
     <Tabs value={active} onValueChange={(value) => setChosen(String(value))}>
+      {/* Tabs scroll sideways when they do not fit; the browser also scrolls the active tab into
+          view, so scroll-fade-x fades whichever edge has more tabs hidden beyond it. */}
       <TabsList
         variant="line"
-        className="border-border h-auto! w-full min-w-0 justify-start gap-1 overflow-x-auto border-b"
+        className="border-border scroll-fade-x h-auto! w-full min-w-0 justify-start gap-1 overflow-x-auto border-b"
       >
         {groups.map((g) => (
           <TabsTrigger

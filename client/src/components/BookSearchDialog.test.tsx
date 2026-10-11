@@ -67,6 +67,19 @@ async function searchWithResults(
 }
 
 describe("BookSearchDialog", () => {
+  it("drops the previous search's source tabs when a pasted URL fails to fetch", async () => {
+    await searchWithResults([baseResult]);
+    await screen.findByRole("tab", { name: "Goodreads (0)" });
+
+    vi.mocked(metadataSearchApi.getBookDetails).mockRejectedValue(new Error("boom"));
+    const input = screen.getByPlaceholderText("Search title, author, or paste URL...");
+    fireEvent.change(input, { target: { value: "https://hardcover.app/books/1984" } });
+    fireEvent.submit(input);
+
+    await screen.findByText(/boom/);
+    expect(screen.queryByRole("tab")).not.toBeInTheDocument();
+  });
+
   it("groups results into per-source tabs with counts, keeping a source with no results as a disabled tab", async () => {
     await searchWithResults([baseResult, { ...baseResult, bookName: "Second Audible" }]);
 

@@ -107,4 +107,42 @@ describe("SourceTabbedResults", () => {
     expect(screen.queryByRole("tab")).not.toBeInTheDocument();
     expect(screen.getByText("Audible One")).toBeInTheDocument();
   });
+
+  it("opens on the first source with results again when a new result set arrives", async () => {
+    const user = userEvent.setup();
+    const actions = () => null;
+    const { rerender } = render(
+      <SourceTabbedResults
+        results={results}
+        sources={["Audible", "Hardcover"]}
+        renderActions={actions}
+      />,
+    );
+    await user.click(screen.getByRole("tab", { name: "Hardcover (1)" }));
+    rerender(
+      <SourceTabbedResults
+        results={[...results]}
+        sources={["Audible", "Hardcover"]}
+        renderActions={actions}
+      />,
+    );
+    expect(screen.getByRole("tab", { name: "Audible (2)" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+  });
+
+  it("groups a result with an empty source under Unknown", () => {
+    render(
+      <SourceTabbedResults
+        results={[make("", "No Source"), make("Audible", "A")]}
+        sources={["Audible"]}
+        renderActions={() => null}
+      />,
+    );
+    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual([
+      "Audible (1)",
+      "Unknown (1)",
+    ]);
+  });
 });

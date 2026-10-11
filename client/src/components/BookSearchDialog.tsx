@@ -92,6 +92,7 @@ export function BookSearchDialog({
       setLoading(true);
       setError(null);
       setResults([]);
+      setSearchedSources([]);
 
       try {
         const fullDetails = await metadataSearchApi.getBookDetails(trimmedQuery);
