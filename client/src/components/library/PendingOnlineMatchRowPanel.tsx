@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { MetadataSearchResultCard } from "@/components/MetadataSearchResultCard";
+import { SourceTabbedResults } from "@/components/SourceTabbedResults";
 import { pendingOnlineMatchApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { pendingSnapshotToSearchResult } from "@/helpers/pendingMetadataRefresh";
@@ -53,6 +53,10 @@ export function PendingOnlineMatchRowPanel({ item, onResolved }: PendingOnlineMa
     }
   };
 
+  // Converted once so the tab grouping sees stable objects; the index into this array is the
+  // index the server selects by, which SourceTabbedResults hands back untouched.
+  const results = useMemo(() => item.results.map(pendingSnapshotToSearchResult), [item.results]);
+
   if (item.results.length === 0) {
     return (
       <p className="text-muted-foreground py-4 text-center text-xs">
@@ -62,31 +66,23 @@ export function PendingOnlineMatchRowPanel({ item, onResolved }: PendingOnlineMa
   }
 
   return (
-    <div className="space-y-2">
-      {item.results.map((snapshot, idx) => {
-        const result = pendingSnapshotToSearchResult(snapshot);
-        const isBusy = selectingIndex === idx;
-        return (
-          <MetadataSearchResultCard
-            key={`${snapshot.source}-${snapshot.bookName}-${idx}`}
-            result={result}
-            actions={
-              <Button
-                size="sm"
-                disabled={selectingIndex !== null}
-                onClick={() => {
-                  void handleSelect(idx);
-                }}
-                className="min-w-0 flex-1 sm:w-auto"
-              >
-                {isBusy ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
-                Select this match
-              </Button>
-            }
-          />
-        );
-      })}
-    </div>
+    <SourceTabbedResults
+      results={results}
+      sources={item.sourceNames}
+      renderActions={(_result, idx) => (
+        <Button
+          size="sm"
+          disabled={selectingIndex !== null}
+          onClick={() => {
+            void handleSelect(idx);
+          }}
+          className="min-w-0 flex-1 sm:w-auto"
+        >
+          {selectingIndex === idx ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
+          Select this match
+        </Button>
+      )}
+    />
   );
 }
 

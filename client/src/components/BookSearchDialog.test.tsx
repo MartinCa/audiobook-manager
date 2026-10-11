@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -67,6 +67,120 @@ async function searchWithResults(
 }
 
 describe("BookSearchDialog", () => {
+  // useSelectedSearchSources remembers the chosen sources in localStorage; keep tests independent.
+  afterEach(() => {
+    localStorage.clear();
+  });
+
+  it("drops the previous search's source tabs when a pasted URL fails to fetch", async () => {
+    await searchWithResults([baseResult]);
+    await screen.findByRole("tab", { name: "Goodreads (0)" });
+
+    vi.mocked(metadataSearchApi.getBookDetails).mockRejectedValue(new Error("boom"));
+    const input = screen.getByPlaceholderText("Search title, author, or paste URL...");
+    fireEvent.change(input, { target: { value: "https://hardcover.app/books/1984" } });
+    fireEvent.submit(input);
+
+    await screen.findByText(/boom/);
+    expect(screen.queryByRole("tab")).not.toBeInTheDocument();
+  });
+
+  it("shows a source whose search failed as failed rather than as zero results", async () => {
+    vi.mocked(metadataSearchApi.searchMultiple).mockResolvedValue({
+      results: [baseResult],
+      sourceStatuses: [
+        { source: "Audible", success: true, resultCount: 1 },
+        { source: "Goodreads", success: false, resultCount: 0, error: "timed out" },
+      ],
+    });
+    const user = userEvent.setup();
+    renderDialog();
+    await user.type(
+      await screen.findByPlaceholderText("Search title, author, or paste URL..."),
+      "mole",
+    );
+    await user.click(screen.getByRole("button", { name: /search/i }));
+
+    expect(await screen.findByRole("tab", { name: "Goodreads (failed)" })).toHaveAttribute(
+      "title",
+      "timed out",
+    );
+  });
+
+  it("reports a lone failed source as failed rather than as no results", async () => {
+    vi.mocked(metadataSearchApi.getServices).mockResolvedValueOnce([
+      { name: "Goodreads", enabled: true },
+    ]);
+    vi.mocked(metadataSearchApi.searchMultiple).mockResolvedValue({
+      results: [],
+      sourceStatuses: [{ source: "Goodreads", success: false, resultCount: 0, error: "timed out" }],
+    });
+    const user = userEvent.setup();
+    renderDialog();
+    await user.type(
+      await screen.findByPlaceholderText("Search title, author, or paste URL..."),
+      "mole",
+    );
+    await user.click(screen.getByRole("button", { name: /search/i }));
+
+    expect(await screen.findByText("Goodreads search failed: timed out")).toBeInTheDocument();
+    expect(screen.queryByText(/No results found/)).not.toBeInTheDocument();
+  });
+
+  it("spells out why nothing came back when every one of several sources failed", async () => {
+    vi.mocked(metadataSearchApi.searchMultiple).mockResolvedValue({
+      results: [],
+      sourceStatuses: [
+        { source: "Audible", success: false, resultCount: 0, error: "timed out" },
+        { source: "Goodreads", success: false, resultCount: 0, error: "blocked" },
+      ],
+    });
+    const user = userEvent.setup();
+    renderDialog();
+    await user.type(
+      await screen.findByPlaceholderText("Search title, author, or paste URL..."),
+      "mole",
+    );
+    await user.click(screen.getByRole("button", { name: /search/i }));
+
+    expect(await screen.findByText("Audible search failed: timed out")).toBeInTheDocument();
+    expect(screen.getByText("Goodreads search failed: blocked")).toBeInTheDocument();
+    expect(screen.queryByText(/No results found/)).not.toBeInTheDocument();
+  });
+
+  it("spells out a failed source's reason even when another source succeeded", async () => {
+    vi.mocked(metadataSearchApi.searchMultiple).mockResolvedValue({
+      results: [baseResult],
+      sourceStatuses: [
+        { source: "Audible", success: true, resultCount: 1 },
+        { source: "Goodreads", success: false, resultCount: 0, error: "blocked" },
+      ],
+    });
+    const user = userEvent.setup();
+    renderDialog();
+    await user.type(
+      await screen.findByPlaceholderText("Search title, author, or paste URL..."),
+      "mole",
+    );
+    await user.click(screen.getByRole("button", { name: /search/i }));
+
+    expect(await screen.findByText("Goodreads search failed: blocked")).toBeInTheDocument();
+    expect(screen.queryByText("Audible search failed", { exact: false })).not.toBeInTheDocument();
+  });
+
+  it("groups results into per-source tabs with counts, keeping a source with no results as a disabled tab", async () => {
+    await searchWithResults([baseResult, { ...baseResult, bookName: "Second Audible" }]);
+
+    expect((await screen.findAllByRole("tab")).map((t) => t.textContent)).toEqual([
+      "Audible (2)",
+      "Goodreads (0)",
+    ]);
+    expect(screen.getByRole("tab", { name: "Goodreads (0)" })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+  });
+
   it("shows duration and language on results when present", async () => {
     await searchWithResults([baseResult]);
 

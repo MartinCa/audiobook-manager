@@ -5,7 +5,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { MetadataSourceSelector } from "@/components/MetadataSourceSelector";
-import { MetadataSearchResultCard } from "@/components/MetadataSearchResultCard";
+import { SourceTabbedResults } from "@/components/SourceTabbedResults";
 import { metadataSearchApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { handleApiError } from "@/lib/api";
@@ -34,6 +34,10 @@ export function BookSearchDialog({
   }
 
   const [results, setResults] = useState<MetadataSearchResult[]>([]);
+  // The sources the shown results were searched on, so a source that found nothing still gets
+  // its (disabled) tab.
+  const [searchedSources, setSearchedSources] = useState<string[]>([]);
+  const [failedSources, setFailedSources] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [selectingDetails, setSelectingDetails] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -60,6 +64,15 @@ export function BookSearchDialog({
   // explicit choice and disables Search, matching BulkOnlineMatchSearchDialog's identical
   // treatment of the same shared hook.
   const activeSources = selectedSources;
+
+  // Every searched source errored: "no results" would be untrue, and the failure is shown instead.
+  const allSourcesFailed =
+    searchedSources.length > 0 &&
+    searchedSources.every((name) => Object.hasOwn(failedSources, name));
+
+  const failedSearchedSources = searchedSources.filter((name) =>
+    Object.hasOwn(failedSources, name),
+  );
 
   const toggleSource = (sourceName: string) => {
     const current = activeSources;
@@ -89,6 +102,8 @@ export function BookSearchDialog({
       setLoading(true);
       setError(null);
       setResults([]);
+      setSearchedSources([]);
+      setFailedSources({});
 
       try {
         const fullDetails = await metadataSearchApi.getBookDetails(trimmedQuery);
@@ -106,10 +121,20 @@ export function BookSearchDialog({
     setLoading(true);
     setError(null);
     setResults([]);
+    setSearchedSources([]);
+    setFailedSources({});
 
     try {
       const res = await metadataSearchApi.searchMultiple(activeSources, trimmedQuery);
       setResults(res.results || []);
+      setSearchedSources(activeSources);
+      setFailedSources(
+        Object.fromEntries(
+          (res.sourceStatuses ?? [])
+            .filter((status) => !status.success)
+            .map((status) => [status.source, status.error ?? "Search failed"]),
+        ),
+      );
     } catch (err: unknown) {
       setError(handleApiError(err).message);
     } finally {
@@ -196,6 +221,18 @@ export function BookSearchDialog({
           <div className="min-h-0 min-w-0 flex-1 space-y-3 overflow-y-auto">
             {error && <p className="text-destructive text-xs">{error}</p>}
 
+            {/* With several sources the tab strip only carries the reason as a tooltip, which a touch
+                user never sees, so spell out which sources failed and why. A lone source prints its own. */}
+            {searchedSources.length > 1 && failedSearchedSources.length > 0 && (
+              <div className="text-destructive space-y-0.5 text-xs">
+                {failedSearchedSources.map((name) => (
+                  <p key={name}>
+                    {name} search failed: {failedSources[name]}
+                  </p>
+                ))}
+              </div>
+            )}
+
             {results.length > 0 && (
               <div className="text-muted-foreground text-xs font-semibold uppercase">
                 Results ({results.length})
@@ -211,36 +248,33 @@ export function BookSearchDialog({
               </div>
             )}
 
-            {!loading && !error && results.length === 0 && query && (
+            {!loading && !error && results.length === 0 && query && !allSourcesFailed && (
               <div className="text-muted-foreground py-8 text-center text-sm">
                 No results found. Try changing your search query or sources.
               </div>
             )}
 
-            <div className="space-y-2">
-              {results.map((result, idx) => {
+            <SourceTabbedResults
+              results={results}
+              sources={searchedSources}
+              failedSources={failedSources}
+              renderActions={(result) => {
                 const isBusy = selectingDetails === result.url;
                 return (
-                  <MetadataSearchResultCard
-                    key={`${result.source}-${result.bookName}-${idx}`}
-                    result={result}
-                    actions={
-                      <Button
-                        size="sm"
-                        disabled={isBusy}
-                        onClick={() => {
-                          void handleChoose(result);
-                        }}
-                        className="min-w-0 flex-1 sm:w-auto"
-                      >
-                        {isBusy ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
-                        Apply
-                      </Button>
-                    }
-                  />
+                  <Button
+                    size="sm"
+                    disabled={isBusy}
+                    onClick={() => {
+                      void handleChoose(result);
+                    }}
+                    className="min-w-0 flex-1 sm:w-auto"
+                  >
+                    {isBusy ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
+                    Apply
+                  </Button>
                 );
-              })}
-            </div>
+              }}
+            />
           </div>
         </div>
       </DialogContent>
