@@ -71,7 +71,6 @@ export function PendingOnlineMatchRowPanel({ item, onResolved }: PendingOnlineMa
       sources={item.sourceNames}
       renderActions={(_result, idx) => (
         <Button
-          size="sm"
           disabled={selectingIndex !== null}
           onClick={() => {
             void handleSelect(idx);
