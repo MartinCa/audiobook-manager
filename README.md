@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/icon.png" alt="Audiobook Manager icon" width="128" height="128">
+</p>
+
 # Audiobook Manager
 
 I created this application to make it easier for me to organize audiobooks to be served by applications such as [Audiobookshelf](https://www.audiobookshelf.org/).
