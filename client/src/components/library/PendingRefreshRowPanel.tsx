@@ -321,7 +321,6 @@ export function PendingRefreshRowPanel({ audiobookId, onApplied }: PendingRefres
       <div className="flex flex-col-reverse items-stretch justify-end gap-2 sm:flex-row sm:items-center">
         <Button
           variant="outline"
-
           className="mt-4 sm:mt-0"
           disabled={applying}
           onClick={() => void apply(changedFieldKeys)}

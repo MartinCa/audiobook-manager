@@ -361,7 +361,6 @@ export function SearchResultsPage() {
                   {booksTotal > SEARCH_PREVIEW_LIMIT && (
                     <LinkButton
                       variant="link"
-
                       className="h-auto p-0 text-xs"
                       render={
                         <Link to="/library/search" search={(prev) => searchForTab(prev, "books")} />
@@ -394,7 +393,6 @@ export function SearchResultsPage() {
                   {authorsTotal > SEARCH_PREVIEW_LIMIT && (
                     <LinkButton
                       variant="link"
-
                       className="h-auto p-0 text-xs"
                       render={
                         <Link
@@ -424,7 +422,6 @@ export function SearchResultsPage() {
                   {seriesTotal > SEARCH_PREVIEW_LIMIT && (
                     <LinkButton
                       variant="link"
-
                       className="h-auto p-0 text-xs"
                       render={
                         <Link

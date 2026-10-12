@@ -214,7 +214,6 @@ export function QualifierIndicatorsCard() {
               <Button
                 type="button"
                 variant="outline"
-
                 onClick={addRow}
                 disabled={mutation.isPending || sources.length === 0}
               >
@@ -225,7 +224,6 @@ export function QualifierIndicatorsCard() {
                 {problem && <span className="text-muted-foreground text-xs">{problem}</span>}
                 <Button
                   type="button"
-
                   disabled={mutation.isPending || draft === null || problem !== null}
                   onClick={() => mutation.mutate(rows)}
                 >

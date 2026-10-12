@@ -419,7 +419,6 @@ export function MetadataRefresh() {
               {cutoffDate && (
                 <Button
                   variant="link"
-
                   className="h-auto p-0 text-xs"
                   onClick={() => setCutoffDate("")}
                 >
@@ -513,7 +512,6 @@ export function MetadataRefresh() {
           <div className="flex flex-wrap items-center gap-2">
             <Button
               variant="outline"
-
               disabled={reevaluateMutation.isPending}
               onClick={() => reevaluateMutation.mutate()}
               title="Re-diff every pending change against the library, series mapping patterns, and changed-fields logic as they stand right now, without re-fetching anything from a source"
@@ -721,7 +719,6 @@ export function MetadataRefresh() {
                     </Badge>
                     <LinkButton
                       variant="ghost"
-
                       render={
                         <Link
                           to="/library/book/$bookId"

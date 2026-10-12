@@ -131,7 +131,6 @@ export function RootLayout() {
                   render={
                     <Button
                       variant="ghost"
-
                       className={`h-auto px-3 py-1.5 text-xs font-medium ${
                         isToolsActive
                           ? "bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground"
@@ -201,7 +200,6 @@ export function RootLayout() {
                   render={
                     <Button
                       variant="ghost"
-
                       className={`h-auto px-3 py-1.5 text-xs font-medium ${
                         isSettingsActive
                           ? "bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground"

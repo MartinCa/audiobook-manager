@@ -263,7 +263,6 @@ export function BulkBookEditDialog({ open, onOpenChange, selectedBooks }: BulkBo
             </Alert>
             <Button
               variant="outline"
-
               disabled={previewQuery.isFetching}
               onClick={() => void previewQuery.refetch()}
             >

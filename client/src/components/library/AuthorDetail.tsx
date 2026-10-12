@@ -325,7 +325,6 @@ export function AuthorDetail() {
           <div className="flex shrink-0 items-center gap-2 self-end sm:self-center">
             <Button
               variant="outline"
-
               disabled={dismissingPending}
               onClick={() => {
                 void handleDismissPendingName();
@@ -533,7 +532,6 @@ export function AuthorDetail() {
                 </span>
                 <Button
                   variant="outline"
-
                   className="w-full sm:w-auto"
                   disabled={refreshing}
                   onClick={() => {

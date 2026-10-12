@@ -427,7 +427,6 @@ export function BookDetail({ mode }: BookDetailProps) {
           {isEditMode && (
             <Button
               variant="outline"
-
               onClick={() => {
                 void handleRefreshNow();
               }}
@@ -699,7 +698,6 @@ export function BookDetail({ mode }: BookDetailProps) {
               {isEditMode && (
                 <Button
                   variant="ghost"
-
                   className="h-7 text-xs"
                   disabled={checkingConsistency}
                   onClick={() => {

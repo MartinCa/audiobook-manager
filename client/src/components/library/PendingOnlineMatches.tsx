@@ -189,7 +189,6 @@ export function PendingOnlineMatches() {
                     </button>
                     <LinkButton
                       variant="ghost"
-
                       render={
                         <Link
                           to="/library/book/$bookId"
@@ -201,7 +200,6 @@ export function PendingOnlineMatches() {
                     </LinkButton>
                     <Button
                       variant="outline"
-
                       disabled={rejectingId === item.audiobookId}
                       onClick={() => {
                         void handleReject(item.audiobookId);
@@ -270,7 +268,6 @@ export function PendingOnlineMatches() {
                 </div>
                 <LinkButton
                   variant="ghost"
-
                   render={
                     <Link
                       to="/library/book/$bookId"
@@ -282,7 +279,6 @@ export function PendingOnlineMatches() {
                 </LinkButton>
                 <Button
                   variant="outline"
-
                   disabled={dismissingId === item.audiobookId}
                   onClick={() => {
                     void handleDismiss(item.audiobookId);

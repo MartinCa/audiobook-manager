@@ -501,7 +501,6 @@ export function DiscoveredAudiobooks() {
                 <div className="flex shrink-0 gap-2">
                   <Button
                     variant="outline"
-
                     disabled={
                       retryFailedTaskMutation.isPending &&
                       retryFailedTaskMutation.variables === task.originalFileLocation
@@ -520,7 +519,6 @@ export function DiscoveredAudiobooks() {
                   </Button>
                   <Button
                     variant="outline"
-
                     className="text-destructive hover:text-destructive"
                     onClick={() => setRemoveFailedTargetPath(task.originalFileLocation)}
                   >
@@ -582,7 +580,6 @@ export function DiscoveredAudiobooks() {
           <div className="flex flex-wrap items-center gap-2">
             <Button
               variant="outline"
-
               className="w-full sm:w-auto"
               disabled={importing}
               onClick={() => setAllImportDialogOpen(true)}
@@ -595,7 +592,6 @@ export function DiscoveredAudiobooks() {
               <>
                 <Button
                   variant="outline"
-
                   className="w-full sm:w-auto"
                   onClick={handleSelectAllWellTagged}
                 >

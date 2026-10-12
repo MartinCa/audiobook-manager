@@ -71,7 +71,6 @@ export function AuthorFollowSection({ authorId, authorName }: AuthorFollowSectio
     <div className="flex flex-wrap items-center gap-2">
       <Button
         variant={isFollowed ? "default" : "outline"}
-
         disabled={busy || followQuery.isLoading}
         onClick={() => {
           void handleToggleFollow();
@@ -89,7 +88,6 @@ export function AuthorFollowSection({ authorId, authorName }: AuthorFollowSectio
         <>
           <Button
             variant="ghost"
-
             disabled={busy}
             onClick={() => setMatchDialogOpen(true)}
           >

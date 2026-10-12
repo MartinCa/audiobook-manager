@@ -117,7 +117,6 @@ export function AuthorRefreshPendingList() {
                 </Badge>
                 <Button
                   variant="outline"
-
                   className="h-7 text-xs"
                   disabled={dismissingId === item.authorId}
                   onClick={() => {

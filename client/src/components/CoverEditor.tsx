@@ -190,7 +190,6 @@ export function CoverEditor({
                 <Button
                   type="button"
                   variant="destructive"
-
                   className="w-full sm:w-auto"
                   onClick={() => {
                     handleRemove();

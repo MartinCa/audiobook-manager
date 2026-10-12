@@ -37,7 +37,6 @@ export function QualifiersField({ value, onChange, disabled = false }: Qualifier
             <Button
               key={key}
               type="button"
-
               variant={isSelected ? "default" : "outline"}
               aria-pressed={isSelected}
               disabled={disabled}

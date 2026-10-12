@@ -77,7 +77,6 @@ export function FilterPresets({ scope, filters, fields, onApply }: FilterPresets
             <Button
               type="button"
               variant="outline"
-
               disabled={isLoading}
               className="h-8 max-w-64 justify-between font-normal"
             >

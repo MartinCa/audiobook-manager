@@ -197,7 +197,6 @@ export function MissingTags() {
           </label>
           <Button
             variant="link"
-
             className="h-auto p-0 text-xs"
             onClick={selectCriticalOnly}
           >

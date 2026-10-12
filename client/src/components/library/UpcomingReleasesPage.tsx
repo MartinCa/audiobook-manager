@@ -112,7 +112,6 @@ export function UpcomingReleasesPage() {
         </div>
         <Button
           variant="outline"
-
           disabled={isRefreshing}
           onClick={() => {
             void handleRefresh();

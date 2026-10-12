@@ -756,7 +756,6 @@ export function LibraryConsistency() {
                     <div className="flex flex-wrap items-center justify-end gap-2">
                       <Button
                         variant="destructive"
-
                         onClick={() => setDeleteAllOrphansOpen(true)}
                       >
                         Delete All {orphanDirs.length}
@@ -774,7 +773,6 @@ export function LibraryConsistency() {
                           </span>
                           <Button
                             variant="outline"
-
                             className="w-full shrink-0 sm:w-auto"
                             onClick={() => setOrphanToDelete(dir)}
                           >

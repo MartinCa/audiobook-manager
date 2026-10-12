@@ -995,7 +995,6 @@ export function BookEditForm({
                 <Button
                   type="button"
                   variant="outline"
-
                   className="h-6 px-2 text-xs"
                   onClick={splitTitleNow}
                 >
@@ -1033,7 +1032,6 @@ export function BookEditForm({
               <Button
                 type="button"
                 variant="outline"
-
                 className="h-6 px-2 text-xs"
                 onClick={moveSuffixToQualifiers}
               >
@@ -1214,7 +1212,6 @@ export function BookEditForm({
               <Button
                 type="button"
                 variant="ghost"
-
                 className="text-muted-foreground hover:text-foreground h-8 text-xs"
                 onClick={() => setShowAllOptionalFields(true)}
               >
@@ -1225,7 +1222,6 @@ export function BookEditForm({
               <Button
                 type="button"
                 variant="ghost"
-
                 className="text-muted-foreground hover:text-foreground h-8 text-xs"
                 onClick={() => setShowAllOptionalFields(false)}
               >

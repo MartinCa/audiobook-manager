@@ -745,7 +745,6 @@ export function SeriesDetail() {
       <div>
         <LinkButton
           variant="ghost"
-
           render={
             authorId ? (
               <Link to="/library/authors/$authorId" params={{ authorId: String(authorId) }} />
@@ -897,7 +896,6 @@ export function SeriesDetail() {
           {missingSection.totalCount > 0 && (
             <Button
               variant="secondary"
-
               className="w-full sm:w-auto"
               onClick={() => setBulkMatchOpen(true)}
             >
@@ -1002,7 +1000,6 @@ export function SeriesDetail() {
                 </div>
                 <Button
                   variant="secondary"
-
                   className="h-6 self-end text-[11px] sm:self-center"
                   disabled={fixingMismatchId === pm.audiobookId}
                   onClick={() => {
@@ -1043,7 +1040,6 @@ export function SeriesDetail() {
           <div className="flex flex-wrap items-center gap-2">
             <Button
               variant="outline"
-
               className="w-full sm:w-auto"
               disabled={loadingCandidates || matchingCandidate}
               onClick={() => {
@@ -1061,7 +1057,6 @@ export function SeriesDetail() {
             {overview.isMatched && (
               <Button
                 variant="outline"
-
                 className="w-full sm:w-auto"
                 disabled={refreshing}
                 onClick={() => {
@@ -1181,7 +1176,6 @@ export function SeriesDetail() {
                 />
                 <Button
                   variant="secondary"
-
                   className="h-8 w-full text-xs sm:w-auto"
                   disabled={searchingCandidates || !manualQuery.trim()}
                   onClick={() => {
@@ -1204,7 +1198,6 @@ export function SeriesDetail() {
                   <span className="font-semibold">Match Candidates ({candidates.length})</span>
                   <Button
                     variant="ghost"
-
                     className="h-6 text-[11px]"
                     onClick={() => {
                       setCandidates([]);
@@ -1289,7 +1282,6 @@ export function SeriesDetail() {
               </div>
               <Button
                 variant="outline"
-
                 className="h-7 text-xs"
                 onClick={handleOpenCreateMapping}
               >
@@ -1347,7 +1339,6 @@ export function SeriesDetail() {
             </p>
             <Button
               variant="destructive"
-
               className="h-7 text-xs"
               onClick={() => setDeleteDialogOpen(true)}
             >
