@@ -71,7 +71,6 @@ export function AuthorFollowSection({ authorId, authorName }: AuthorFollowSectio
     <div className="flex flex-wrap items-center gap-2">
       <Button
         variant={isFollowed ? "default" : "outline"}
-        size="sm"
         disabled={busy || followQuery.isLoading}
         onClick={() => {
           void handleToggleFollow();
@@ -87,22 +86,17 @@ export function AuthorFollowSection({ authorId, authorName }: AuthorFollowSectio
 
       {isMatched ? (
         <>
-          <Button
-            variant="ghost"
-            size="sm"
-            disabled={busy}
-            onClick={() => setMatchDialogOpen(true)}
-          >
+          <Button variant="ghost" disabled={busy} onClick={() => setMatchDialogOpen(true)}>
             <Link2 className="mr-1.5 h-3.5 w-3.5" />
             Change Hardcover match
           </Button>
-          <Button variant="ghost" size="sm" disabled={busy} onClick={() => void handleUnmatch()}>
+          <Button variant="ghost" disabled={busy} onClick={() => void handleUnmatch()}>
             <Link2Off className="mr-1.5 h-3.5 w-3.5" />
             Unlink Hardcover match
           </Button>
         </>
       ) : (
-        <Button variant="ghost" size="sm" onClick={() => setMatchDialogOpen(true)}>
+        <Button variant="ghost" onClick={() => setMatchDialogOpen(true)}>
           <Link2 className="mr-1.5 h-3.5 w-3.5" />
           Match to Hardcover
         </Button>

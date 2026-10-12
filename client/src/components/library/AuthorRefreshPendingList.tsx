@@ -117,7 +117,6 @@ export function AuthorRefreshPendingList() {
                 </Badge>
                 <Button
                   variant="outline"
-                  size="sm"
                   className="h-7 text-xs"
                   disabled={dismissingId === item.authorId}
                   onClick={() => {
@@ -126,7 +125,7 @@ export function AuthorRefreshPendingList() {
                 >
                   Dismiss
                 </Button>
-                <Button size="sm" className="h-7 text-xs" onClick={() => setReviewing(item)}>
+                <Button className="h-7 text-xs" onClick={() => setReviewing(item)}>
                   Review
                 </Button>
               </div>

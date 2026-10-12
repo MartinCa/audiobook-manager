@@ -190,7 +190,6 @@ function ExpectedBookRowView({
         {!ignored && onFindInLibrary && (
           <Button
             variant="secondary"
-            size="sm"
             className="h-6 text-[11px]"
             onClick={() => onFindInLibrary(book)}
           >
@@ -201,7 +200,6 @@ function ExpectedBookRowView({
         {ignored ? (
           <Button
             variant="outline"
-            size="sm"
             className="h-6 self-end text-[11px] sm:self-center"
             disabled={busyBookId === book.id}
             onClick={() => onUnignore(book)}
@@ -216,7 +214,6 @@ function ExpectedBookRowView({
         ) : (
           <Button
             variant="ghost"
-            size="sm"
             className="h-6 text-[11px]"
             disabled={busyBookId === book.id}
             onClick={() => onIgnore(book)}

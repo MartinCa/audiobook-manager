@@ -175,7 +175,7 @@ export function CleanBookUrls() {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <LinkButton variant="ghost" size="sm" render={<Link to="/library" />}>
+        <LinkButton variant="ghost" render={<Link to="/library" />}>
           <ArrowLeft className="mr-2 h-4 w-4" />
           Back to Library
         </LinkButton>
@@ -209,19 +209,13 @@ export function CleanBookUrls() {
           </h2>
           {totalCount > 0 && (
             <div className="flex flex-wrap items-center gap-2">
-              <Button variant="link" size="sm" className="h-auto p-0 text-xs" onClick={selectAll}>
+              <Button variant="link" className="h-auto p-0 text-xs" onClick={selectAll}>
                 Select all
               </Button>
-              <Button
-                variant="link"
-                size="sm"
-                className="h-auto p-0 text-xs"
-                onClick={clearSelection}
-              >
+              <Button variant="link" className="h-auto p-0 text-xs" onClick={clearSelection}>
                 Clear
               </Button>
               <ActionButton
-                size="sm"
                 variant="default"
                 icon={Sparkles}
                 status={applyMutation.status}
@@ -231,7 +225,6 @@ export function CleanBookUrls() {
                 Clean {selectedIds.size} URL{selectedIds.size === 1 ? "" : "s"}
               </ActionButton>
               <Button
-                size="sm"
                 variant="outline"
                 disabled={cleaningAll}
                 onClick={() => void handleApplyAll()}

@@ -186,7 +186,7 @@ export function SimilarValues() {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <LinkButton variant="ghost" size="sm" render={<Link to="/library" />}>
+        <LinkButton variant="ghost" render={<Link to="/library" />}>
           <ArrowLeft className="mr-2 h-4 w-4" />
           Back to Library
         </LinkButton>
@@ -277,11 +277,7 @@ export function SimilarValues() {
                     </span>
                     <Badge variant="outline">{group.candidates.length} variants</Badge>
                   </div>
-                  <Button
-                    size="sm"
-                    className="w-full sm:w-auto"
-                    onClick={() => handleOpenDialog(group)}
-                  >
+                  <Button className="w-full sm:w-auto" onClick={() => handleOpenDialog(group)}>
                     Align Group
                     <ArrowRight className="ml-2 h-4 w-4" />
                   </Button>

@@ -260,7 +260,6 @@ export function SeriesMatchDialog({ open, onOpenChange, onMatched }: SeriesMatch
             <div className="flex flex-wrap items-center gap-2">
               <Button
                 variant="outline"
-                size="sm"
                 className="w-full sm:w-auto"
                 disabled={loadingSuggestions || matching || series.length === 0}
                 onClick={() => {
@@ -276,7 +275,6 @@ export function SeriesMatchDialog({ open, onOpenChange, onMatched }: SeriesMatch
               </Button>
               <Button
                 variant="ghost"
-                size="sm"
                 className="w-full sm:w-auto"
                 disabled={matching}
                 onClick={selectedCount === series.length ? clearSelection : selectAllOnPage}

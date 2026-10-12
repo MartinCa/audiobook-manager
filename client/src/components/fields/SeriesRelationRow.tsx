@@ -47,7 +47,6 @@ export function SeriesRelationRow({
           <Button
             type="button"
             variant="outline"
-            size="sm"
             onClick={onMakePrimary}
             aria-label={`Make additional series ${position} the primary series`}
           >

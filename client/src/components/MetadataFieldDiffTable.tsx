@@ -37,7 +37,6 @@ export function MetadataFieldDiffTable({
       <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
         <Button
           variant="ghost"
-          size="sm"
           className="h-7 w-full justify-start text-xs sm:w-auto sm:justify-center"
           onClick={onToggleAll}
         >

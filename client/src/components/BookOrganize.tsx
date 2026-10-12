@@ -101,7 +101,7 @@ export function BookOrganize({
     return (
       <div className="space-y-3 py-4 text-center">
         <div className="text-destructive text-xs">Failed to parse file: {error}</div>
-        <Button variant="outline" size="sm" onClick={() => setDeleteConfirmOpen(true)}>
+        <Button variant="outline" onClick={() => setDeleteConfirmOpen(true)}>
           <Trash2 className="text-destructive mr-1.5 h-3.5 w-3.5" />
           Delete Corrupted File
         </Button>

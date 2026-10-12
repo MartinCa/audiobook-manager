@@ -745,7 +745,6 @@ export function SeriesDetail() {
       <div>
         <LinkButton
           variant="ghost"
-          size="sm"
           render={
             authorId ? (
               <Link to="/library/authors/$authorId" params={{ authorId: String(authorId) }} />
@@ -796,7 +795,7 @@ export function SeriesDetail() {
               });
             }}
           />
-          <Button variant="ghost" size="sm" onClick={() => setRenameOpen(true)}>
+          <Button variant="ghost" onClick={() => setRenameOpen(true)}>
             <Pencil className="mr-1.5 h-3.5 w-3.5" />
             Rename series
           </Button>
@@ -897,7 +896,6 @@ export function SeriesDetail() {
           {missingSection.totalCount > 0 && (
             <Button
               variant="secondary"
-              size="sm"
               className="w-full sm:w-auto"
               onClick={() => setBulkMatchOpen(true)}
             >
@@ -1002,7 +1000,6 @@ export function SeriesDetail() {
                 </div>
                 <Button
                   variant="secondary"
-                  size="sm"
                   className="h-6 self-end text-[11px] sm:self-center"
                   disabled={fixingMismatchId === pm.audiobookId}
                   onClick={() => {
@@ -1043,7 +1040,6 @@ export function SeriesDetail() {
           <div className="flex flex-wrap items-center gap-2">
             <Button
               variant="outline"
-              size="sm"
               className="w-full sm:w-auto"
               disabled={loadingCandidates || matchingCandidate}
               onClick={() => {
@@ -1061,7 +1057,6 @@ export function SeriesDetail() {
             {overview.isMatched && (
               <Button
                 variant="outline"
-                size="sm"
                 className="w-full sm:w-auto"
                 disabled={refreshing}
                 onClick={() => {
@@ -1137,7 +1132,6 @@ export function SeriesDetail() {
                   )}
                 </div>
                 <Button
-                  size="sm"
                   className="h-7 shrink-0 self-end text-xs sm:self-center"
                   onClick={() => setPendingReviewOpen(true)}
                 >
@@ -1182,7 +1176,6 @@ export function SeriesDetail() {
                 />
                 <Button
                   variant="secondary"
-                  size="sm"
                   className="h-8 w-full text-xs sm:w-auto"
                   disabled={searchingCandidates || !manualQuery.trim()}
                   onClick={() => {
@@ -1205,7 +1198,6 @@ export function SeriesDetail() {
                   <span className="font-semibold">Match Candidates ({candidates.length})</span>
                   <Button
                     variant="ghost"
-                    size="sm"
                     className="h-6 text-[11px]"
                     onClick={() => {
                       setCandidates([]);
@@ -1254,7 +1246,6 @@ export function SeriesDetail() {
                             </a>
                           )}
                           <Button
-                            size="sm"
                             className="h-7 text-xs"
                             disabled={matchingCandidate}
                             onClick={() => {
@@ -1289,12 +1280,7 @@ export function SeriesDetail() {
                   matching value is rewritten to "{seriesName}".
                 </p>
               </div>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-7 text-xs"
-                onClick={handleOpenCreateMapping}
-              >
+              <Button variant="outline" className="h-7 text-xs" onClick={handleOpenCreateMapping}>
                 <Plus className="mr-1 h-3 w-3" />
                 Add Pattern
               </Button>
@@ -1349,7 +1335,6 @@ export function SeriesDetail() {
             </p>
             <Button
               variant="destructive"
-              size="sm"
               className="h-7 text-xs"
               onClick={() => setDeleteDialogOpen(true)}
             >

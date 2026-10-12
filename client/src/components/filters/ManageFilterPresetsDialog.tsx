@@ -218,7 +218,6 @@ export function ManageFilterPresetsDialog({
                       <span className="text-destructive text-xs">Delete this preset?</span>
                       <Button
                         type="button"
-                        size="sm"
                         variant="destructive"
                         disabled={busy}
                         onClick={() => {
@@ -233,7 +232,6 @@ export function ManageFilterPresetsDialog({
                       </Button>
                       <Button
                         type="button"
-                        size="sm"
                         variant="outline"
                         disabled={busy}
                         onClick={() => setConfirmingDeleteId(null)}
