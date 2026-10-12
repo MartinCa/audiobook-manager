@@ -32,19 +32,25 @@ public class Audiobook
     [Column("split_title_on_colon")]
     public bool SplitTitleOnColon { get; set; }
 
-    [Column("series")]
-    public string? Series { get; set; }
-
-    [Column("series_part")]
-    public string? SeriesPart { get; set; }
-
     /// <summary>
     /// Every series this book belongs to, primary included (see <see cref="AudiobookSeries"/>).
     /// Deliberately left null - not an empty list - until a query loads it, so a caller can tell
     /// "not loaded" from "no relations" and never rewrite relations it did not read.
-    /// <see cref="Series"/>/<see cref="SeriesPart"/> above always mirror the primary one.
+    /// The primary one is the series that reaches the tags, the library path and the book list; it is
+    /// the only place a book's primary series and part are stored (there is no mirror on this row).
     /// </summary>
     public List<AudiobookSeries>? SeriesRelations { get; set; }
+
+    /// <summary>
+    /// The primary series relation, or null when the book has no series. Throws when
+    /// <see cref="SeriesRelations"/> was not loaded: reading "no series" off an entity that simply
+    /// was not <c>Include</c>d would silently drop the series on the next save.
+    /// </summary>
+    [NotMapped]
+    public AudiobookSeries? PrimarySeries =>
+        (SeriesRelations ?? throw new InvalidOperationException(
+            $"Audiobook {Id}: SeriesRelations was not loaded; Include them before reading the series."))
+        .FirstOrDefault(r => r.IsPrimary);
 
     /// <summary>
     /// The book's qualifiers (abridged, dramatized, ...) as a delimited list of their keys, in
@@ -141,19 +147,25 @@ public class Audiobook
     [Column("subtitle_folded")]
     public string? SubtitleFolded { get; set; }
 
-    [Column("series_folded")]
-    public string? SeriesFolded { get; set; }
-
     [Column("description_folded")]
     public string? DescriptionFolded { get; set; }
+
+    // For EF Core: the public constructor takes a series, which is not a column of this table.
+    private Audiobook() { BookName = string.Empty; FileInfoFullPath = string.Empty; FileInfoFileName = string.Empty; Authors = new List<Person>(); Narrators = new List<Person>(); Genres = new List<Genre>(); }
 
     public Audiobook(long id, string bookName, string? subtitle, string? series, string? seriesPart, int year, string? description, string? copyright, string? publisher, string? language, string? rating, string? asin, string? www, string? coverFilePath, int? durationInSeconds, string fileInfoFullPath, string fileInfoFileName, long fileInfoSizeInBytes)
     {
         Id = id;
         BookName = bookName;
         Subtitle = subtitle;
-        Series = series;
-        SeriesPart = seriesPart;
+        // Callers (and tests) that build a book with a series get its primary relation; a book
+        // read back from the database gets its relations from the Include instead.
+        SeriesRelations = new List<AudiobookSeries>();
+        if (!string.IsNullOrWhiteSpace(series))
+        {
+            SeriesRelations.Add(new() { SeriesName = series.Trim(), SeriesPart = string.IsNullOrWhiteSpace(seriesPart) ? null : seriesPart.Trim(), IsPrimary = true, SortOrder = 0 });
+        }
+
         Year = year;
         Description = description;
         Copyright = copyright;

@@ -11,8 +11,8 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace AudiobookManager.Database.Migrations
 {
     [DbContext(typeof(DatabaseContext))]
-    [Migration("20261012175801_NormalizeSeriesRelations")]
-    partial class NormalizeSeriesRelations
+    [Migration("20261012201703_NormalizeSeriesStorage")]
+    partial class NormalizeSeriesStorage
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -120,18 +120,6 @@ namespace AudiobookManager.Database.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("rating");
 
-                    b.Property<string>("Series")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("series");
-
-                    b.Property<string>("SeriesFolded")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("series_folded");
-
-                    b.Property<string>("SeriesPart")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("series_part");
-
                     b.Property<bool>("SplitTitleOnColon")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("INTEGER")
@@ -165,9 +153,6 @@ namespace AudiobookManager.Database.Migrations
 
                     b.HasIndex(new[] { "MatchedSourceName" }, "ix_audiobooks_matched_source_name")
                         .HasDatabaseName("ix_audiobooks_matched_source_name");
-
-                    b.HasIndex(new[] { "Series" }, "ix_audiobooks_series")
-                        .HasDatabaseName("ix_audiobooks_series");
 
                     b.ToTable("audiobooks", (string)null);
                 });
@@ -206,6 +191,10 @@ namespace AudiobookManager.Database.Migrations
 
                     b.HasKey("Id")
                         .HasName("pk_audiobook_series");
+
+                    b.HasIndex(new[] { "SeriesNameFolded", "AudiobookId" }, "ix_audiobook_series_primary_folded")
+                        .HasDatabaseName("ix_audiobook_series_series_name_folded_audiobook_id")
+                        .HasFilter("is_primary = 1");
 
                     b.HasIndex(new[] { "SeriesName" }, "ix_audiobook_series_series_name")
                         .HasDatabaseName("ix_audiobook_series_series_name");

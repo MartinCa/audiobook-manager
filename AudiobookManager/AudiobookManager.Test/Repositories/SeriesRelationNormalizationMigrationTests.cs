@@ -1,5 +1,6 @@
 using AudiobookManager.Database;
-using AudiobookManager.Database.Repositories;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using AudiobookManager.Settings;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
@@ -8,9 +9,8 @@ using Microsoft.Extensions.Options;
 namespace AudiobookManager.Test.Repositories;
 
 /// <summary>
-/// The NormalizeSeriesRelations migration puts legacy series values in canonical form and makes
-/// audiobook_series agree with the mirrored columns (#1564), and the drift query is the guard that
-/// the two never disagree again.
+/// The NormalizeSeriesStorage migration puts legacy series values in canonical form, makes
+/// audiobook_series agree with the flat columns and then drops them (#1564).
 /// </summary>
 [TestClass]
 public class SeriesRelationNormalizationMigrationTests
@@ -47,7 +47,7 @@ public class SeriesRelationNormalizationMigrationTests
         $"VALUES ({book}, {Sql(name)}, {Sql(part)}, {(primary ? 1 : 0)}, {order}, {Sql(name)})";
 
     [TestMethod]
-    public async Task Migration_RepairsDriftAndCanonicalisesLegacyValues_AndDriftGuardIsThenEmpty()
+    public async Task Migration_RepairsDriftAndCanonicalisesLegacyValues_AndDropsTheFlatColumns()
     {
         using (var seed = CreateContext())
         {
@@ -90,43 +90,40 @@ public class SeriesRelationNormalizationMigrationTests
         (string Name, string? Part, bool Primary)[] Relations(long id) =>
             books[id].SeriesRelations!.OrderBy(r => r.SortOrder).Select(r => (r.SeriesName, r.SeriesPart, r.IsPrimary)).ToArray();
 
-        Assert.AreEqual("Mistborn", books[1].Series);
-        Assert.AreEqual("2", books[1].SeriesPart);
         CollectionAssert.AreEqual(new[] { ("Mistborn", (string?)"2", true) }, Relations(1));
 
-        Assert.IsNull(books[2].Series);
-        Assert.IsNull(books[2].SeriesPart);
-        Assert.AreEqual(0, books[2].SeriesRelations!.Count);
+        Assert.AreEqual(0, books[2].SeriesRelations!.Count, "a whitespace-only series is no series");
 
         CollectionAssert.AreEqual(new[] { ("Stormlight", (string?)"1", true) }, Relations(3));
 
         CollectionAssert.AreEqual(new[] { ("Main", (string?)"1", true), ("Spinoff", (string?)"2", false) }, Relations(4));
 
-        Assert.AreEqual("Book 2", books[5].SeriesPart, "parts are never rewritten, only the stale row follows the mirror");
         CollectionAssert.AreEqual(new[] { ("Cosmere", (string?)"Book 2", true) }, Relations(5));
 
-        Assert.AreEqual("Elantris", books[6].Series);
-        Assert.AreEqual("1", books[6].SeriesPart);
+        CollectionAssert.AreEqual(new[] { ("Elantris", (string?)"1", true) }, Relations(6));
 
-        Assert.AreEqual("Alpha", books[7].Series);
         CollectionAssert.AreEqual(new[] { ("Alpha", (string?)null, true), ("Beta", (string?)"1", false) }, Relations(7));
 
-        Assert.AreEqual(0, (await new AudiobookRepository(db).GetSeriesMirrorDriftIdsAsync(100)).Count,
-            "after the migration no book's mirror may disagree with its primary relation");
+        var columns = await db.Database.SqlQueryRaw<string>("SELECT name FROM pragma_table_info('audiobooks')").ToListAsync();
+        foreach (var dropped in new[] { "series", "series_part", "series_folded" })
+        {
+            CollectionAssert.DoesNotContain(columns, dropped, "the flat copy of the primary series is gone");
+        }
     }
 
     [TestMethod]
-    public async Task DriftGuard_FlagsAMirrorThatDisagreesWithThePrimaryRelation()
+    public async Task Down_RestoresTheFlatColumnsFromThePrimaryRelation()
     {
         using var db = CreateContext();
         await db.Database.MigrateAsync();
-        await db.Database.ExecuteSqlRawAsync(Insert(1, "Main", "1"));
-        await db.Database.ExecuteSqlRawAsync(Rel(1, "Main", "1", true, 0));
-        await db.Database.ExecuteSqlRawAsync(Insert(2, "Main", "2"));
-        await db.Database.ExecuteSqlRawAsync(Rel(2, "Main", "1", true, 0));
-        await db.Database.ExecuteSqlRawAsync(Insert(3, "Lonely", null));
+        await db.Database.ExecuteSqlRawAsync(
+            "INSERT INTO audiobooks (id, book_name, year, qualifiers, file_info_file_name, file_info_full_path, file_info_size_in_bytes) VALUES (1, 'B', 2000, '', 'f.m4b', '/lib/f.m4b', 1)");
+        await db.Database.ExecuteSqlRawAsync(Rel(1, "Main", "2", true, 0));
+        await db.Database.ExecuteSqlRawAsync(Rel(1, "Spinoff", "1", false, 1));
 
-        CollectionAssert.AreEqual(new long[] { 2, 3 }, await new AudiobookRepository(db).GetSeriesMirrorDriftIdsAsync(100));
-        CollectionAssert.AreEqual(new long[] { 2 }, await new AudiobookRepository(db).GetSeriesMirrorDriftIdsAsync(1));
+        await db.Database.GetService<IMigrator>().MigrateAsync("AddFilterPresets");
+
+        var row = (await db.Database.SqlQueryRaw<string>("SELECT series || '|' || series_part AS \"Value\" FROM audiobooks WHERE id = 1").ToListAsync()).Single();
+        Assert.AreEqual("Main|2", row);
     }
 }

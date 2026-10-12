@@ -5,16 +5,17 @@
 namespace AudiobookManager.Database.Migrations
 {
     /// <inheritdoc />
-    public partial class NormalizeSeriesRelations : Migration
+    public partial class NormalizeSeriesStorage : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            // Data-only: puts every book's series into the one canonical form (SeriesNormalization:
-            // trimmed, blank = none, same name ignoring case) and makes audiobook_series agree with
-            // the mirror columns on audiobooks. The mirror wins on a disagreement - it is what the
-            // m4b tags and the library path were built from, so the file on disk already says so.
-            // Parts are only trimmed, never rewritten ("Book 2" / "2.0" stay as written).
+            // Before the flat series/series_part/series_folded columns are dropped, audiobook_series has to
+            // hold everything they did: names are put in canonical form (trimmed, blank = none, same name
+            // ignoring case) and the two are made to agree. The flat columns win on a disagreement - they
+            // are what the m4b tags and the library path were built from, so the file on disk already
+            // says so. Parts are only trimmed here; they are put in canonical form ("Book 2" -> "2")
+            // the next time a book is saved.
             // fold_accents is the per-connection function AccentFoldingConnectionInterceptor registers.
 
             // 1. The mirror: blank series is no series; otherwise trimmed.
@@ -116,12 +117,68 @@ namespace AudiobookManager.Database.Migrations
                 WHERE a.series IS NOT NULL
                   AND NOT EXISTS (SELECT 1 FROM audiobook_series r WHERE r.audiobook_id = a.id AND r.is_primary = 1);
                 """);
+
+            migrationBuilder.DropIndex(
+                name: "ix_audiobooks_series",
+                table: "audiobooks");
+
+            migrationBuilder.DropColumn(
+                name: "series",
+                table: "audiobooks");
+
+            migrationBuilder.DropColumn(
+                name: "series_folded",
+                table: "audiobooks");
+
+            migrationBuilder.DropColumn(
+                name: "series_part",
+                table: "audiobooks");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_audiobook_series_series_name_folded_audiobook_id",
+                table: "audiobook_series",
+                columns: new[] { "series_name_folded", "audiobook_id" },
+                filter: "is_primary = 1");
         }
 
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
+            migrationBuilder.DropIndex(
+                name: "ix_audiobook_series_series_name_folded_audiobook_id",
+                table: "audiobook_series");
 
+            migrationBuilder.AddColumn<string>(
+                name: "series",
+                table: "audiobooks",
+                type: "TEXT",
+                nullable: true);
+
+            migrationBuilder.AddColumn<string>(
+                name: "series_folded",
+                table: "audiobooks",
+                type: "TEXT",
+                nullable: true);
+
+            migrationBuilder.AddColumn<string>(
+                name: "series_part",
+                table: "audiobooks",
+                type: "TEXT",
+                nullable: true);
+
+            // The columns come back as a copy of each book's primary relation.
+            migrationBuilder.Sql(
+                """
+                UPDATE audiobooks
+                SET series = (SELECT r.series_name FROM audiobook_series r WHERE r.audiobook_id = audiobooks.id AND r.is_primary = 1),
+                    series_part = (SELECT r.series_part FROM audiobook_series r WHERE r.audiobook_id = audiobooks.id AND r.is_primary = 1),
+                    series_folded = (SELECT r.series_name_folded FROM audiobook_series r WHERE r.audiobook_id = audiobooks.id AND r.is_primary = 1);
+                """);
+
+            migrationBuilder.CreateIndex(
+                name: "ix_audiobooks_series",
+                table: "audiobooks",
+                column: "series");
         }
     }
 }

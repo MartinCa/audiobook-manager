@@ -184,6 +184,7 @@ public class AudiobookService : IAudiobookService
 
         // First, before the path or any tag is derived: those come from the primary series, and
         // the database mirrors whichever series is primary afterwards.
+        audiobook.CanonicalizeSeries();
         audiobook.PromoteAdditionalSeriesIfNoPrimary();
 
         // Genres carry no order of their own anywhere in this app (TagConsistencyChecker already
@@ -427,6 +428,7 @@ public class AudiobookService : IAudiobookService
 
     public async Task<Audiobook> InsertAudiobook(Audiobook audiobook)
     {
+        audiobook.CanonicalizeSeries();
         var (authors, narrators, genres) = await GetOrCreateAuthorsNarratorsGenres(audiobook);
 
         AudiobookDb dbAudiobook = new AudiobookDb(
@@ -480,6 +482,7 @@ public class AudiobookService : IAudiobookService
     public async Task<Audiobook> UpdateAudiobook(long id, Audiobook audiobook, Func<string, int, Task>? progressAction, bool metadataAppliedFromSearch)
     {
         progressAction ??= (_, _) => Task.CompletedTask;
+        audiobook.CanonicalizeSeries();
 
         var existing = await _audiobookRepository.GetByIdWithIncludesAsync(id);
         if (existing == null)
@@ -614,8 +617,8 @@ public class AudiobookService : IAudiobookService
             BookName = audiobookDb.BookName,
             Subtitle = audiobookDb.Subtitle,
             SplitTitleOnColon = audiobookDb.SplitTitleOnColon,
-            Series = audiobookDb.Series,
-            SeriesPart = audiobookDb.SeriesPart,
+            Series = audiobookDb.SeriesRelations?.FirstOrDefault(r => r.IsPrimary)?.SeriesName,
+            SeriesPart = audiobookDb.SeriesRelations?.FirstOrDefault(r => r.IsPrimary)?.SeriesPart,
             // Null when the relations were not loaded, which UpdateAudiobook reads as "leave them".
             AdditionalSeries = SeriesRelationSync.AdditionalOf(audiobookDb),
             // Carried through every FromDb -> UpdateAudiobook round trip (consistency resolves,

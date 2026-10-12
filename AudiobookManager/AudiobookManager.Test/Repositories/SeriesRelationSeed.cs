@@ -4,23 +4,11 @@ namespace AudiobookManager.Test.Repositories;
 
 /// <summary>
 /// Repository tests seed <see cref="Audiobook"/> rows directly, bypassing
-/// <c>AudiobookService</c>. In production <c>SeriesRelationSync</c> keeps an
-/// <c>audiobook_series</c> row in step with <c>Series</c>/<c>SeriesPart</c>, and every
-/// series-keyed query reads those rows - so a seed that sets a series has to add its primary
-/// relation the same way.
+/// <c>AudiobookService</c>. The entity's constructor turns a series argument into its primary
+/// <c>audiobook_series</c> relation (the only place the series is stored), so this is now a no-op
+/// kept for the many call sites.
 /// </summary>
 internal static class SeriesRelationSeed
 {
-    public static Audiobook WithPrimaryRelation(this Audiobook book)
-    {
-        if (!string.IsNullOrWhiteSpace(book.Series))
-        {
-            book.SeriesRelations = new List<AudiobookSeries>
-            {
-                new() { SeriesName = book.Series.Trim(), SeriesPart = book.SeriesPart, IsPrimary = true, SortOrder = 0 },
-            };
-        }
-
-        return book;
-    }
+    public static Audiobook WithPrimaryRelation(this Audiobook book) => book;
 }

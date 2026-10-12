@@ -612,18 +612,25 @@ pending-match / URL-cleanup lists); a list DTO that names a library book carries
 
 ### Series relations: a book can be in several series, one of them primary
 
-**Invariant: `audiobook_series` holds every series a book belongs to (each with an optional part and
-a primary flag); `audiobooks.series`/`series_part` are a mirror of the primary one.** The primary
-is the only series that reaches the m4b tags, `metadata.opf`, the library path and the book list,
-so none of that code changed and Audiobookshelf sees exactly what it always did. The other
-("additional") series are database-only.
+**Invariant: `audiobook_series` is the only place a book's series is stored (each row has a name, an
+optional part and a primary flag).** There is no copy on `audiobooks` - the `series`, `series_part`
+and `series_folded` columns were dropped (`NormalizeSeriesStorage` migration). The primary row is the
+only series that reaches the m4b tags, `metadata.opf`, the library path and the book list, so
+Audiobookshelf sees exactly what it always did. The other ("additional") series are database-only.
 
-- **`SeriesRelationSync` is the one writer of both.** `AudiobookService.InsertAudiobook`/
-  `UpdateAudiobook` call `SeriesRelationSync.Apply`, which rewrites the relation rows and the mirror
-  in the same `SaveChanges`. Nothing else may set `Series`/`SeriesPart` on a tracked entity; a
-  mirror that drifts from its primary row makes a book vanish from its own series page (every
-  series-keyed query reads `audiobook_series`). `AudiobookRepository.InsertAudiobook` backstops a
-  caller that set only the mirrored columns.
+- **`SeriesRelationSync` is the one writer.** `AudiobookService.InsertAudiobook`/`UpdateAudiobook`
+  call `SeriesRelationSync.Apply`, which rewrites the relation rows in the same `SaveChanges`.
+  The entity constructor turns a `series` argument into the primary row, and the primary is read
+  through `Audiobook.PrimarySeries`.
+- **`PrimarySeries` throws when `SeriesRelations` was not loaded.** An entity read without
+  `Include(a => a.SeriesRelations)` is "not loaded", never "no series" - reading it as none would
+  silently drop the series on the next save. So every repository query that returns books to
+  something that reads the series (the book lists, search, the detail page, the standalone-books
+  page) includes the relations; a query that only needs the primary projects it in SQL
+  (`a.SeriesRelations.Where(r => r.IsPrimary)...`) instead. The controller tests mock the repository,
+  so `AudiobookRepositoryMultiSeriesTests.BookListQueries_LoadThePrimarySeriesOfEveryBook` is what
+  guards the includes. The book-level search matches the primary series' folded name
+  (`series_name_folded`), not the additional ones.
 - **The domain model carries it as `Series`/`SeriesPart` (the primary) plus `AdditionalSeries`.**
   `null` means "not specified - keep the stored ones"; an empty list removes them. That is what
   keeps every `FromDb` -> `UpdateAudiobook` round trip (consistency resolves, alignment, bulk edit,
@@ -640,15 +647,21 @@ so none of that code changed and Audiobookshelf sees exactly what it always did.
 - **Filling a roster slot never moves a book out of its primary series** (`SeriesService.ApplyMissingBookAsync`
   and the series-refresh `MissingBook` change): a book with no primary takes the series as primary,
   one that has a primary gains it as an additional series.
-- **One canonical form, one drift guard.** `SeriesNormalization` (`AudiobookManager.Domain`) is the
-  single definition of a series name/part: trimmed, blank = none, the same series when equal ignoring
-  case (first spelling wins). Parts are never rewritten (`Book 2`/`2.0` stay as written - they reach
-  tags and the path; equivalence is `SeriesPartEquivalence`'s comparison job). `SeriesRelationSync`
-  and `SeriesRelationSet` use it, and `helpers/seriesRelations.ts` mirrors it. The
-  `NormalizeSeriesRelations` migration brought legacy rows to that form and repaired mirror drift (the
-  mirror wins - the file was built from it); `IAudiobookRepository.GetSeriesMirrorDriftIdsAsync` returns
-  the books whose mirror and primary row disagree and must stay empty (`SeriesRelationNormalizationMigrationTests`).
-  Making `audiobook_series` the only store (dropping the mirror columns) is deliberately not done yet.
+- **One canonical form.** `SeriesNormalization` (`AudiobookManager.Domain`) is the single definition
+  of a series name and part, and `helpers/seriesRelations.ts` (`canonicalPart`) is its client twin
+  (both pinned by the same cases). A name is trimmed, blank = none, and two names are the same series
+  when equal ignoring case (first spelling wins). A part is a plain number (`2`, `2.5`), a range of two
+  numbers (`1-3`, an omnibus) or, for anything else, free text kept as written: numbers lose leading
+  zeros and a trailing `.0`, a `Book`/`Vol`/`Volume` label is dropped, and an en/em dash or `to`
+  between two numbers becomes `-`; a backwards range is left alone. `AudiobookService` canonicalises
+  the domain book once, before anything is derived (`CanonicalizeSeries`), so the tags, the path and
+  the row all get the same value; `MapToDomain` does it for the path previews. The folder and tag
+  format is unchanged - `AudiobookTagHandler.PadSeriesPart` pads the canonical value at write time
+  (`Book 01-03`, which Audiobookshelf cannot read a sequence from but has always been written).
+  Equivalence (`SeriesPartEquivalence`) compares canonical forms, and a range sorts at its first
+  number (`SeriesPartSortKey`) and is never equivalent to a single part. A part stored before this
+  existed (`2.0`, `Book 2`) is left as it is until the book is next saved, and then rewritten - which
+  can rename its folder (`Book 02.0` becomes `Book 02`), a `WrongFilePath` issue a bulk resolve fixes.
 - **Qualifiers stay on the primary only.** Additional series are stored clean and never suffixed.
 - **Series-keyed reads return one row per (book, series)**, with the part the book has _in that
   series_ - `SeriesOwnedKey`/`AuthorOwnedKey` are per pair, a standalone book (no relation rows)

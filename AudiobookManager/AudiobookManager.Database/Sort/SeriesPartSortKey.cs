@@ -85,6 +85,12 @@ public static class SeriesPartSortKey
             return numeric;
         }
 
+        // An omnibus range ("1-3") files at its first book.
+        if (Domain.SeriesNormalization.IsRange(value) && Domain.SeriesNormalization.LeadingNumber(value) is { } first)
+        {
+            return (double)first;
+        }
+
         return NonNumericTier;
     }
 

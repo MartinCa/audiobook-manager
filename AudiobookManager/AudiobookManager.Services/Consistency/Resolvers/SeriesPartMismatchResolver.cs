@@ -78,7 +78,7 @@ public class SeriesPartMismatchResolver : IBookConsistencyIssueResolver
         // than treating "cannot verify" as "stale" and clearing a possibly-live issue.
         // The issue names the series it was detected in (a book can be in several); an issue stored
         // before that column existed is about the primary series.
-        var seriesName = string.IsNullOrWhiteSpace(issue.SeriesName) ? dbAudiobook.Series : issue.SeriesName;
+        var seriesName = string.IsNullOrWhiteSpace(issue.SeriesName) ? dbAudiobook.PrimarySeries?.SeriesName : issue.SeriesName;
         if (string.IsNullOrWhiteSpace(seriesName) || !SeriesRelationSync.AllNames(dbAudiobook).Contains(seriesName))
         {
             return await ClearIssueBookNoLongerInSeries(issue);

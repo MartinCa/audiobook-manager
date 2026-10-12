@@ -64,8 +64,8 @@ public static class SeriesRelationSync
     }
 
     /// <summary>
-    /// Makes <paramref name="book"/>'s relation rows match <paramref name="audiobook"/> and mirrors
-    /// the primary onto the book's own series columns. When the domain object's
+    /// Makes <paramref name="book"/>'s relation rows match <paramref name="audiobook"/>: the rows are
+    /// the only place a book's series (and which one is primary) is stored. When the domain object's
     /// <c>AdditionalSeries</c> is null the stored non-primary relations are kept (minus one that
     /// the new primary now duplicates). Returns every series name the book had before or has now,
     /// so the caller can invalidate each one's cached reconciliation.
@@ -73,7 +73,6 @@ public static class SeriesRelationSync
     public static HashSet<string> Apply(Database.Models.Audiobook book, AudiobookDomain audiobook)
     {
         var touched = new HashSet<string>(StringComparer.Ordinal);
-        AddName(touched, book.Series);
         foreach (var r in book.SeriesRelations ?? new List<AudiobookSeries>())
         {
             AddName(touched, r.SeriesName);
@@ -87,11 +86,6 @@ public static class SeriesRelationSync
                 .ToList();
 
         var desired = Normalize(audiobook.Series, audiobook.SeriesPart, additional);
-        var primary = desired.FirstOrDefault(d => d.IsPrimary);
-
-        // The mirror: exactly what the domain's primary says, or nothing.
-        book.Series = primary?.Name;
-        book.SeriesPart = primary?.Part;
 
         var rows = book.SeriesRelations ??= new List<AudiobookSeries>();
         var byName = rows.ToDictionary(r => r.SeriesName, SeriesNormalization.NameComparer);
@@ -138,11 +132,10 @@ public static class SeriesRelationSync
             .Select(r => new SeriesRelation(r.SeriesName, r.SeriesPart))
             .ToList();
 
-    /// <summary>Every series name a loaded book relates to (its primary mirror included).</summary>
+    /// <summary>Every series name a loaded book relates to.</summary>
     public static HashSet<string> AllNames(Database.Models.Audiobook book)
     {
         var names = new HashSet<string>(StringComparer.Ordinal);
-        AddName(names, book.Series);
         foreach (var r in book.SeriesRelations ?? new List<AudiobookSeries>())
         {
             AddName(names, r.SeriesName);

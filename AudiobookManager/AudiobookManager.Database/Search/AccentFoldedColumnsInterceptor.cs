@@ -52,7 +52,6 @@ public sealed class AccentFoldedColumnsInterceptor : SaveChangesInterceptor
             {
                 entry.Entity.BookNameFolded = AccentFolding.FoldPlain(entry.Entity.BookName);
                 entry.Entity.SubtitleFolded = AccentFolding.FoldPlain(entry.Entity.Subtitle);
-                entry.Entity.SeriesFolded = AccentFolding.FoldPlain(entry.Entity.Series);
                 entry.Entity.DescriptionFolded = AccentFolding.FoldPlain(entry.Entity.Description);
                 entry.Entity.MatchedSourceName = MetadataSourceResolution.ResolvePlain(entry.Entity.Www);
             }

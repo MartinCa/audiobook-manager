@@ -147,7 +147,7 @@ public static class SeriesRelationSet
             : SeriesPartEquivalence.PartsEquivalentClr(a, b) || string.Equals(a!.Trim(), b!.Trim(), StringComparison.Ordinal);
     }
 
-    /// <summary>The set a stored book has, primary first - from its relations when loaded, else its mirrored columns.</summary>
+    /// <summary>The set a stored book has, primary first (empty when it has no relations or they were not loaded).</summary>
     public static Resolved OfBook(Database.Models.Audiobook book)
     {
         var rows = book.SeriesRelations;
@@ -160,9 +160,7 @@ public static class SeriesRelationSet
                 ordered.Where(r => !r.IsPrimary).Select(r => new Entry(r.SeriesName, r.SeriesPart)).ToList());
         }
 
-        return string.IsNullOrWhiteSpace(book.Series)
-            ? new Resolved(null, new List<Entry>())
-            : new Resolved(new Entry(book.Series.Trim(), book.SeriesPart), new List<Entry>());
+        return new Resolved(null, new List<Entry>());
     }
 
     /// <summary>The set a domain book has, primary first.</summary>

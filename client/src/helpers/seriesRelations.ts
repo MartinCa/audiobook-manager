@@ -21,6 +21,49 @@ export interface SeriesSet {
   additional: SeriesEntry[];
 }
 
+const NUMBER = /^\d+(?:\.\d+)?$/;
+const RANGE = /^(\d+(?:\.\d+)?)\s*(?:-|–|—|to)\s*(\d+(?:\.\d+)?)$/i;
+
+// Digit strings can be longer than any number type, so this works on the text.
+function canonicalNumber(value: string): string {
+  const [whole = "", fraction = ""] = value.split(".");
+  const w = whole.replace(/^0+/, "") || "0";
+  const f = fraction.replace(/0+$/, "");
+  return f ? `${w}.${f}` : w;
+}
+
+function compareNumbers(a: string, b: string): number {
+  const [aw = "", af = ""] = a.split(".");
+  const [bw = "", bf = ""] = b.split(".");
+  if (aw.length !== bw.length) return aw.length - bw.length;
+  if (aw !== bw) return aw < bw ? -1 : 1;
+  const len = Math.max(af.length, bf.length);
+  const x = af.padEnd(len, "0");
+  const y = bf.padEnd(len, "0");
+  return x === y ? 0 : x < y ? -1 : 1;
+}
+
+/**
+ * The canonical form of a series part - the twin of the backend's `SeriesNormalization.CleanPart`:
+ * a plain number (`2`, `2.5`), a range of two numbers (`1-3`) or, for anything else, the trimmed
+ * text. Numbers lose leading zeros and a trailing `.0`, a leading `Book`/`Vol`/`Volume` label is
+ * dropped, and an en/em dash or `to` between two numbers becomes `-`. A range that runs backwards
+ * is not one and is left as written. Undefined when blank.
+ */
+export function canonicalPart(part: string | null | undefined): string | undefined {
+  const trimmed = part?.trim();
+  if (!trimmed) return undefined;
+  const body = trimmed.replace(/^(?:vol(?:ume)?\.?|book)\s*(?=\d)/i, "").trim();
+  if (NUMBER.test(body)) return canonicalNumber(body);
+  const range = RANGE.exec(body);
+  if (range) {
+    const start = canonicalNumber(range[1] ?? "");
+    const end = canonicalNumber(range[2] ?? "");
+    if (compareNumbers(start, end) <= 0) return `${start}-${end}`;
+  }
+  return trimmed;
+}
+
 /** A plain code-point, case-insensitive comparison - what backend `OrdinalIgnoreCase` means. */
 function ordinalCompare(a: string, b: string): number {
   const al = a.toLowerCase();
@@ -38,7 +81,7 @@ export function canonicalizeSeries(entries: readonly SeriesEntry[] | undefined):
   for (const entry of entries ?? []) {
     const name = entry.name?.trim();
     if (!name) continue;
-    const part = entry.part?.trim() || undefined;
+    const part = canonicalPart(entry.part);
     const key = name.toLowerCase();
     const existing = merged.get(key);
     if (!existing) merged.set(key, { name, part });
@@ -92,10 +135,10 @@ export function currentSeriesSet(
 ): SeriesSet {
   const primaryName = series?.trim();
   return {
-    primary: primaryName ? { name: primaryName, part: seriesPart?.trim() || undefined } : undefined,
+    primary: primaryName ? { name: primaryName, part: canonicalPart(seriesPart) } : undefined,
     additional: (additional ?? [])
       .filter((r) => r.seriesName?.trim())
-      .map((r) => ({ name: r.seriesName.trim(), part: r.seriesPart?.trim() || undefined })),
+      .map((r) => ({ name: r.seriesName.trim(), part: canonicalPart(r.seriesPart) })),
   };
 }
 
@@ -104,14 +147,9 @@ export function allSeries(set: SeriesSet): SeriesEntry[] {
 }
 
 function partsEquivalent(a: string | undefined, b: string | undefined): boolean {
-  const left = a?.trim();
-  const right = b?.trim();
+  const left = canonicalPart(a);
+  const right = canonicalPart(b);
   if (!left || !right) return !left && !right;
-  const numLeft = Number(left);
-  const numRight = Number(right);
-  if (Number.isFinite(numLeft) && Number.isFinite(numRight)) {
-    return Math.abs(numLeft - numRight) < 0.0001;
-  }
   return left.toLowerCase() === right.toLowerCase();
 }
 

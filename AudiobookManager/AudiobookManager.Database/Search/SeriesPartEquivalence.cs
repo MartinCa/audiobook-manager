@@ -45,6 +45,15 @@ public static class SeriesPartEquivalence
             return false;
         }
 
+        // Canonical forms first, so "Book 2", "02" and "2.0" are one part and "1-3" is its own.
+        a = Domain.SeriesNormalization.CleanPart(a)!;
+        b = Domain.SeriesNormalization.CleanPart(b)!;
+
+        if (Domain.SeriesNormalization.IsRange(a) || Domain.SeriesNormalization.IsRange(b))
+        {
+            return string.Equals(a, b, StringComparison.Ordinal);
+        }
+
         if (double.TryParse(a, NumberStyles.Any, CultureInfo.InvariantCulture, out var numA) &&
             double.TryParse(b, NumberStyles.Any, CultureInfo.InvariantCulture, out var numB))
         {
