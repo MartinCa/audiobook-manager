@@ -262,7 +262,6 @@ export function BookSearchDialog({
                 const isBusy = selectingDetails === result.url;
                 return (
                   <Button
-                    size="sm"
                     disabled={isBusy}
                     onClick={() => {
                       void handleChoose(result);

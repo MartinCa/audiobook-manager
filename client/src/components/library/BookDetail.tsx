@@ -400,7 +400,7 @@ export function BookDetail({ mode }: BookDetailProps) {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <LinkButton variant="ghost" size="sm" render={<Link to="/library" />} className="text-xs">
+        <LinkButton variant="ghost" render={<Link to="/library" />} className="text-xs">
           <ArrowLeft className="mr-2 h-4 w-4" />
           Back to Library
         </LinkButton>
@@ -427,7 +427,7 @@ export function BookDetail({ mode }: BookDetailProps) {
           {isEditMode && (
             <Button
               variant="outline"
-              size="sm"
+
               onClick={() => {
                 void handleRefreshNow();
               }}
@@ -450,7 +450,6 @@ export function BookDetail({ mode }: BookDetailProps) {
 
           {!isEditMode && (
             <LinkButton
-              size="sm"
               variant="outline"
               render={
                 <Link
@@ -474,17 +473,13 @@ export function BookDetail({ mode }: BookDetailProps) {
 
           {isEditMode ? (
             <LinkButton
-              size="sm"
               variant="outline"
               render={<Link to="/library/book/$bookId" params={{ bookId }} />}
             >
               Done
             </LinkButton>
           ) : (
-            <LinkButton
-              size="sm"
-              render={<Link to="/library/book/$bookId/edit" params={{ bookId }} />}
-            >
+            <LinkButton render={<Link to="/library/book/$bookId/edit" params={{ bookId }} />}>
               <Pencil className="mr-1.5 h-4 w-4" />
               Edit
             </LinkButton>
@@ -514,9 +509,7 @@ export function BookDetail({ mode }: BookDetailProps) {
           </div>
           <div className="flex shrink-0 items-center gap-2">
             {isEditMode ? (
-              <Button size="sm" onClick={() => setPendingOpen(true)}>
-                Review Changes
-              </Button>
+              <Button onClick={() => setPendingOpen(true)}>Review Changes</Button>
             ) : (
               // A real link, not a button: on the read-only page this navigates into the editor.
               <Link
@@ -529,7 +522,6 @@ export function BookDetail({ mode }: BookDetailProps) {
             )}
             {isEditMode && (
               <Button
-                size="sm"
                 variant="outline"
                 onClick={() => {
                   void handleDismissPending();
@@ -707,7 +699,7 @@ export function BookDetail({ mode }: BookDetailProps) {
               {isEditMode && (
                 <Button
                   variant="ghost"
-                  size="sm"
+
                   className="h-7 text-xs"
                   disabled={checkingConsistency}
                   onClick={() => {
@@ -741,7 +733,6 @@ export function BookDetail({ mode }: BookDetailProps) {
                         </div>
                         {isEditMode && (
                           <Button
-                            size="sm"
                             variant="outline"
                             className="h-6 px-2 text-[10px]"
                             disabled={resolvingIssueId === issue.id}

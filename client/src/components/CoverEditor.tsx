@@ -117,7 +117,7 @@ export function CoverEditor({
         )}
       </div>
 
-      <Button variant="outline" size="sm" type="button" onClick={() => setDialogOpen(true)}>
+      <Button variant="outline" type="button" onClick={() => setDialogOpen(true)}>
         <Upload className="mr-2 h-4 w-4" />
         {currentSrc ? "Change Cover" : "Upload Cover"}
       </Button>
@@ -190,7 +190,7 @@ export function CoverEditor({
                 <Button
                   type="button"
                   variant="destructive"
-                  size="sm"
+
                   className="w-full sm:w-auto"
                   onClick={() => {
                     handleRemove();

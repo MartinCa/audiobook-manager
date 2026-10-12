@@ -129,7 +129,7 @@ export function BookList() {
 
         <Button
           variant="outline"
-          size="sm"
+
           onClick={() => {
             void refetch();
           }}
@@ -274,7 +274,7 @@ export function BookList() {
           <div className="flex items-center gap-2">
             <Button
               variant="outline"
-              size="sm"
+
               disabled={page <= 1 || loading}
               onClick={() => setPage((p) => Math.max(1, p - 1))}
             >
@@ -282,7 +282,7 @@ export function BookList() {
             </Button>
             <Button
               variant="outline"
-              size="sm"
+
               disabled={page >= totalPages || loading}
               onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
             >

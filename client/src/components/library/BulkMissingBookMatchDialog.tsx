@@ -350,7 +350,7 @@ export function BulkMissingBookMatchDialog({
             <div className="flex flex-col items-center justify-center py-8 text-center">
               <AlertCircle className="text-destructive mb-2 h-6 w-6" />
               <p className="text-muted-foreground text-sm">Failed to load missing books.</p>
-              <Button variant="outline" size="sm" className="mt-3" onClick={() => void refetch()}>
+              <Button variant="outline" className="mt-3" onClick={() => void refetch()}>
                 <RefreshCcw className="mr-1.5 h-3.5 w-3.5" />
                 Retry
               </Button>

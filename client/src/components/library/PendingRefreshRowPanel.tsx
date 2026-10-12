@@ -321,7 +321,7 @@ export function PendingRefreshRowPanel({ audiobookId, onApplied }: PendingRefres
       <div className="flex flex-col-reverse items-stretch justify-end gap-2 sm:flex-row sm:items-center">
         <Button
           variant="outline"
-          size="sm"
+
           className="mt-4 sm:mt-0"
           disabled={applying}
           onClick={() => void apply(changedFieldKeys)}
@@ -329,11 +329,7 @@ export function PendingRefreshRowPanel({ audiobookId, onApplied }: PendingRefres
           {applying ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : null}
           Apply All
         </Button>
-        <Button
-          size="sm"
-          disabled={applying || selected.size === 0}
-          onClick={() => void apply(selected)}
-        >
+        <Button disabled={applying || selected.size === 0} onClick={() => void apply(selected)}>
           {applying ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : null}
           Apply Selected ({selected.size})
         </Button>

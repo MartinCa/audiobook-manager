@@ -26,7 +26,7 @@ export function FilterToggleButton({
     <Button
       type="button"
       variant="outline"
-      size="sm"
+
       onClick={onToggle}
       aria-expanded={expanded}
       aria-controls={controls}

@@ -444,7 +444,7 @@ export function DiscoveredAudiobooks() {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <LinkButton variant="ghost" size="sm" render={<Link to="/library" />}>
+        <LinkButton variant="ghost" render={<Link to="/library" />}>
           <ArrowLeft className="mr-2 h-4 w-4" />
           Back to Library
         </LinkButton>
@@ -501,7 +501,7 @@ export function DiscoveredAudiobooks() {
                 <div className="flex shrink-0 gap-2">
                   <Button
                     variant="outline"
-                    size="sm"
+
                     disabled={
                       retryFailedTaskMutation.isPending &&
                       retryFailedTaskMutation.variables === task.originalFileLocation
@@ -520,7 +520,7 @@ export function DiscoveredAudiobooks() {
                   </Button>
                   <Button
                     variant="outline"
-                    size="sm"
+
                     className="text-destructive hover:text-destructive"
                     onClick={() => setRemoveFailedTargetPath(task.originalFileLocation)}
                   >
@@ -582,7 +582,7 @@ export function DiscoveredAudiobooks() {
           <div className="flex flex-wrap items-center gap-2">
             <Button
               variant="outline"
-              size="sm"
+
               className="w-full sm:w-auto"
               disabled={importing}
               onClick={() => setAllImportDialogOpen(true)}
@@ -595,7 +595,7 @@ export function DiscoveredAudiobooks() {
               <>
                 <Button
                   variant="outline"
-                  size="sm"
+
                   className="w-full sm:w-auto"
                   onClick={handleSelectAllWellTagged}
                 >
@@ -609,7 +609,6 @@ export function DiscoveredAudiobooks() {
 
                 {selectedPaths.size > 0 && (
                   <Button
-                    size="sm"
                     className="w-full sm:w-auto"
                     disabled={importing}
                     onClick={() => {

@@ -91,7 +91,6 @@ export function AuthorConsistencyIssueList() {
                   </div>
                 </div>
                 <ActionButton
-                  size="sm"
                   variant="outline"
                   className="h-7 shrink-0 self-end text-xs sm:self-center"
                   icon={RefreshCw}

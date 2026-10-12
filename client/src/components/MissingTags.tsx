@@ -154,7 +154,7 @@ export function MissingTags() {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <LinkButton variant="ghost" size="sm" render={<Link to="/library" />}>
+        <LinkButton variant="ghost" render={<Link to="/library" />}>
           <ArrowLeft className="mr-2 h-4 w-4" />
           Back to Library
         </LinkButton>
@@ -197,16 +197,16 @@ export function MissingTags() {
           </label>
           <Button
             variant="link"
-            size="sm"
+
             className="h-auto p-0 text-xs"
             onClick={selectCriticalOnly}
           >
             Critical only
           </Button>
-          <Button variant="link" size="sm" className="h-auto p-0 text-xs" onClick={selectAllFields}>
+          <Button variant="link" className="h-auto p-0 text-xs" onClick={selectAllFields}>
             Select all
           </Button>
-          <Button variant="link" size="sm" className="h-auto p-0 text-xs" onClick={clearSelection}>
+          <Button variant="link" className="h-auto p-0 text-xs" onClick={clearSelection}>
             Clear
           </Button>
         </div>

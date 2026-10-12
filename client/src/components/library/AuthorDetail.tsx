@@ -292,7 +292,7 @@ export function AuthorDetail() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <LinkButton variant="ghost" size="sm" render={<Link to="/library/authors" />}>
+        <LinkButton variant="ghost" render={<Link to="/library/authors" />}>
           <ArrowLeft className="mr-2 h-4 w-4" />
           Back to Authors
         </LinkButton>
@@ -308,7 +308,7 @@ export function AuthorDetail() {
         </p>
         <div className="mt-3 space-y-3">
           <AuthorFollowSection authorId={author.id} authorName={author.name} />
-          <Button variant="ghost" size="sm" onClick={() => setRenameDialog({})}>
+          <Button variant="ghost" onClick={() => setRenameDialog({})}>
             <Pencil className="mr-1.5 h-3.5 w-3.5" />
             Rename author
           </Button>
@@ -325,7 +325,7 @@ export function AuthorDetail() {
           <div className="flex shrink-0 items-center gap-2 self-end sm:self-center">
             <Button
               variant="outline"
-              size="sm"
+
               disabled={dismissingPending}
               onClick={() => {
                 void handleDismissPendingName();
@@ -333,10 +333,7 @@ export function AuthorDetail() {
             >
               Dismiss
             </Button>
-            <Button
-              size="sm"
-              onClick={() => setRenameDialog({ initialNewName: pendingName.proposedName })}
-            >
+            <Button onClick={() => setRenameDialog({ initialNewName: pendingName.proposedName })}>
               Review rename
             </Button>
           </div>
@@ -536,7 +533,7 @@ export function AuthorDetail() {
                 </span>
                 <Button
                   variant="outline"
-                  size="sm"
+
                   className="w-full sm:w-auto"
                   disabled={refreshing}
                   onClick={() => {

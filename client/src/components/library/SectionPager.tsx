@@ -59,7 +59,6 @@ export function SectionPager({
       </div>
       <div className="flex items-center gap-2">
         <Button
-          size="sm"
           variant="outline"
           disabled={disabled || currentPage === 0}
           onClick={() => onPageChange(currentPage - 1)}
@@ -67,7 +66,6 @@ export function SectionPager({
           Previous
         </Button>
         <Button
-          size="sm"
           variant="outline"
           disabled={disabled || currentPage >= pageCount - 1}
           onClick={() => onPageChange(currentPage + 1)}

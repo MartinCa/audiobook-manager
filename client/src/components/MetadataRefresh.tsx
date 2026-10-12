@@ -381,7 +381,7 @@ export function MetadataRefresh() {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <LinkButton variant="ghost" size="sm" render={<Link to="/library" />}>
+        <LinkButton variant="ghost" render={<Link to="/library" />}>
           <ArrowLeft className="mr-2 h-4 w-4" />
           Back to Library
         </LinkButton>
@@ -419,7 +419,7 @@ export function MetadataRefresh() {
               {cutoffDate && (
                 <Button
                   variant="link"
-                  size="sm"
+
                   className="h-auto p-0 text-xs"
                   onClick={() => setCutoffDate("")}
                 >
@@ -513,7 +513,7 @@ export function MetadataRefresh() {
           <div className="flex flex-wrap items-center gap-2">
             <Button
               variant="outline"
-              size="sm"
+
               disabled={reevaluateMutation.isPending}
               onClick={() => reevaluateMutation.mutate()}
               title="Re-diff every pending change against the library, series mapping patterns, and changed-fields logic as they stand right now, without re-fetching anything from a source"
@@ -529,7 +529,7 @@ export function MetadataRefresh() {
             <DropdownMenu>
               <DropdownMenuTrigger
                 render={
-                  <Button variant="outline" size="sm">
+                  <Button variant="outline">
                     <Filter className="mr-2 h-4 w-4" />
                     Filter fields{fieldFilter.size > 0 ? ` (${fieldFilter.size})` : ""}
                   </Button>
@@ -551,7 +551,7 @@ export function MetadataRefresh() {
             <DropdownMenu>
               <DropdownMenuTrigger
                 render={
-                  <Button variant="outline" size="sm">
+                  <Button variant="outline">
                     <Filter className="mr-2 h-4 w-4" />
                     Filter sources{sourceFilter.size > 0 ? ` (${sourceFilter.size})` : ""}
                   </Button>
@@ -618,7 +618,6 @@ export function MetadataRefresh() {
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <Button
-                size="sm"
                 variant="outline"
                 disabled={selectedIds.size === 0 || applying}
                 onClick={() => applySelectedMutation.mutate()}
@@ -628,7 +627,6 @@ export function MetadataRefresh() {
               </Button>
               {fieldFilter.size > 0 && (
                 <Button
-                  size="sm"
                   disabled={applying || totalCount === 0}
                   onClick={() => applyFilteredMutation.mutate()}
                 >
@@ -637,7 +635,6 @@ export function MetadataRefresh() {
                 </Button>
               )}
               <Button
-                size="sm"
                 variant="destructive"
                 disabled={selectedIds.size === 0 || dismissing}
                 onClick={() => dismissSelectedMutation.mutate()}
@@ -724,7 +721,7 @@ export function MetadataRefresh() {
                     </Badge>
                     <LinkButton
                       variant="ghost"
-                      size="sm"
+
                       render={
                         <Link
                           to="/library/book/$bookId"

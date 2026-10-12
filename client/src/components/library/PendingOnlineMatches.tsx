@@ -118,7 +118,7 @@ export function PendingOnlineMatches() {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <LinkButton variant="ghost" size="sm" render={<Link to="/library" />}>
+        <LinkButton variant="ghost" render={<Link to="/library" />}>
           <ArrowLeft className="mr-2 h-4 w-4" />
           Back to Library
         </LinkButton>
@@ -189,7 +189,7 @@ export function PendingOnlineMatches() {
                     </button>
                     <LinkButton
                       variant="ghost"
-                      size="sm"
+
                       render={
                         <Link
                           to="/library/book/$bookId"
@@ -201,7 +201,7 @@ export function PendingOnlineMatches() {
                     </LinkButton>
                     <Button
                       variant="outline"
-                      size="sm"
+
                       disabled={rejectingId === item.audiobookId}
                       onClick={() => {
                         void handleReject(item.audiobookId);
@@ -270,7 +270,7 @@ export function PendingOnlineMatches() {
                 </div>
                 <LinkButton
                   variant="ghost"
-                  size="sm"
+
                   render={
                     <Link
                       to="/library/book/$bookId"
@@ -282,7 +282,7 @@ export function PendingOnlineMatches() {
                 </LinkButton>
                 <Button
                   variant="outline"
-                  size="sm"
+
                   disabled={dismissingId === item.audiobookId}
                   onClick={() => {
                     void handleDismiss(item.audiobookId);

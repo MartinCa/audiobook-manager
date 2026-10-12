@@ -443,7 +443,7 @@ export function LibraryConsistency() {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <LinkButton variant="ghost" size="sm" render={<Link to="/library" />}>
+        <LinkButton variant="ghost" render={<Link to="/library" />}>
           <ArrowLeft className="mr-2 h-4 w-4" />
           Back to Library
         </LinkButton>
@@ -604,7 +604,6 @@ export function LibraryConsistency() {
                           <div className="flex items-center gap-2">
                             {selectedIdsInGroup.size > 0 && (
                               <Button
-                                size="sm"
                                 variant="outline"
                                 disabled={bulkResolving}
                                 onClick={() => {
@@ -616,7 +615,6 @@ export function LibraryConsistency() {
                             )}
 
                             <Button
-                              size="sm"
                               variant="secondary"
                               disabled={bulkResolving}
                               onClick={() => {
@@ -691,7 +689,6 @@ export function LibraryConsistency() {
                                 </div>
 
                                 <Button
-                                  size="sm"
                                   variant="outline"
                                   disabled={isResolving || bulkResolving}
                                   onClick={() => {
@@ -759,7 +756,7 @@ export function LibraryConsistency() {
                     <div className="flex flex-wrap items-center justify-end gap-2">
                       <Button
                         variant="destructive"
-                        size="sm"
+
                         onClick={() => setDeleteAllOrphansOpen(true)}
                       >
                         Delete All {orphanDirs.length}
@@ -777,7 +774,7 @@ export function LibraryConsistency() {
                           </span>
                           <Button
                             variant="outline"
-                            size="sm"
+
                             className="w-full shrink-0 sm:w-auto"
                             onClick={() => setOrphanToDelete(dir)}
                           >

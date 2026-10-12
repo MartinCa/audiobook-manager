@@ -61,7 +61,7 @@ export function FilterPresets({ scope, filters, fields, onApply }: FilterPresets
     return (
       <div className="text-muted-foreground flex flex-wrap items-center gap-2 text-xs">
         <span>Filter presets could not be loaded: {handleApiError(error).message}</span>
-        <Button type="button" variant="outline" size="sm" onClick={() => void refetch()}>
+        <Button type="button" variant="outline" onClick={() => void refetch()}>
           Retry
         </Button>
       </div>
@@ -77,7 +77,7 @@ export function FilterPresets({ scope, filters, fields, onApply }: FilterPresets
             <Button
               type="button"
               variant="outline"
-              size="sm"
+
               disabled={isLoading}
               className="h-8 max-w-64 justify-between font-normal"
             >

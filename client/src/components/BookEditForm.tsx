@@ -995,7 +995,7 @@ export function BookEditForm({
                 <Button
                   type="button"
                   variant="outline"
-                  size="sm"
+
                   className="h-6 px-2 text-xs"
                   onClick={splitTitleNow}
                 >
@@ -1033,7 +1033,7 @@ export function BookEditForm({
               <Button
                 type="button"
                 variant="outline"
-                size="sm"
+
                 className="h-6 px-2 text-xs"
                 onClick={moveSuffixToQualifiers}
               >
@@ -1075,7 +1075,7 @@ export function BookEditForm({
                 The series above is the primary one — it is used for the file&apos;s tags and
                 location.
               </p>
-              <Button type="button" variant="ghost" size="sm" onClick={removePrimarySeries}>
+              <Button type="button" variant="ghost" onClick={removePrimarySeries}>
                 Remove primary series
               </Button>
             </div>
@@ -1104,7 +1104,7 @@ export function BookEditForm({
             />
           ))}
 
-          <Button type="button" variant="outline" size="sm" onClick={addSeries}>
+          <Button type="button" variant="outline" onClick={addSeries}>
             <Plus />
             Add series
           </Button>
@@ -1214,7 +1214,7 @@ export function BookEditForm({
               <Button
                 type="button"
                 variant="ghost"
-                size="sm"
+
                 className="text-muted-foreground hover:text-foreground h-8 text-xs"
                 onClick={() => setShowAllOptionalFields(true)}
               >
@@ -1225,7 +1225,7 @@ export function BookEditForm({
               <Button
                 type="button"
                 variant="ghost"
-                size="sm"
+
                 className="text-muted-foreground hover:text-foreground h-8 text-xs"
                 onClick={() => setShowAllOptionalFields(false)}
               >

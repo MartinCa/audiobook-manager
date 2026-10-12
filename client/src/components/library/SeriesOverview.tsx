@@ -290,7 +290,7 @@ export function SeriesOverviewPage() {
         <div className="flex flex-wrap items-center gap-2">
           <Button
             variant="outline"
-            size="sm"
+
             onClick={() => {
               void refetch();
             }}
@@ -302,7 +302,7 @@ export function SeriesOverviewPage() {
 
           <Button
             variant="outline"
-            size="sm"
+
             onClick={() => setMatchDialogOpen(true)}
             disabled={loading || refreshing || unmatchedCount === 0}
           >
@@ -312,7 +312,7 @@ export function SeriesOverviewPage() {
 
           <Button
             variant="default"
-            size="sm"
+
             onClick={() => {
               void handleRefreshAll();
             }}

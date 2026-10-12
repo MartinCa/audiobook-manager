@@ -100,7 +100,7 @@ export function SeriesRefreshPendingList() {
                 <Badge variant="secondary" className="shrink-0">
                   {item.sourceName}
                 </Badge>
-                <Button size="sm" className="h-7 text-xs" onClick={() => setReviewing(item)}>
+                <Button className="h-7 text-xs" onClick={() => setReviewing(item)}>
                   Review
                 </Button>
               </div>

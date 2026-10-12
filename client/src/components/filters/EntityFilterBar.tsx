@@ -122,7 +122,7 @@ export function EntityFilterBar({ fields, values, onChange }: EntityFilterBarPro
                       <Button
                         type="button"
                         variant="outline"
-                        size="sm"
+
                         className="h-8 w-40 justify-between font-normal"
                       >
                         <span className="truncate">
@@ -267,7 +267,7 @@ export function EntityFilterBar({ fields, values, onChange }: EntityFilterBarPro
                 {field.neverKey ? (
                   <Button
                     type="button"
-                    size="sm"
+
                     variant={neverActive ? "default" : "outline"}
                     className="h-8 self-start"
                     onClick={() =>
@@ -310,7 +310,7 @@ export function EntityFilterBar({ fields, values, onChange }: EntityFilterBarPro
           <Button
             type="button"
             variant="ghost"
-            size="sm"
+
             className="h-5 px-1.5 text-xs"
             onClick={() => {
               const cleared: FilterValueMap = { ...values };

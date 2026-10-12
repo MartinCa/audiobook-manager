@@ -48,7 +48,7 @@ export function SeriesFollowButton({ seriesName, onChanged }: SeriesFollowButton
   return (
     <Button
       variant={isFollowed ? "default" : "outline"}
-      size="sm"
+
       disabled={busy || followQuery.isLoading}
       onClick={() => {
         void handleToggle();

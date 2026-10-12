@@ -69,7 +69,7 @@ export function ActionButton({
   return (
     <Button
       variant={variant}
-      size={size ?? (hasText ? "sm" : "icon-sm")}
+      size={size ?? (hasText ? "default" : "icon")}
       // Text mode: the visible text names the button (label-in-name), so only icon-only sets aria-label.
       aria-label={hasText ? undefined : name}
       title={name}

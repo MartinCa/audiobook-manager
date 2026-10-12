@@ -221,7 +221,7 @@ export function MetadataApplyRulesCard() {
             <div className="flex justify-end">
               <Button
                 type="button"
-                size="sm"
+
                 disabled={mutation.isPending || changedRules.length === 0}
                 onClick={() => mutation.mutate(changedRules)}
               >

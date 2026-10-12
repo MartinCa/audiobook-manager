@@ -91,7 +91,7 @@ export function BookLibrary() {
         <LibraryViewTabs activeTab="books" />
 
         <div className="flex flex-wrap items-center gap-2">
-          <Button variant="outline" size="sm" onClick={handleReload} disabled={loading}>
+          <Button variant="outline" onClick={handleReload} disabled={loading}>
             <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
             Reload
           </Button>
