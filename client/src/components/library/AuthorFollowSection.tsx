@@ -86,11 +86,7 @@ export function AuthorFollowSection({ authorId, authorName }: AuthorFollowSectio
 
       {isMatched ? (
         <>
-          <Button
-            variant="ghost"
-            disabled={busy}
-            onClick={() => setMatchDialogOpen(true)}
-          >
+          <Button variant="ghost" disabled={busy} onClick={() => setMatchDialogOpen(true)}>
             <Link2 className="mr-1.5 h-3.5 w-3.5" />
             Change Hardcover match
           </Button>

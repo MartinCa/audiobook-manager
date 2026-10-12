@@ -1280,11 +1280,7 @@ export function SeriesDetail() {
                   matching value is rewritten to "{seriesName}".
                 </p>
               </div>
-              <Button
-                variant="outline"
-                className="h-7 text-xs"
-                onClick={handleOpenCreateMapping}
-              >
+              <Button variant="outline" className="h-7 text-xs" onClick={handleOpenCreateMapping}>
                 <Plus className="mr-1 h-3 w-3" />
                 Add Pattern
               </Button>

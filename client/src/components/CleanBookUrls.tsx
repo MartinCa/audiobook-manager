@@ -212,11 +212,7 @@ export function CleanBookUrls() {
               <Button variant="link" className="h-auto p-0 text-xs" onClick={selectAll}>
                 Select all
               </Button>
-              <Button
-                variant="link"
-                className="h-auto p-0 text-xs"
-                onClick={clearSelection}
-              >
+              <Button variant="link" className="h-auto p-0 text-xs" onClick={clearSelection}>
                 Clear
               </Button>
               <ActionButton

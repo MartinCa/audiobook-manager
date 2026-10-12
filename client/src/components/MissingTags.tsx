@@ -195,11 +195,7 @@ export function MissingTags() {
           <label className="text-muted-foreground text-xs font-semibold uppercase">
             Select Fields to Inspect
           </label>
-          <Button
-            variant="link"
-            className="h-auto p-0 text-xs"
-            onClick={selectCriticalOnly}
-          >
+          <Button variant="link" className="h-auto p-0 text-xs" onClick={selectCriticalOnly}>
             Critical only
           </Button>
           <Button variant="link" className="h-auto p-0 text-xs" onClick={selectAllFields}>
