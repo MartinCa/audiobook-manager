@@ -97,10 +97,13 @@ export function SourceTabbedResults({
   return (
     <Tabs value={active} onValueChange={(value) => setChosen(String(value))}>
       {/* Tabs scroll sideways when they do not fit; the browser also scrolls the active tab into
-          view, so scroll-fade-x fades whichever edge has more tabs hidden beyond it. */}
+          view, so scroll-fade-x fades whichever edge has more tabs hidden beyond it. Setting
+          overflow-x makes overflow-y compute to auto too, and the active-tab underline sits 5px
+          below the trigger, past the list's default 3px padding - which showed as a stray
+          vertical scrollbar. pb-[5px] makes room for it and overflow-y-hidden rules the scrollbar out. */}
       <TabsList
         variant="line"
-        className="border-border scroll-fade-x h-auto! w-full min-w-0 justify-start gap-1 overflow-x-auto border-b"
+        className="border-border scroll-fade-x h-auto! w-full min-w-0 justify-start gap-1 overflow-x-auto overflow-y-hidden border-b pb-[5px]"
       >
         {groups.map((g) => (
           <TabsTrigger
