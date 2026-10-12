@@ -33,16 +33,16 @@ public static class SeriesRelationSet
     /// </summary>
     public static IReadOnlyList<Entry> Canonicalize(IEnumerable<Entry>? entries)
     {
-        var merged = new Dictionary<string, Entry>(StringComparer.OrdinalIgnoreCase);
+        var merged = new Dictionary<string, Entry>(SeriesNormalization.NameComparer);
         foreach (var entry in entries ?? Enumerable.Empty<Entry>())
         {
-            var name = entry.Name?.Trim();
-            if (string.IsNullOrEmpty(name))
+            var name = SeriesNormalization.CleanName(entry.Name);
+            if (name is null)
             {
                 continue;
             }
 
-            var part = string.IsNullOrWhiteSpace(entry.Part) ? null : entry.Part.Trim();
+            var part = SeriesNormalization.CleanPart(entry.Part);
             if (merged.TryGetValue(name, out var existing))
             {
                 if (existing.Part is null && part is not null)

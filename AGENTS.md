@@ -640,6 +640,15 @@ so none of that code changed and Audiobookshelf sees exactly what it always did.
 - **Filling a roster slot never moves a book out of its primary series** (`SeriesService.ApplyMissingBookAsync`
   and the series-refresh `MissingBook` change): a book with no primary takes the series as primary,
   one that has a primary gains it as an additional series.
+- **One canonical form, one drift guard.** `SeriesNormalization` (`AudiobookManager.Domain`) is the
+  single definition of a series name/part: trimmed, blank = none, the same series when equal ignoring
+  case (first spelling wins). Parts are never rewritten (`Book 2`/`2.0` stay as written - they reach
+  tags and the path; equivalence is `SeriesPartEquivalence`'s comparison job). `SeriesRelationSync`
+  and `SeriesRelationSet` use it, and `helpers/seriesRelations.ts` mirrors it. The
+  `NormalizeSeriesRelations` migration brought legacy rows to that form and repaired mirror drift (the
+  mirror wins - the file was built from it); `IAudiobookRepository.GetSeriesMirrorDriftIdsAsync` returns
+  the books whose mirror and primary row disagree and must stay empty (`SeriesRelationNormalizationMigrationTests`).
+  Making `audiobook_series` the only store (dropping the mirror columns) is deliberately not done yet.
 - **Qualifiers stay on the primary only.** Additional series are stored clean and never suffixed.
 - **Series-keyed reads return one row per (book, series)**, with the part the book has _in that
   series_ - `SeriesOwnedKey`/`AuthorOwnedKey` are per pair, a standalone book (no relation rows)

@@ -169,6 +169,13 @@ public interface IAudiobookRepository
     /// </summary>
     Task<List<Audiobook>> GetByIdsWithIncludesAsync(IReadOnlyList<long> ids);
     Task<List<Audiobook>> GetAllWithIncludesAsync();
+    /// <summary>
+    /// Ids of books whose mirrored <c>series</c>/<c>series_part</c> disagree with their primary
+    /// <c>audiobook_series</c> row (at most <paramref name="limit"/>, ordered by id). Empty is the
+    /// invariant; <c>SeriesRelationSync</c> is the only writer that keeps it.
+    /// </summary>
+    Task<List<long>> GetSeriesMirrorDriftIdsAsync(int limit);
+
     Task<List<SeriesGroupingBook>> GetSeriesGroupingDataAsync();
     Task<List<SeriesGroupingBook>> GetSeriesGroupingDataAsync(List<string> seriesValues);
 

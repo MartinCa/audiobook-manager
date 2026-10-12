@@ -22,17 +22,17 @@ public static class SeriesRelationSync
     public static List<Desired> Normalize(string? primaryName, string? primaryPart, IEnumerable<SeriesRelation>? additional)
     {
         var result = new List<Desired>();
-        var seen = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var seen = new Dictionary<string, int>(SeriesNormalization.NameComparer);
 
         void Add(string? name, string? part, bool isPrimary)
         {
-            var trimmedName = name?.Trim();
-            if (string.IsNullOrEmpty(trimmedName))
+            var trimmedName = SeriesNormalization.CleanName(name);
+            if (trimmedName is null)
             {
                 return;
             }
 
-            var trimmedPart = string.IsNullOrWhiteSpace(part) ? null : part.Trim();
+            var trimmedPart = SeriesNormalization.CleanPart(part);
             if (seen.TryGetValue(trimmedName, out var index))
             {
                 if (result[index].Part is null && trimmedPart is not null)
@@ -94,7 +94,7 @@ public static class SeriesRelationSync
         book.SeriesPart = primary?.Part;
 
         var rows = book.SeriesRelations ??= new List<AudiobookSeries>();
-        var byName = rows.ToDictionary(r => r.SeriesName, StringComparer.OrdinalIgnoreCase);
+        var byName = rows.ToDictionary(r => r.SeriesName, SeriesNormalization.NameComparer);
 
         // Rows whose name is no longer wanted are removed; the rest are updated in place below.
         foreach (var row in rows.ToList())

@@ -845,6 +845,19 @@ public class AudiobookRepository : IAudiobookRepository
             node == _from ? _to : base.VisitParameter(node);
     }
 
+    public Task<List<long>> GetSeriesMirrorDriftIdsAsync(int limit) =>
+        _db.Audiobooks
+            .AsNoTracking()
+            .Where(a =>
+                (a.Series != null && a.Series != ""
+                    ? !a.SeriesRelations!.Any(r => r.IsPrimary && r.SeriesName == a.Series && r.SeriesPart == a.SeriesPart)
+                    : a.SeriesRelations!.Any(r => r.IsPrimary))
+                || a.SeriesRelations!.Count(r => r.IsPrimary) > 1)
+            .OrderBy(a => a.Id)
+            .Select(a => a.Id)
+            .Take(limit)
+            .ToListAsync();
+
     public async Task<List<SeriesGroupingBook>> GetSeriesGroupingDataAsync()
     {
         var rows = await _db.AudiobookSeries

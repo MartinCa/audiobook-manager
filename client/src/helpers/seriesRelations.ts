@@ -8,7 +8,8 @@ import type {
  * `SeriesRelationSet` (AudiobookManager.Services), kept in step with it so what the review
  * dialogs offer as a change is exactly what the server's differ would record and its applier would
  * write. Sources list a book's series in an order that carries no meaning, so nothing here depends
- * on it: entries are canonicalised and compared as sets.
+ * on it: entries are canonicalised and compared as sets. Name/part canonicalisation (trim, blank =
+ * none, same series ignoring case) is the backend's `SeriesNormalization`.
  */
 export interface SeriesEntry {
   name: string;
