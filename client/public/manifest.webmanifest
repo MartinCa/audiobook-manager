@@ -1,0 +1,15 @@
+{
+  "name": "Audiobook Manager",
+  "short_name": "Audiobooks",
+  "description": "Organize m4b audiobooks into a structured library with metadata scraping and Audiobookshelf integration.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0a285f",
+  "theme_color": "#0a285f",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
