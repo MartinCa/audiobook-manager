@@ -14,6 +14,25 @@ public static class AudiobookSeriesExtensions
         !string.IsNullOrWhiteSpace(a) && !string.IsNullOrWhiteSpace(b)
         && string.Equals(a.Trim(), b.Trim(), StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// Puts every series name and part of the book into <see cref="SeriesNormalization"/>'s
+    /// canonical form (the primary and the additional ones alike). Done before anything is written
+    /// so the tags, the library path and the database all receive the same value. A null
+    /// <see cref="Audiobook.AdditionalSeries"/> stays null ("keep the stored ones").
+    /// </summary>
+    public static void CanonicalizeSeries(this Audiobook book)
+    {
+        book.Series = SeriesNormalization.CleanName(book.Series);
+        book.SeriesPart = book.Series is null ? null : SeriesNormalization.CleanPart(book.SeriesPart);
+        if (book.AdditionalSeries is not null)
+        {
+            book.AdditionalSeries = book.AdditionalSeries
+                .Where(r => SeriesNormalization.CleanName(r.Name) is not null)
+                .Select(r => new SeriesRelation(SeriesNormalization.CleanName(r.Name)!, SeriesNormalization.CleanPart(r.Part)))
+                .ToList();
+        }
+    }
+
     /// <summary>Every relation of the book, the primary first.</summary>
     public static List<(string Name, string? Part, bool IsPrimary)> AllSeries(this Audiobook book)
     {

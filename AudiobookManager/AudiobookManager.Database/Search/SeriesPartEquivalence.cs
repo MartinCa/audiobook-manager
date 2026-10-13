@@ -6,10 +6,12 @@ namespace AudiobookManager.Database.Search;
 
 /// <summary>
 /// The canonical series-part equivalence (the "existing series-part equivalence rules" the
-/// advisory conflict check and the series reconciliation both use): two parts are the same when
-/// both parse as numbers and are within rounding of each other ("1", "1.0", "2.5"), or otherwise
-/// when their trimmed texts compare case-insensitively ("Book 1" vs "book 1"). A blank part is
-/// never equivalent to any part.
+/// advisory conflict check and the series reconciliation both use): two parts are compared in
+/// their canonical form (<c>SeriesNormalization.CleanPart</c>), so "Book 2", "02" and "2.0" are one
+/// part. After that, a range ("1-3") is equivalent only to the same range - never to a single
+/// part or another range - and two plain numbers are the same when within rounding of each other;
+/// anything else is compared as case-insensitive text. A blank part is never equivalent to any
+/// part.
 ///
 /// This is a Database-layer helper on purpose: it is registered as a SQLite scalar function so a
 /// query (the series-part conflict read) can apply the equivalence in SQL rather than fetching a
@@ -43,6 +45,15 @@ public static class SeriesPartEquivalence
         if (string.IsNullOrWhiteSpace(a) || string.IsNullOrWhiteSpace(b))
         {
             return false;
+        }
+
+        // Canonical forms first, so "Book 2", "02" and "2.0" are one part and "1-3" is its own.
+        a = Domain.SeriesNormalization.CleanPart(a)!;
+        b = Domain.SeriesNormalization.CleanPart(b)!;
+
+        if (Domain.SeriesNormalization.IsRange(a) || Domain.SeriesNormalization.IsRange(b))
+        {
+            return string.Equals(a, b, StringComparison.Ordinal);
         }
 
         if (double.TryParse(a, NumberStyles.Any, CultureInfo.InvariantCulture, out var numA) &&

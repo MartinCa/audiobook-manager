@@ -16,25 +16,6 @@ public class AudiobookRepository : IAudiobookRepository
 
     public async Task<Audiobook> InsertAudiobook(Audiobook audiobook)
     {
-        // Backstop for the mirror invariant: every series-keyed query reads audiobook_series, so a
-        // book inserted with a series but no relation rows would vanish from its own series page.
-        // AudiobookService always supplies them (SeriesRelationSync); this only fills the gap for
-        // a caller that set the mirrored columns alone.
-        if (audiobook.SeriesRelations is null && !string.IsNullOrWhiteSpace(audiobook.Series))
-        {
-            audiobook.Series = audiobook.Series.Trim();
-            audiobook.SeriesRelations = new List<AudiobookSeries>
-            {
-                new()
-                {
-                    SeriesName = audiobook.Series,
-                    SeriesPart = string.IsNullOrWhiteSpace(audiobook.SeriesPart) ? null : audiobook.SeriesPart.Trim(),
-                    IsPrimary = true,
-                    SortOrder = 0,
-                },
-            };
-        }
-
         _db.Add(audiobook);
         await _db.SaveChangesAsync();
         return audiobook;
@@ -160,8 +141,44 @@ public class AudiobookRepository : IAudiobookRepository
 
         var total = await query.CountAsync();
         var items = await query.Skip(offset).Take(limit).ToListAsync();
+        await LoadSeriesRelationsAsync(items);
         return (items, total);
     }
+
+    /// <summary>
+    /// Loads the series relations of an already-materialized page of books in one indexed query by
+    /// id, instead of an <c>Include</c>. An <c>Include</c> on these list queries is a split query,
+    /// which re-runs the whole (LIKE-heavy) filter once per collection; the page is at most a few
+    /// dozen rows, so fetching its relations by id costs next to nothing.
+    /// </summary>
+    private async Task LoadSeriesRelationsAsync(List<Audiobook> books)
+    {
+        if (books.Count == 0)
+        {
+            return;
+        }
+
+        var ids = books.Select(b => b.Id).ToList();
+        var relations = (await _db.AudiobookSeries.AsNoTracking()
+                .Where(r => ids.Contains(r.AudiobookId))
+                .OrderBy(r => r.SortOrder)
+                .ToListAsync())
+            .ToLookup(r => r.AudiobookId);
+        foreach (var book in books)
+        {
+            book.SeriesRelations = relations[book.Id].ToList();
+        }
+    }
+
+    /// <summary>
+    /// Ids of the books whose primary series name matches the folded LIKE <paramref name="pattern"/>.
+    /// Used as an uncorrelated <c>IN (subquery)</c>, which SQLite evaluates once, instead of a
+    /// correlated <c>EXISTS</c> that would run per scanned book inside the search's OR chain.
+    /// </summary>
+    private IQueryable<long> PrimarySeriesBookIdsMatching(string pattern) =>
+        _db.AudiobookSeries
+            .Where(r => r.IsPrimary && EF.Functions.Like(r.SeriesNameFolded, pattern, LikePatterns.EscapeCharacter))
+            .Select(r => r.AudiobookId);
 
     /// <summary>
     /// The same accent-folded free-text match <see cref="SearchAsync"/> applies (book name,
@@ -169,7 +186,7 @@ public class AudiobookRepository : IAudiobookRepository
     /// and author-standalone owned-book pages so a scoped list's search box behaves exactly like
     /// the whole-library one. A null/blank <paramref name="search"/> applies no constraint.
     /// </summary>
-    private static IQueryable<Audiobook> ApplyOwnedBookTextSearch(IQueryable<Audiobook> query, string? search)
+    private IQueryable<Audiobook> ApplyOwnedBookTextSearch(IQueryable<Audiobook> query, string? search)
     {
         if (string.IsNullOrWhiteSpace(search))
         {
@@ -178,11 +195,12 @@ public class AudiobookRepository : IAudiobookRepository
 
         var folded = AccentFolding.FoldPlain(search);
         var pattern = $"%{LikePatterns.EscapeLikePattern(folded)}%";
+        var primarySeriesMatches = PrimarySeriesBookIdsMatching(pattern);
 
         return query.Where(a =>
             EF.Functions.Like(a.BookNameFolded, pattern, LikePatterns.EscapeCharacter) ||
             EF.Functions.Like(a.SubtitleFolded, pattern, LikePatterns.EscapeCharacter) ||
-            EF.Functions.Like(a.SeriesFolded, pattern, LikePatterns.EscapeCharacter) ||
+            primarySeriesMatches.Contains(a.Id) ||
             a.Authors.Any(p => EF.Functions.Like(p.NameFolded, pattern, LikePatterns.EscapeCharacter)) ||
             EF.Functions.Like(a.DescriptionFolded, pattern, LikePatterns.EscapeCharacter)
         );
@@ -350,11 +368,13 @@ public class AudiobookRepository : IAudiobookRepository
             baseQuery = baseQuery.Include(a => a.Narrators).Include(a => a.Genres.OrderBy(g => g.Name)).AsSplitQuery();
         }
 
+        var primarySeriesMatches = PrimarySeriesBookIdsMatching(pattern);
+
         var dbQuery = baseQuery
             .Where(a =>
                 EF.Functions.Like(a.BookNameFolded, pattern, LikePatterns.EscapeCharacter) ||
                 EF.Functions.Like(a.SubtitleFolded, pattern, LikePatterns.EscapeCharacter) ||
-                EF.Functions.Like(a.SeriesFolded, pattern, LikePatterns.EscapeCharacter) ||
+                primarySeriesMatches.Contains(a.Id) ||
                 a.Authors.Any(p => EF.Functions.Like(p.NameFolded, pattern, LikePatterns.EscapeCharacter)) ||
                 EF.Functions.Like(a.DescriptionFolded, pattern, LikePatterns.EscapeCharacter)
             );
@@ -378,6 +398,7 @@ public class AudiobookRepository : IAudiobookRepository
         // number nothing displays.
         var total = includeTotal ? await dbQuery.CountAsync() : 0;
         var items = await dbQuery.Skip(offset).Take(limit).ToListAsync();
+        await LoadSeriesRelationsAsync(items);
         return (items, total);
     }
 
@@ -507,7 +528,7 @@ public class AudiobookRepository : IAudiobookRepository
                 x.Book.MatchedSourceName != null && x.Book.MatchedSourceName != "",
                 x.Book.MatchedSourceName,
                 x.Book.Qualifiers,
-                x.Book.Series))
+                x.Book.SeriesRelations!.Where(r => r.IsPrimary).Select(r => r.SeriesName).FirstOrDefault()))
             .ToListAsync();
 
         return (items, total);
@@ -679,6 +700,7 @@ public class AudiobookRepository : IAudiobookRepository
             .Take(limit)
             .ToListAsync();
 
+        await LoadSeriesRelationsAsync(books);
         return (books, total);
     }
 
@@ -785,8 +807,8 @@ public class AudiobookRepository : IAudiobookRepository
                 a.Authors.Select(p => p.Name).ToList(),
                 a.Narrators.Select(p => p.Name).ToList(),
                 a.Year,
-                a.Series,
-                a.SeriesPart,
+                a.SeriesRelations!.Where(r => r.IsPrimary).Select(r => r.SeriesName).FirstOrDefault(),
+                a.SeriesRelations!.Where(r => r.IsPrimary).Select(r => r.SeriesPart).FirstOrDefault(),
                 a.CoverFilePath,
                 a.DurationInSeconds,
                 !string.IsNullOrEmpty(a.MatchedSourceName),
@@ -796,8 +818,8 @@ public class AudiobookRepository : IAudiobookRepository
                 a.Genres.Any(),
                 a.BookName == null || a.BookName.Trim() == "",
                 a.Year == 0,
-                a.Series == null || a.Series.Trim() == "",
-                a.SeriesPart == null || a.SeriesPart.Trim() == "",
+                !a.SeriesRelations!.Any(r => r.IsPrimary),
+                !a.SeriesRelations!.Any(r => r.IsPrimary && r.SeriesPart != null && r.SeriesPart.Trim() != ""),
                 a.Subtitle == null || a.Subtitle.Trim() == "",
                 a.Description == null || a.Description.Trim() == "",
                 a.Language == null || a.Language.Trim() == "",
@@ -1280,8 +1302,8 @@ public class AudiobookRepository : IAudiobookRepository
             {
                 a.Id,
                 a.BookName,
-                a.Series,
-                a.SeriesPart,
+                Series = a.SeriesRelations!.Where(r => r.IsPrimary).Select(r => r.SeriesName).FirstOrDefault(),
+                SeriesPart = a.SeriesRelations!.Where(r => r.IsPrimary).Select(r => r.SeriesPart).FirstOrDefault(),
                 a.Year,
                 Authors = a.Authors.Select(p => p.Name).ToList(),
             })

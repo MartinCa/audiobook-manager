@@ -193,4 +193,50 @@ public class AudiobookRepositoryMultiSeriesTests
         Assert.AreEqual("Crossover", books.Single().BookName);
         Assert.AreEqual(2, books.Single().SeriesRelations!.Count, "relations are loaded so a rewrite keeps them");
     }
+
+    // The flat series/series_part columns are gone: the primary relation is the only copy. Every
+    // query that feeds a book-list DTO must load it, or reading the series throws (and a stale
+    // fixture would never notice, since the controller tests mock the repository).
+    [TestMethod]
+    public async Task BookListQueries_LoadThePrimarySeriesOfEveryBook()
+    {
+        await SeedAsync("Crossover", ("Main", "1"), ("Spinoff", "7"));
+        await SeedAsync("Alone");
+
+        var (all, _) = await _repository.GetAllAsync(10, 0);
+        var (found, _) = await _repository.SearchAsync("Crossover", 10, 0, includeTotal: false, includeNarratorsAndGenres: false);
+        var (foundFull, _) = await _repository.SearchAsync("Crossover", 10, 0);
+        var (standalone, _) = await _repository.GetStandaloneBooksByAuthorAsync(_author.Id, 10, 0);
+
+        CollectionAssert.AreEqual(
+            new[] { ("Alone", (string?)null), ("Crossover", "Main") },
+            all.OrderBy(b => b.BookName).Select(b => (b.BookName, b.PrimarySeries?.SeriesName)).ToArray());
+        Assert.AreEqual("Main", found.Single().PrimarySeries!.SeriesName);
+        Assert.AreEqual("Main", foundFull.Single().PrimarySeries!.SeriesName);
+        CollectionAssert.AreEqual(new[] { "Alone" }, standalone.Select(b => b.BookName).ToArray());
+        Assert.IsNull(standalone.Single().PrimarySeries);
+    }
+
+    [TestMethod]
+    public async Task SearchAsync_MatchesTheBooksPrimarySeriesNameAccentInsensitively_ButNotAnAdditionalOne()
+    {
+        await SeedAsync("Crossover", ("Été", "1"), ("Spinoff", "7"));
+
+        var byPrimary = await _repository.SearchAsync("ete", 10, 0);
+        var byAdditional = await _repository.SearchAsync("spinoff", 10, 0);
+
+        Assert.AreEqual(1, byPrimary.Total);
+        Assert.AreEqual(0, byAdditional.Total, "search keeps matching the primary series only, as the flat column did");
+    }
+
+    [TestMethod]
+    public async Task PrimarySeries_OnABookReadWithoutItsRelations_ThrowsInsteadOfReadingAsNoSeries()
+    {
+        await SeedAsync("Crossover", ("Main", "1"));
+
+        var withoutRelations = await _db.Audiobooks.AsNoTracking().SingleAsync();
+
+        Assert.IsNull(withoutRelations.SeriesRelations);
+        Assert.ThrowsExactly<InvalidOperationException>(() => _ = withoutRelations.PrimarySeries);
+    }
 }

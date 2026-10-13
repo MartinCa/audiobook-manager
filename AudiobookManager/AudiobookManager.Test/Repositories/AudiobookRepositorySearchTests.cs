@@ -578,10 +578,10 @@ public class AudiobookRepositorySearchTests
             {
                 await migrated.Database.MigrateAsync();
 
-                var book = await migrated.Audiobooks.AsNoTracking().SingleAsync(a => a.Id == 1);
+                var book = await migrated.Audiobooks.AsNoTracking().Include(a => a.SeriesRelations).SingleAsync(a => a.Id == 1);
                 Assert.AreEqual("Rene's Adventure", book.BookNameFolded);
                 Assert.AreEqual("Olafur's Tale", book.SubtitleFolded);
-                Assert.AreEqual("Ete", book.SeriesFolded);
+                Assert.AreEqual("Ete", book.PrimarySeries!.SeriesNameFolded);
                 Assert.AreEqual("A story about Rene", book.DescriptionFolded);
 
                 var person = await migrated.Persons.AsNoTracking().SingleAsync(p => p.Id == 1);

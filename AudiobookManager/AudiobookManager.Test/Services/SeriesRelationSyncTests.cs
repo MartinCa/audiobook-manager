@@ -82,8 +82,8 @@ public class SeriesRelationSyncTests
 
         SeriesRelationSync.Apply(book, Domain("Reacher", "1", new SeriesRelation("Universe", "3")));
 
-        Assert.AreEqual("Reacher", book.Series);
-        Assert.AreEqual("1", book.SeriesPart);
+        Assert.AreEqual("Reacher", book.PrimarySeries?.SeriesName);
+        Assert.AreEqual("1", book.PrimarySeries?.SeriesPart);
         CollectionAssert.AreEqual(
             new[] { ("Reacher", "1", true), ("Universe", "3", false) },
             book.SeriesRelations!.OrderBy(r => r.SortOrder).Select(r => (r.SeriesName, r.SeriesPart, r.IsPrimary)).ToArray());
@@ -96,8 +96,8 @@ public class SeriesRelationSyncTests
 
         SeriesRelationSync.Apply(book, Domain(null, null, new SeriesRelation("Universe", "3")));
 
-        Assert.IsNull(book.Series);
-        Assert.IsNull(book.SeriesPart);
+        Assert.IsNull(book.PrimarySeries?.SeriesName);
+        Assert.IsNull(book.PrimarySeries?.SeriesPart);
         Assert.AreEqual(1, book.SeriesRelations!.Count);
         Assert.IsFalse(book.SeriesRelations[0].IsPrimary);
     }
@@ -113,7 +113,7 @@ public class SeriesRelationSyncTests
         unspecified.AdditionalSeries = null;
         SeriesRelationSync.Apply(book, unspecified);
 
-        Assert.AreEqual("2", book.SeriesPart);
+        Assert.AreEqual("2", book.PrimarySeries?.SeriesPart);
         CollectionAssert.AreEqual(
             new[] { "Reacher", "Universe" },
             book.SeriesRelations!.OrderBy(r => r.SortOrder).Select(r => r.SeriesName).ToArray());
@@ -164,7 +164,7 @@ public class SeriesRelationSyncTests
         await using (var db = CreateContext())
         {
             var book = await db.Audiobooks.AsNoTracking().Include(a => a.SeriesRelations).SingleAsync();
-            Assert.AreEqual("B", book.Series);
+            Assert.AreEqual("B", book.PrimarySeries?.SeriesName);
             CollectionAssert.AreEqual(
                 new[] { ("B", true), ("A", false) },
                 book.SeriesRelations!.OrderBy(r => r.SortOrder).Select(r => (r.SeriesName, r.IsPrimary)).ToArray());

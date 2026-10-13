@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  canonicalPart,
   canonicalizeSeries,
   chooseSeriesPrimary,
   currentSeriesSet,
@@ -172,5 +173,75 @@ describe("withPrimarySeriesFirst", () => {
   it("puts the explicit choice first", () => {
     const out = withPrimarySeriesFirst(result, [{ name: "Main" }], "Spinoff");
     expect(out.series.map((s) => s.seriesName)).toEqual(["Spinoff", "Main"]);
+  });
+});
+
+describe("canonicalPart", () => {
+  // The same cases as the backend's SeriesNormalizationTests.CleanPart_PutsAPartInItsCanonicalForm.
+  it.each([
+    ["2", "2"],
+    [" 2 ", "2"],
+    ["02", "2"],
+    ["2.0", "2"],
+    ["02.50", "2.5"],
+    ["0.5", "0.5"],
+    ["0", "0"],
+    ["Book 2", "2"],
+    ["book2", "2"],
+    ["Vol. 03", "3"],
+    ["Volume 4.0", "4"],
+    ["1-3", "1-3"],
+    ["01-03", "1-3"],
+    ["1 – 3", "1-3"],
+    ["1—3", "1-3"],
+    ["1 to 3", "1-3"],
+    ["Book 1-3", "1-3"],
+    ["1.5-2.0", "1.5-2"],
+    ["Prequel", "Prequel"],
+    ["  Prequel ", "Prequel"],
+    ["Book Two", "Book Two"],
+    ["3-1", "3-1"],
+  ])("canonicalises %j to %j", (input, expected) => {
+    expect(canonicalPart(input)).toBe(expected);
+  });
+
+  it.each([undefined, null, "", "   "])("treats %j as no part", (input) => {
+    expect(canonicalPart(input)).toBeUndefined();
+  });
+
+  it("is idempotent", () => {
+    for (const input of ["Book 02.0", "1 to 3", "Prequel", "3-1", "0.50"]) {
+      expect(canonicalPart(canonicalPart(input))).toBe(canonicalPart(input));
+    }
+  });
+
+  it("canonicalises the parts of a series set and compares spellings of one part as equal", () => {
+    expect(canonicalizeSeries([{ name: "Main", part: "Book 02.0" }])).toEqual([
+      { name: "Main", part: "2" },
+    ]);
+    expect(
+      seriesSetsDiffer(
+        { primary: { name: "Main", part: "Book 2" }, additional: [] },
+        { primary: { name: "Main", part: "02.0" }, additional: [] },
+      ),
+    ).toBe(false);
+    expect(
+      seriesSetsDiffer(
+        { primary: { name: "Main", part: "2.5" }, additional: [] },
+        { primary: { name: "Main", part: "2.50001" }, additional: [] },
+      ),
+    ).toBe(false);
+    expect(
+      seriesSetsDiffer(
+        { primary: { name: "Main", part: "2.5" }, additional: [] },
+        { primary: { name: "Main", part: "2.6" }, additional: [] },
+      ),
+    ).toBe(true);
+    expect(
+      seriesSetsDiffer(
+        { primary: { name: "Main", part: "1-3" }, additional: [] },
+        { primary: { name: "Main", part: "1" }, additional: [] },
+      ),
+    ).toBe(true);
   });
 });
