@@ -66,9 +66,10 @@ public class BookConsistencyIssueRepository : IBookConsistencyIssueRepository
 
     public async Task<BookConsistencyIssue?> GetByIdAsync(long id)
     {
-        // The full metadata graph (Authors, Narrators, Genres), not just Authors: the selective
-        // tag-mismatch resolve builds a domain audiobook from this to merge the user's chosen
-        // values. Reading a partially attached collection would wipe the omitted metadata on save.
+        // The full metadata graph (Authors, Narrators, Genres, SeriesRelations), not just Authors:
+        // the selective tag-mismatch resolve builds a domain audiobook from this to merge the
+        // user's chosen values. Reading a partially attached collection would wipe the omitted
+        // metadata on save - the series included, since the relations are its only store.
         return await _db.BookConsistencyIssues
             .Include(ci => ci.Audiobook)
                 .ThenInclude(a => a.Authors)
@@ -76,6 +77,8 @@ public class BookConsistencyIssueRepository : IBookConsistencyIssueRepository
                 .ThenInclude(a => a.Narrators)
             .Include(ci => ci.Audiobook)
                 .ThenInclude(a => a.Genres)
+            .Include(ci => ci.Audiobook)
+                .ThenInclude(a => a.SeriesRelations)
             .AsSplitQuery()
             .FirstOrDefaultAsync(ci => ci.Id == id);
     }

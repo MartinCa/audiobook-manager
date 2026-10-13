@@ -232,4 +232,52 @@ public class BookConsistencyIssueRepositoryPagingTests
         Assert.AreEqual(4, counts[BookConsistencyIssueType.MissingCoverFile]);
         Assert.AreEqual(2, counts.Count, "Types with no issues must not appear.");
     }
+
+    // Regression for the review of the single-store series change: the selective tag-mismatch
+    // resolve builds its domain book from GetByIdAsync's Audiobook, and a book whose relations
+    // were not loaded came out with no series - which UpdateAudiobook then applied by deleting the
+    // primary relation and rewriting the tags without it.
+    [TestMethod]
+    public async Task GetByIdAsync_LoadsTheSeriesRelations_SoTheDomainBookKeepsItsSeries()
+    {
+        var book = new Audiobook(
+            default, "Mistborn", null, "Cosmere", "1", 2024,
+            null, null, null, null, null, null, null, null, null,
+            "/library/mistborn.m4b", "mistborn.m4b", 1000)
+        {
+            Authors = new List<Person> { _author },
+        };
+        book.SeriesRelations!.Add(new AudiobookSeries { SeriesName = "Stormlight", SeriesPart = "2", IsPrimary = false, SortOrder = 1 });
+        _db.Audiobooks.Add(book);
+        await _db.SaveChangesAsync();
+        _db.BookConsistencyIssues.Add(new BookConsistencyIssue
+        {
+            AudiobookId = book.Id,
+            IssueType = BookConsistencyIssueType.TagMismatch,
+            Description = "d",
+            DetectedAt = DateTime.UtcNow,
+        });
+        await _db.SaveChangesAsync();
+        var issueId = _db.BookConsistencyIssues.Single().Id;
+        _db.ChangeTracker.Clear();
+
+        var issue = await _repository.GetByIdAsync(issueId);
+        var domain = AudiobookManager.Services.AudiobookService.FromDb(issue!.Audiobook);
+
+        Assert.AreEqual("Cosmere", domain.Series);
+        Assert.AreEqual("1", domain.SeriesPart);
+        CollectionAssert.AreEqual(new[] { "Stormlight" }, domain.AdditionalSeries!.Select(r => r.Name).ToArray());
+    }
+
+    [TestMethod]
+    public async Task FromDb_OnABookReadWithoutItsSeriesRelations_ThrowsInsteadOfProducingABookWithNoSeries()
+    {
+        var book = await SeedBookAsync("Loose");
+        _db.ChangeTracker.Clear();
+        var withoutRelations = await _db.Audiobooks.AsNoTracking()
+            .Include(a => a.Authors).Include(a => a.Narrators).Include(a => a.Genres)
+            .SingleAsync(a => a.Id == book.Id);
+
+        Assert.ThrowsExactly<InvalidOperationException>(() => AudiobookManager.Services.AudiobookService.FromDb(withoutRelations));
+    }
 }

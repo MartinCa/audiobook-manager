@@ -617,9 +617,10 @@ public class AudiobookService : IAudiobookService
             BookName = audiobookDb.BookName,
             Subtitle = audiobookDb.Subtitle,
             SplitTitleOnColon = audiobookDb.SplitTitleOnColon,
-            Series = audiobookDb.SeriesRelations?.FirstOrDefault(r => r.IsPrimary)?.SeriesName,
-            SeriesPart = audiobookDb.SeriesRelations?.FirstOrDefault(r => r.IsPrimary)?.SeriesPart,
-            // Null when the relations were not loaded, which UpdateAudiobook reads as "leave them".
+            // PrimarySeries throws when the relations were not loaded: a null Series here would be
+            // read by UpdateAudiobook as "no series" and delete the book's primary relation.
+            Series = audiobookDb.PrimarySeries?.SeriesName,
+            SeriesPart = audiobookDb.PrimarySeries?.SeriesPart,
             AdditionalSeries = SeriesRelationSync.AdditionalOf(audiobookDb),
             // Carried through every FromDb -> UpdateAudiobook round trip (consistency resolves,
             // alignment, bulk edit): dropping it there would silently strip the suffix off disk.

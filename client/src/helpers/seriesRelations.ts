@@ -150,6 +150,11 @@ function partsEquivalent(a: string | undefined, b: string | undefined): boolean 
   const left = canonicalPart(a);
   const right = canonicalPart(b);
   if (!left || !right) return !left && !right;
+  // Two plain numbers are the same part when within rounding - the backend's
+  // `SeriesPartEquivalence` does the same, so a source's "2.50001" is not a change to "2.5".
+  if (NUMBER.test(left) && NUMBER.test(right)) {
+    return Math.abs(Number(left) - Number(right)) < 0.0001;
+  }
   return left.toLowerCase() === right.toLowerCase();
 }
 

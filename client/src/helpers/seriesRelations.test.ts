@@ -227,6 +227,18 @@ describe("canonicalPart", () => {
     ).toBe(false);
     expect(
       seriesSetsDiffer(
+        { primary: { name: "Main", part: "2.5" }, additional: [] },
+        { primary: { name: "Main", part: "2.50001" }, additional: [] },
+      ),
+    ).toBe(false);
+    expect(
+      seriesSetsDiffer(
+        { primary: { name: "Main", part: "2.5" }, additional: [] },
+        { primary: { name: "Main", part: "2.6" }, additional: [] },
+      ),
+    ).toBe(true);
+    expect(
+      seriesSetsDiffer(
         { primary: { name: "Main", part: "1-3" }, additional: [] },
         { primary: { name: "Main", part: "1" }, additional: [] },
       ),
