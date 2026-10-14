@@ -12,7 +12,10 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  UV_VERSION: "0.12.3"
+  # renovate: datasource=pypi depName=uv
+  UV_VERSION: "0.13.1"
+  # renovate: datasource=pypi depName=zizmor
+  ZIZMOR_VERSION: "1.29.0"
 
 jobs:
   lint:
@@ -151,7 +154,7 @@ jobs:
       - name: Audit workflows
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: uvx zizmor@1.29.0 --format sarif . > zizmor.sarif
+        run: uvx "zizmor@${ZIZMOR_VERSION}" --format sarif . > zizmor.sarif
 
       - name: Upload SARIF
         if: always()
