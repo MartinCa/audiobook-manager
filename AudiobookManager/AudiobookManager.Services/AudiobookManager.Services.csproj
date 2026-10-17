@@ -8,8 +8,8 @@
 
   <ItemGroup>
     <PackageReference Include="Cronos" Version="0.13.0" />
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.12" />
-    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="10.0.12" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.13" />
+    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="10.0.13" />
     <!--
       Replaced SixLabors.ImageSharp (see git history): 4.x added a build-time license check with
       no free path for a closed-source-looking CI/Docker pipeline to satisfy without registering,
