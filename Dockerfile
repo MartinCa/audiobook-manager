@@ -1,4 +1,4 @@
-FROM mcr.microsoft.com/dotnet/sdk:10.0-alpine@sha256:230c3fbae0ceedc70bca04eed2bfb5694e8b248cadbb81010f41b7a993601f55 AS build-env
+FROM mcr.microsoft.com/dotnet/sdk:10.0-alpine@sha256:e84a8a270355542bde60ae3c9a5caa8e6bde0bd6bed9825467e90614a050431d AS build-env
 WORKDIR /app
 
 ARG APP_VERSION=dev
@@ -37,7 +37,7 @@ COPY /client ./
 RUN pnpm run build
 
 # Build runtime image
-FROM mcr.microsoft.com/dotnet/aspnet:10.0-alpine@sha256:819bd3649d8bf53f35527c68d62e17b348ef6f24ae73073f497f00a878348062
+FROM mcr.microsoft.com/dotnet/aspnet:10.0-alpine@sha256:284a1c3072bae5cb3b063e80e135f701b8477b3bcaf8a3cfb6e513a585ed3acf
 
 # User manipulation tools
 RUN apk add --no-cache --update --upgrade shadow su-exec
