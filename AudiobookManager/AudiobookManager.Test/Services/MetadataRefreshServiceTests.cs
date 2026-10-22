@@ -371,7 +371,7 @@ public class MetadataRefreshServiceTests
             ChangedFieldsJson = "[\"Description\"]",
         };
         _pendingRepository.Setup(r => r.GetPendingAudiobookIdsAsync()).ReturnsAsync(new List<long> { 42 });
-        _pendingRepository.Setup(r => r.GetByAudiobookIdsAsync(It.IsAny<IReadOnlyList<long>>()))
+        _pendingRepository.Setup(r => r.GetByAudiobookIdsAsync(It.IsAny<IReadOnlyCollection<long>>()))
             .ReturnsAsync(new List<PendingMetadataRefresh> { row });
         _pendingRepository.Setup(r => r.GetByAudiobookIdAsync(42)).ReturnsAsync(row);
         return row;
@@ -462,7 +462,7 @@ public class MetadataRefreshServiceTests
         var row = PendingRow(42, payload, "[\"Series\",\"Description\"]");
 
         _pendingRepository.Setup(r => r.GetPendingAudiobookIdsAsync()).ReturnsAsync(new List<long> { 42 });
-        _pendingRepository.Setup(r => r.GetByAudiobookIdsAsync(It.IsAny<IReadOnlyList<long>>()))
+        _pendingRepository.Setup(r => r.GetByAudiobookIdsAsync(It.IsAny<IReadOnlyCollection<long>>()))
             .ReturnsAsync(new List<PendingMetadataRefresh> { row });
         _pendingRepository.Setup(r => r.GetByAudiobookIdAsync(42)).ReturnsAsync(row);
         _audiobookRepository.Setup(r => r.GetByIdsWithIncludesAsync(It.IsAny<IReadOnlyList<long>>()))
@@ -1741,6 +1741,63 @@ public class MetadataRefreshServiceTests
             fieldsFilter: new List<string> { "Rating" }, sourceFilter: new List<string> { "Audible" });
 
         Assert.AreSequenceEqual(new List<long> { 601 }, ids);
+    }
+
+    [TestMethod]
+    public async Task ApplyFilteredPendingRefreshesAsync_SourceFilter_OnlyResolvesRowsFromSelectedSources()
+    {
+        _pendingRepository.Setup(r => r.GetAudiobookIdsMissingChangedFieldsAsync())
+            .ReturnsAsync(new List<long>());
+        _pendingRepository.Setup(r => r.GetAllChangedFieldsAsync())
+            .ReturnsAsync(new List<PendingRefreshFieldsRow>
+            {
+                new(801, DateTime.UtcNow, "[\"Rating\"]", "Audible"),
+                new(802, DateTime.UtcNow, "[\"Rating\"]", "Goodreads"),
+            });
+        IReadOnlyCollection<long>? requested = null;
+        _pendingRepository.Setup(r => r.GetByAudiobookIdsAsync(It.IsAny<IReadOnlyCollection<long>>()))
+            .Callback((IReadOnlyCollection<long> ids) => requested = ids)
+            .ReturnsAsync(new List<PendingMetadataRefresh>());
+
+        await CreateService().ApplyFilteredPendingRefreshesAsync(
+            new List<string> { "Rating" }, (_, _, _, _) => Task.CompletedTask,
+            sourceFilter: new List<string> { "Audible" });
+
+        Assert.IsNotNull(requested);
+        Assert.AreSequenceEqual(new List<long> { 801 }, requested!.ToList());
+    }
+
+    [TestMethod]
+    public async Task ApplyFilteredPendingRefreshesAsync_SourceOnlyFilter_ResolvesEveryRowFromThatSource()
+    {
+        _pendingRepository.Setup(r => r.GetAudiobookIdsMissingChangedFieldsAsync())
+            .ReturnsAsync(new List<long>());
+        _pendingRepository.Setup(r => r.GetAllChangedFieldsAsync())
+            .ReturnsAsync(new List<PendingRefreshFieldsRow>
+            {
+                new(811, DateTime.UtcNow, "[\"Rating\"]", "Audible"),
+                new(812, DateTime.UtcNow, "[\"Genres\"]", "Audible"),
+                new(813, DateTime.UtcNow, "[\"Rating\"]", "Goodreads"),
+            });
+        IReadOnlyCollection<long>? requested = null;
+        _pendingRepository.Setup(r => r.GetByAudiobookIdsAsync(It.IsAny<IReadOnlyCollection<long>>()))
+            .Callback((IReadOnlyCollection<long> ids) => requested = ids)
+            .ReturnsAsync(new List<PendingMetadataRefresh>());
+
+        await CreateService().ApplyFilteredPendingRefreshesAsync(
+            null, (_, _, _, _) => Task.CompletedTask, sourceFilter: new List<string> { "Audible" });
+
+        Assert.IsNotNull(requested);
+        CollectionAssert.AreEquivalent(new List<long> { 811, 812 }, requested!.ToList());
+    }
+
+    [TestMethod]
+    public async Task ApplyFilteredPendingRefreshesAsync_NoFilters_RefusesInsteadOfApplyingEveryPendingRow()
+    {
+        await Assert.ThrowsExactlyAsync<ArgumentException>(() => CreateService().ApplyFilteredPendingRefreshesAsync(
+            new List<string>(), (_, _, _, _) => Task.CompletedTask, sourceFilter: new List<string>()));
+
+        _pendingRepository.Verify(r => r.GetByAudiobookIdsAsync(It.IsAny<IReadOnlyCollection<long>>()), Times.Never);
     }
 
     [TestMethod]

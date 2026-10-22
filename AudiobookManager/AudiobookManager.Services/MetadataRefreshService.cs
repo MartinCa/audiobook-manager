@@ -590,9 +590,16 @@ public class MetadataRefreshService : IMetadataRefreshService
         ApplyManyAsync(audiobookIds, progressAction, splitTitleOnColon);
 
     public async Task<(int Processed, int Succeeded, int Failed)> ApplyFilteredPendingRefreshesAsync(
-        IReadOnlyCollection<string> fieldsFilter, Func<int, int, int, int, Task> progressAction, bool splitTitleOnColon = false)
+        IReadOnlyCollection<string>? fieldsFilter, Func<int, int, int, int, Task> progressAction,
+        bool splitTitleOnColon = false, IReadOnlyCollection<string>? sourceFilter = null)
     {
-        var matches = await GetFilterMatchesAsync(fieldsFilter);
+        if ((fieldsFilter is null || fieldsFilter.Count == 0) && (sourceFilter is null || sourceFilter.Count == 0))
+        {
+            // GetFilterMatchesAsync with no condition would match every pending row.
+            throw new ArgumentException("At least one field or source filter is required.");
+        }
+
+        var matches = await GetFilterMatchesAsync(fieldsFilter, sourceFilter);
         return await ApplyManyAsync(matches.Select(m => m.AudiobookId).ToList(), progressAction, splitTitleOnColon);
     }
 

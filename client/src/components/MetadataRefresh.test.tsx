@@ -221,6 +221,32 @@ describe("MetadataRefresh", () => {
     });
   });
 
+  // Regression: "apply all matching filter" used to send only the field filter, so it applied
+  // books from every source while the list (and its count) showed just the filtered source.
+  it("applies all matching the active source filter, sending the selected sources", async () => {
+    renderWithRouter();
+
+    await screen.findByText("Books with Pending Metadata Changes (2)");
+
+    fireEvent.click(await screen.findByRole("button", { name: /filter sources/i }));
+    fireEvent.click(await screen.findByText("Audible"));
+
+    const applyAll = await screen.findByRole("button", { name: /apply all matching filter/i });
+    fireEvent.click(applyAll);
+
+    await waitFor(() => {
+      expect(metadataRefreshApi.applyFiltered).toHaveBeenCalledWith([], false, ["Audible"]);
+    });
+  });
+
+  it("hides apply-all-matching-filter while no filter is active", async () => {
+    renderWithRouter();
+
+    await screen.findByText("Books with Pending Metadata Changes (2)");
+
+    expect(screen.queryByRole("button", { name: /apply all matching filter/i })).toBeNull();
+  });
+
   it("dismisses the selected books without applying them", async () => {
     vi.mocked(metadataRefreshApi.dismissSelected).mockResolvedValueOnce({ dismissed: 1 });
 

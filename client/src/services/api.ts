@@ -666,10 +666,14 @@ export const metadataRefreshApi = {
     api.post<void>("/metadata-refresh/apply-selected", { audiobookIds, splitTitleOnColon }),
 
   // Fire-and-forget: applies the full pending snapshot to every book whose stored changed-fields
-  // are entirely contained in `fields` - unbounded by page or selection size. `splitTitleOnColon`
-  // (default off) - see applyPending above.
-  applyFiltered: (fields: readonly string[], splitTitleOnColon: boolean = false) =>
-    api.post<void>("/metadata-refresh/apply-filtered", { fields, splitTitleOnColon }),
+  // are entirely contained in `fields` and (when given) whose source is one of `sources` - the
+  // same two filters the pending list applies, unbounded by page or selection size. At least one
+  // of the two must be non-empty. `splitTitleOnColon` (default off) - see applyPending above.
+  applyFiltered: (
+    fields: readonly string[],
+    splitTitleOnColon: boolean = false,
+    sources: readonly string[] = [],
+  ) => api.post<void>("/metadata-refresh/apply-filtered", { fields, splitTitleOnColon, sources }),
 
   // Synchronous: re-diffs every pending snapshot against the library, series mapping patterns,
   // and changed-fields logic as they stand right now, without re-fetching anything from a

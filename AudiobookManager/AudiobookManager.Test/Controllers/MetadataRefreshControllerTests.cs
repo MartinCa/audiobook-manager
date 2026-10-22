@@ -322,7 +322,8 @@ public class MetadataRefreshControllerTests
     public async Task StartApplyFiltered_SplitTitleOnColonInDto_PassesThroughToTheService()
     {
         _metadataRefreshService.Setup(s => s.ApplyFilteredPendingRefreshesAsync(
-                It.IsAny<IReadOnlyCollection<string>>(), It.IsAny<Func<int, int, int, int, Task>>(), true))
+                It.IsAny<IReadOnlyCollection<string>?>(), It.IsAny<Func<int, int, int, int, Task>>(), true,
+                It.IsAny<IReadOnlyCollection<string>?>()))
             .ReturnsAsync((3, 3, 0));
 
         var finished = RegisterApplyFinishedWaiter();
@@ -335,9 +336,70 @@ public class MetadataRefreshControllerTests
         await AwaitOperationFinished(finished);
 
         _metadataRefreshService.Verify(s => s.ApplyFilteredPendingRefreshesAsync(
-            It.Is<IReadOnlyCollection<string>>(f => f.SequenceEqual(new List<string> { "BookName" })),
+            It.Is<IReadOnlyCollection<string>?>(f => f != null && f.SequenceEqual(new List<string> { "BookName" })),
             It.IsAny<Func<int, int, int, int, Task>>(),
-            true), Times.Once);
+            true,
+            null), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task StartApplyFiltered_SourcesInDto_PassThroughToTheService()
+    {
+        _metadataRefreshService.Setup(s => s.ApplyFilteredPendingRefreshesAsync(
+                It.IsAny<IReadOnlyCollection<string>?>(), It.IsAny<Func<int, int, int, int, Task>>(),
+                false, It.IsAny<IReadOnlyCollection<string>?>()))
+            .ReturnsAsync((1, 1, 0));
+
+        var finished = RegisterApplyFinishedWaiter();
+
+        var result = _controller.StartApplyFiltered(
+            new BulkApplyFilteredMetadataRefreshDto(new List<string> { "BookName" }, Sources: new List<string> { "Audible" }));
+
+        Assert.IsInstanceOfType<OkResult>(result);
+
+        await AwaitOperationFinished(finished);
+
+        _metadataRefreshService.Verify(s => s.ApplyFilteredPendingRefreshesAsync(
+            It.Is<IReadOnlyCollection<string>?>(f => f != null && f.SequenceEqual(new List<string> { "BookName" })),
+            It.IsAny<Func<int, int, int, int, Task>>(),
+            false,
+            It.Is<IReadOnlyCollection<string>?>(src => src != null && src.SequenceEqual(new List<string> { "Audible" }))), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task StartApplyFiltered_SourceOnly_IsAcceptedWithNoFields()
+    {
+        _metadataRefreshService.Setup(s => s.ApplyFilteredPendingRefreshesAsync(
+                It.IsAny<IReadOnlyCollection<string>?>(), It.IsAny<Func<int, int, int, int, Task>>(),
+                false, It.IsAny<IReadOnlyCollection<string>?>()))
+            .ReturnsAsync((1, 1, 0));
+
+        var finished = RegisterApplyFinishedWaiter();
+
+        var result = _controller.StartApplyFiltered(
+            new BulkApplyFilteredMetadataRefreshDto(null, Sources: new List<string> { "Audible" }));
+
+        Assert.IsInstanceOfType<OkResult>(result);
+
+        await AwaitOperationFinished(finished);
+
+        _metadataRefreshService.Verify(s => s.ApplyFilteredPendingRefreshesAsync(
+            null,
+            It.IsAny<Func<int, int, int, int, Task>>(),
+            false,
+            It.Is<IReadOnlyCollection<string>?>(src => src != null && src.SequenceEqual(new List<string> { "Audible" }))), Times.Once);
+    }
+
+    [TestMethod]
+    public void StartApplyFiltered_NoFieldsAndNoSources_ReturnsBadRequest()
+    {
+        var result = _controller.StartApplyFiltered(
+            new BulkApplyFilteredMetadataRefreshDto(new List<string>(), Sources: new List<string>()));
+
+        ProblemAssert.HasDetail(result, StatusCodes.Status400BadRequest, "At least one field or source must be selected.");
+        _metadataRefreshService.Verify(s => s.ApplyFilteredPendingRefreshesAsync(
+            It.IsAny<IReadOnlyCollection<string>?>(), It.IsAny<Func<int, int, int, int, Task>>(),
+            It.IsAny<bool>(), It.IsAny<IReadOnlyCollection<string>?>()), Times.Never);
     }
 
     [TestMethod]

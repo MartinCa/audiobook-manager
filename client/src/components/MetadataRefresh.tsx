@@ -191,7 +191,8 @@ export function MetadataRefresh() {
   });
 
   const applyFilteredMutation = useMutation({
-    mutationFn: () => metadataRefreshApi.applyFiltered(fieldFilterList, splitTitleOnColonEnabled),
+    mutationFn: () =>
+      metadataRefreshApi.applyFiltered(fieldFilterList, splitTitleOnColonEnabled, sourceFilterList),
     onSuccess: () => {
       notifications.success("Applying every book matching the filter in background");
     },
@@ -623,7 +624,7 @@ export function MetadataRefresh() {
                 {applying ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : null}
                 Apply Selected ({selectedIds.size})
               </Button>
-              {fieldFilter.size > 0 && (
+              {hasActiveFilter && (
                 <Button
                   disabled={applying || totalCount === 0}
                   onClick={() => applyFilteredMutation.mutate()}
