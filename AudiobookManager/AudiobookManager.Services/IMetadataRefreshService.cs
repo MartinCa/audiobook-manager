@@ -136,12 +136,14 @@ public interface IMetadataRefreshService
 
     /// <summary>
     /// Resolves every pending book whose stored changed-fields are entirely contained in
-    /// <paramref name="fieldsFilter"/>, then applies each one's full snapshot the same way
+    /// <paramref name="fieldsFilter"/> and (when given) whose source is one of
+    /// <paramref name="sourceFilter"/>, then applies each one's full snapshot the same way
     /// <see cref="ApplySelectedPendingRefreshesAsync"/> does - for "apply every book matching this
     /// filter", unbounded by page or selection size.
     /// </summary>
     Task<(int Processed, int Succeeded, int Failed)> ApplyFilteredPendingRefreshesAsync(
-        IReadOnlyCollection<string> fieldsFilter, Func<int, int, int, int, Task> progressAction, bool splitTitleOnColon = false);
+        IReadOnlyCollection<string>? fieldsFilter, Func<int, int, int, int, Task> progressAction,
+        bool splitTitleOnColon = false, IReadOnlyCollection<string>? sourceFilter = null);
 
     /// <summary>
     /// Re-evaluates every pending snapshot against the library, series mapping patterns and

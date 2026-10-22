@@ -66,9 +66,12 @@ public record BulkMetadataRefreshDto(DateTime? OlderThanUtc);
 /// <summary>
 /// The body of POST api/metadata-refresh/apply-filtered: apply the full pending snapshot to
 /// every book whose stored changed-fields are entirely contained in <see cref="Fields"/> - the
-/// same subset rule the pending list's filter uses to decide which rows match.
+/// same subset rule the pending list's filter uses to decide which rows match. When
+/// <see cref="Sources"/> is given, only rows fetched from one of those sources match too (the
+/// pending list's source filter). At least one of the two must be non-empty.
 /// </summary>
-public record BulkApplyFilteredMetadataRefreshDto(List<string> Fields, bool SplitTitleOnColon = false);
+public record BulkApplyFilteredMetadataRefreshDto(
+    List<string>? Fields, bool SplitTitleOnColon = false, List<string>? Sources = null);
 
 /// <summary>
 /// The body of POST api/metadata-refresh/{id}/apply. Null or empty <see cref="Fields"/> applies

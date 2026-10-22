@@ -308,7 +308,7 @@ public class MetadataRefreshController : ControllerBase
 
     /// <summary>
     /// Applies every pending book whose stored changed-fields are entirely contained in the
-    /// given field list - "apply every book matching this filter", unbounded by page or the
+    /// given field list and, when given, whose source is one of the given sources - "apply every book matching this filter", unbounded by page or the
     /// explicit-selection cap, resolved and run entirely server-side. Same fire-and-forget shape
     /// as <see cref="StartApplySelected"/>, sharing its lock: the two must not run concurrently,
     /// since either can touch the same book.
@@ -316,12 +316,13 @@ public class MetadataRefreshController : ControllerBase
     [HttpPost("apply-filtered")]
     public IActionResult StartApplyFiltered([FromBody] BulkApplyFilteredMetadataRefreshDto? dto)
     {
-        if (dto?.Fields is null || dto.Fields.Count == 0)
+        var fields = dto?.Fields is { Count: > 0 } ? dto.Fields : null;
+        var sources = dto?.Sources is { Count: > 0 } ? dto.Sources : null;
+        if (dto is null || (fields is null && sources is null))
         {
-            return this.InvalidRequest("At least one field must be selected.");
+            return this.InvalidRequest("At least one field or source must be selected.");
         }
 
-        var fields = dto.Fields;
         var splitTitleOnColon = dto.SplitTitleOnColon;
 
         return BackgroundOperationRunner.Start(
@@ -342,7 +343,7 @@ public class MetadataRefreshController : ControllerBase
                 }
 
                 var (processed, succeeded, failed) =
-                    await refreshService.ApplyFilteredPendingRefreshesAsync(fields, ProgressAction, splitTitleOnColon);
+                    await refreshService.ApplyFilteredPendingRefreshesAsync(fields, ProgressAction, splitTitleOnColon, sources);
 
                 await _organizeHub.Clients.All.MetadataApplyComplete(
                     new MetadataApplyComplete(processed, processed, succeeded, failed));

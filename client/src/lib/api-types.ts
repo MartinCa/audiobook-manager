@@ -6156,6 +6156,7 @@ export interface components {
         BulkApplyFilteredMetadataRefreshDto: {
             fields?: string[] | null;
             splitTitleOnColon?: boolean;
+            sources?: string[] | null;
         };
         BulkEditAudiobooksRequestDto: {
             audiobookIds: number[];
