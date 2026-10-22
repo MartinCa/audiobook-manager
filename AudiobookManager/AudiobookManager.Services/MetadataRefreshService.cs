@@ -596,7 +596,7 @@ public class MetadataRefreshService : IMetadataRefreshService
         if ((fieldsFilter is null || fieldsFilter.Count == 0) && (sourceFilter is null || sourceFilter.Count == 0))
         {
             // GetFilterMatchesAsync with no condition would match every pending row.
-            throw new ArgumentException("At least one field or source filter is required.", nameof(fieldsFilter));
+            throw new ArgumentException("At least one field or source filter is required.");
         }
 
         var matches = await GetFilterMatchesAsync(fieldsFilter, sourceFilter);
