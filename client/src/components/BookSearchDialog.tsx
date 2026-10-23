@@ -266,7 +266,7 @@ export function BookSearchDialog({
                     onClick={() => {
                       void handleChoose(result);
                     }}
-                    className="min-w-0 flex-1 sm:w-auto"
+                    className="min-w-0 flex-1 sm:w-auto sm:flex-none"
                   >
                     {isBusy ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
                     Apply
