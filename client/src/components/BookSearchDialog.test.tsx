@@ -253,6 +253,15 @@ describe("BookSearchDialog", () => {
     expect(row.className).not.toContain("shrink-0");
   });
 
+  // Regression: from `sm` up the action row is flex-col, so the Apply button's `flex-1`
+  // (flex-basis 0%) set its height basis and it ignored h-8, collapsing to a 20px line height.
+  it("keeps the Apply button's own height in the card's column layout (sm:flex-none)", async () => {
+    await searchWithResults([baseResult]);
+
+    const apply = await screen.findByRole("button", { name: /apply/i });
+    expect(apply.className).toContain("sm:flex-none");
+  });
+
   // Regression test: deselecting every source used to silently re-expand `activeSources` back to
   // every enabled source (an `activeSources.length > 0 ? activeSources : allEnabled` fallback
   // duplicated in this component, on top of the one useSelectedSearchSources itself already

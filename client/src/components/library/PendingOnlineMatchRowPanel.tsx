@@ -75,7 +75,7 @@ export function PendingOnlineMatchRowPanel({ item, onResolved }: PendingOnlineMa
           onClick={() => {
             void handleSelect(idx);
           }}
-          className="min-w-0 flex-1 sm:w-auto"
+          className="min-w-0 flex-1 sm:w-auto sm:flex-none"
         >
           {selectingIndex === idx ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
           Select this match

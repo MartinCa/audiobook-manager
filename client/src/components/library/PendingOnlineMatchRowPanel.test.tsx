@@ -74,6 +74,16 @@ describe("PendingOnlineMatchRowPanel", () => {
     expect(screen.getAllByRole("button", { name: /select this match/i })).toHaveLength(1);
   });
 
+  // Regression: the result card's action column is flex-col from `sm` up, where the button's
+  // `flex-1` (flex-basis 0%) sets its *height* basis and made it ignore h-8 - it collapsed to its
+  // 20px line height. `sm:flex-none` takes it back out of the flex sizing there.
+  it("keeps the select button's own height in the card's column layout (sm:flex-none)", () => {
+    renderPanel();
+
+    const button = screen.getByRole("button", { name: /select this match/i });
+    expect(button.className).toContain("sm:flex-none");
+  });
+
   it("shows each candidate's rating and review count from the stored snapshot", () => {
     renderPanel({
       ...baseItem,
