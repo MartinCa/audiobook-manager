@@ -7,7 +7,7 @@ import { metadataSearchApi, settingsApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { handleApiError } from "@/lib/api";
 import { notifications } from "@/lib/notifications";
-import { moveItem } from "@/helpers/metadataSources";
+import { moveItem, sortServicesByOrder } from "@/helpers/metadataSources";
 
 /**
  * The order the online metadata sources are listed in wherever they appear: the source pickers,
@@ -26,13 +26,20 @@ export function MetadataSourceOrderCard() {
 
   const saved = (services ?? []).map((s) => s.name);
   const order = draft ?? saved;
-  const changed = draft !== null && draft.some((name, i) => name !== saved[i]);
+  // The sources can change under an open draft (a refetch after a scraper was registered or
+  // removed), so a different set counts as a change, not only a different order.
+  const changed =
+    draft !== null && (draft.length !== saved.length || draft.some((name, i) => name !== saved[i]));
 
   const mutation = useMutation({
     mutationFn: (sources: string[]) => settingsApi.updateMetadataSourceOrder(sources),
-    onSuccess: () => {
+    onSuccess: (result) => {
       notifications.success("Source order saved");
       setDraft(null);
+      // Show the stored order straight away rather than the old one until the refetch lands.
+      queryClient.setQueryData(queryKeys.metadataServices(), (current: typeof services) =>
+        current ? sortServicesByOrder(current, result.sources) : current,
+      );
       // Everything that lists sources was read in the old order.
       void queryClient.invalidateQueries({ queryKey: queryKeys.metadataServices() });
       void queryClient.invalidateQueries({ queryKey: queryKeys.browseFilterOptions() });

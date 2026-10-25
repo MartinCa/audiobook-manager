@@ -66,6 +66,16 @@ public class MetadataSourceOrderTests
     }
 
     [TestMethod]
+    public void Validate_TooManyOrTooLongNames_AreRefused()
+    {
+        Assert.ThrowsExactly<ArgumentException>(() => MetadataSourceOrder.Validate(
+            Enumerable.Range(0, MetadataSourceOrder.MaxEntries + 1).Select(i => $"Source {i}").ToList()));
+        Assert.ThrowsExactly<ArgumentException>(() => MetadataSourceOrder.Validate(
+            new[] { new string('x', MetadataSourceOrder.MaxNameLength + 1) }));
+        MetadataSourceOrder.Validate(new[] { "Audible", "Hardcover" });
+    }
+
+    [TestMethod]
     [DataRow(null)]
     [DataRow("")]
     [DataRow("not json")]

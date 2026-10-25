@@ -23,3 +23,18 @@ export function moveItem<T>(list: T[], index: number, delta: number): T[] {
   next.splice(target, 0, ...next.splice(index, 1));
   return next;
 }
+
+/**
+ * `services` in the given saved order, mirroring the server's rule: listed names first, in that
+ * order, then the rest alphabetically.
+ */
+export function sortServicesByOrder<T extends { name: string }>(
+  services: T[],
+  order: string[],
+): T[] {
+  const rank = new Map(order.map((name, i) => [name.toLowerCase(), i] as const));
+  const rankOf = (name: string) => rank.get(name.toLowerCase()) ?? Number.MAX_SAFE_INTEGER;
+  return [...services].sort(
+    (a, b) => rankOf(a.name) - rankOf(b.name) || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0),
+  );
+}

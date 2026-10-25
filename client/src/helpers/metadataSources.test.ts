@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { moveItem, orderLikeServices } from "./metadataSources";
+import { moveItem, orderLikeServices, sortServicesByOrder } from "./metadataSources";
 
 describe("orderLikeServices", () => {
   const services = [{ name: "Hardcover" }, { name: "Audible" }, { name: "Goodreads" }];
@@ -36,5 +36,17 @@ describe("moveItem", () => {
     const input = ["a", "b"];
     moveItem(input, 0, 1);
     expect(input).toEqual(["a", "b"]);
+  });
+});
+
+describe("sortServicesByOrder", () => {
+  const services = [{ name: "Audible" }, { name: "Goodreads" }, { name: "Hardcover" }];
+
+  it("puts listed sources first in the saved order, then the rest alphabetically", () => {
+    expect(sortServicesByOrder(services, ["hardcover", "Goodreads"]).map((s) => s.name)).toEqual([
+      "Hardcover",
+      "Goodreads",
+      "Audible",
+    ]);
   });
 });

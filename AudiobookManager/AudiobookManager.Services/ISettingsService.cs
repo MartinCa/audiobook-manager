@@ -24,7 +24,10 @@ public interface ISettingsService
     /// </summary>
     Task<IReadOnlyList<string>> GetMetadataSourceOrder();
 
-    /// <summary>Saves the source order (normalized) and returns what was stored.</summary>
-    /// <exception cref="ArgumentException">The list is too long or a name is too long.</exception>
+    /// <summary>
+    /// Saves the source order and returns what was stored: names are matched to the registered
+    /// sources ignoring case and stored in their registered spelling.
+    /// </summary>
+    /// <exception cref="ArgumentException">A name is not a registered source, or the list is too long.</exception>
     Task<IReadOnlyList<string>> UpdateMetadataSourceOrder(IReadOnlyList<string> sources);
 }

@@ -84,6 +84,25 @@ describe("MetadataSourceOrderCard", () => {
     );
   });
 
+  it("shows the stored order straight after saving, before the services refetch lands", async () => {
+    const user = userEvent.setup();
+    vi.mocked(settingsApi.updateMetadataSourceOrder).mockResolvedValue({
+      sources: ["Goodreads", "Audible", "Hardcover"],
+    });
+    // The refetch after the save never resolves in time: the list must already show the new order.
+    vi.mocked(metadataSearchApi.getServices)
+      .mockResolvedValueOnce(services)
+      .mockReturnValue(new Promise(() => {}));
+    renderCard();
+    await screen.findByText("Goodreads");
+
+    await user.click(screen.getByRole("button", { name: "Move Goodreads up" }));
+    await user.click(screen.getByRole("button", { name: "Save order" }));
+
+    await waitFor(() => expect(notifications.success).toHaveBeenCalled());
+    expect(listedNames()).toEqual(["Goodreads", "Audible", "Hardcover"]);
+  });
+
   it("cannot move the first source up or the last one down", async () => {
     renderCard();
     await screen.findByText("Goodreads");

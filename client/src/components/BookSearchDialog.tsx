@@ -128,8 +128,10 @@ export function BookSearchDialog({
     try {
       const res = await metadataSearchApi.searchMultiple(activeSources, trimmedQuery);
       setResults(res.results || []);
-      // Tabs follow the order chosen in Library Settings, not the order sources were ticked in.
-      setSearchedSources(orderLikeServices(activeSources, services));
+      // Tabs follow the order the response lists the sources in (the order chosen in Library
+      // Settings), not the order they were ticked in. Without statuses, fall back to the picker's.
+      const served = (res.sourceStatuses ?? []).map((status) => status.source);
+      setSearchedSources(served.length > 0 ? served : orderLikeServices(activeSources, services));
       setFailedSources(
         Object.fromEntries(
           (res.sourceStatuses ?? [])

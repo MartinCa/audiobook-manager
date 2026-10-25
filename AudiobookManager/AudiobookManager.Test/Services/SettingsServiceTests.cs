@@ -26,7 +26,17 @@ public class SettingsServiceTests
     public void Setup()
     {
         _librarySettingsRepository = new Mock<ILibrarySettingsRepository>();
-        _service = new SettingsService(_librarySettingsRepository.Object);
+        _service = new SettingsService(_librarySettingsRepository.Object, new[]
+        {
+            Scraper("Audible"), Scraper("Goodreads"), Scraper("Hardcover"),
+        });
+    }
+
+    private static AudiobookManager.Scraping.Scrapers.IScraper Scraper(string name)
+    {
+        var scraper = new Mock<AudiobookManager.Scraping.Scrapers.IScraper>();
+        scraper.Setup(s => s.SourceName).Returns(name);
+        return scraper.Object;
     }
 
     [TestMethod]
@@ -183,8 +193,9 @@ public class SettingsServiceTests
 
         var result = await _service.UpdateMetadataSourceOrder(new[] { " Hardcover ", "", "audible", "Audible", "Goodreads" });
 
-        CollectionAssert.AreEqual(new[] { "Hardcover", "audible", "Goodreads" }, result.ToList());
-        Assert.AreEqual("[\"Hardcover\",\"audible\",\"Goodreads\"]", saved);
+        // Stored in the registered spelling, with the repeat dropped.
+        CollectionAssert.AreEqual(new[] { "Hardcover", "Audible", "Goodreads" }, result.ToList());
+        Assert.AreEqual("[\"Hardcover\",\"Audible\",\"Goodreads\"]", saved);
     }
 
     [TestMethod]
@@ -200,14 +211,14 @@ public class SettingsServiceTests
         Assert.IsNull(saved);
     }
 
+    // A typo used to be saved and then silently ignored by the sort.
     [TestMethod]
-    public async Task UpdateMetadataSourceOrder_TooManyOrTooLongNames_AreRefusedAndNothingIsSaved()
+    public async Task UpdateMetadataSourceOrder_UnknownSource_IsRefusedByNameAndNothingIsSaved()
     {
-        await Assert.ThrowsExactlyAsync<ArgumentException>(() => _service.UpdateMetadataSourceOrder(
-            Enumerable.Range(0, MetadataSourceOrder.MaxEntries + 1).Select(i => $"Source {i}").ToList()));
-        await Assert.ThrowsExactlyAsync<ArgumentException>(() => _service.UpdateMetadataSourceOrder(
-            new[] { new string('x', MetadataSourceOrder.MaxNameLength + 1) }));
+        var ex = await Assert.ThrowsExactlyAsync<ArgumentException>(
+            () => _service.UpdateMetadataSourceOrder(new[] { "Audible", "Goodreadss" }));
 
+        StringAssert.Contains(ex.Message, "Goodreadss");
         _librarySettingsRepository.Verify(r => r.SetMetadataSourceOrderJsonAsync(It.IsAny<string?>()), Times.Never);
     }
 

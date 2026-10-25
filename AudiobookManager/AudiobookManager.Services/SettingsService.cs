@@ -1,5 +1,6 @@
 using AudiobookManager.Database.Repositories;
 using AudiobookManager.Domain;
+using AudiobookManager.Scraping.Scrapers;
 using AudiobookManager.Services.MappingExtensions;
 
 namespace AudiobookManager.Services;
@@ -7,10 +8,12 @@ namespace AudiobookManager.Services;
 public class SettingsService : ISettingsService
 {
     private readonly ILibrarySettingsRepository _librarySettingsRepository;
+    private readonly IEnumerable<IScraper> _scrapers;
 
-    public SettingsService(ILibrarySettingsRepository librarySettingsRepository)
+    public SettingsService(ILibrarySettingsRepository librarySettingsRepository, IEnumerable<IScraper> scrapers)
     {
         _librarySettingsRepository = librarySettingsRepository;
+        _scrapers = scrapers;
     }
 
     public async Task<Domain.LibrarySettings> GetLibrarySettings()
@@ -62,7 +65,11 @@ public class SettingsService : ISettingsService
 
     public async Task<IReadOnlyList<string>> UpdateMetadataSourceOrder(IReadOnlyList<string> sources)
     {
-        var normalized = MetadataSourceOrder.Normalize(sources);
+        var registered = _scrapers.Select(s => s.SourceName).ToList();
+        var normalized = MetadataSourceOrder.Normalize(sources)
+            .Select(name => registered.FirstOrDefault(r => string.Equals(r, name, StringComparison.OrdinalIgnoreCase))
+                ?? throw new ArgumentException($"'{name}' is not a known metadata source."))
+            .ToList();
         MetadataSourceOrder.Validate(normalized);
         await _librarySettingsRepository.SetMetadataSourceOrderJsonAsync(MetadataSourceOrder.Serialize(normalized));
         return normalized;
