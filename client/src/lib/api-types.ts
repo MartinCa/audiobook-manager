@@ -5047,6 +5047,49 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/settings/metadata-source-order": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["MetadataSourceOrderDto"];
+                    "text/json": components["schemas"]["MetadataSourceOrderDto"];
+                    "application/*+json": components["schemas"]["MetadataSourceOrderDto"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["MetadataSourceOrderDto"];
+                        "application/json": components["schemas"]["MetadataSourceOrderDto"];
+                        "text/json": components["schemas"]["MetadataSourceOrderDto"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/settings/qualifier-indicators": {
         parameters: {
             query?: never;
@@ -6515,6 +6558,9 @@ export interface components {
             seriesPart?: string | null;
             originalSeriesName?: string | null;
             partWarning?: boolean | null;
+        };
+        MetadataSourceOrderDto: {
+            sources?: string[] | null;
         };
         MetadataSourceSearchStatus: {
             source?: string | null;

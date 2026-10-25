@@ -24,4 +24,7 @@ public interface ILibrarySettingsRepository
     /// setting untouched, so saving the rules can never clobber a concurrent edit of the rest.
     /// </summary>
     Task SetMetadataApplyRulesJsonAsync(string? json);
+
+    /// <summary>Replaces just the stored metadata source order, leaving every other setting alone.</summary>
+    Task SetMetadataSourceOrderJsonAsync(string? json);
 }

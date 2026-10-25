@@ -107,6 +107,30 @@ describe("BookSearchDialog", () => {
     );
   });
 
+  it("orders the result tabs like the response's sources, not like the picker or the ticks", async () => {
+    // The picker (services) is stale here and lists Audible first; the response is authoritative.
+    vi.mocked(metadataSearchApi.searchMultiple).mockResolvedValue({
+      results: [baseResult, { ...baseResult, source: "Goodreads", url: "https://goodreads.com/1" }],
+      sourceStatuses: [
+        { source: "Goodreads", success: true, resultCount: 1 },
+        { source: "Audible", success: true, resultCount: 1 },
+      ],
+    });
+    const user = userEvent.setup();
+    renderDialog();
+    await user.type(
+      await screen.findByPlaceholderText("Search title, author, or paste URL..."),
+      "mole",
+    );
+    await user.click(screen.getByRole("button", { name: /search/i }));
+
+    await screen.findByRole("tab", { name: "Goodreads (1)" });
+    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual([
+      "Goodreads (1)",
+      "Audible (1)",
+    ]);
+  });
+
   it("reports a lone failed source as failed rather than as no results", async () => {
     vi.mocked(metadataSearchApi.getServices).mockResolvedValueOnce([
       { name: "Goodreads", enabled: true },

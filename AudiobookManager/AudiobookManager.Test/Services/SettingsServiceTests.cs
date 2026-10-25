@@ -26,7 +26,17 @@ public class SettingsServiceTests
     public void Setup()
     {
         _librarySettingsRepository = new Mock<ILibrarySettingsRepository>();
-        _service = new SettingsService(_librarySettingsRepository.Object);
+        _service = new SettingsService(_librarySettingsRepository.Object, new[]
+        {
+            Scraper("Audible"), Scraper("Goodreads"), Scraper("Hardcover"),
+        });
+    }
+
+    private static AudiobookManager.Scraping.Scrapers.IScraper Scraper(string name)
+    {
+        var scraper = new Mock<AudiobookManager.Scraping.Scrapers.IScraper>();
+        scraper.Setup(s => s.SourceName).Returns(name);
+        return scraper.Object;
     }
 
     [TestMethod]
@@ -150,6 +160,66 @@ public class SettingsServiceTests
             }));
 
         _librarySettingsRepository.Verify(r => r.SetMetadataApplyRulesJsonAsync(It.IsAny<string?>()), Times.Never);
+    }
+
+    #endregion
+
+    #region Metadata source order
+
+    [TestMethod]
+    public async Task GetMetadataSourceOrder_NothingStored_IsEmpty()
+    {
+        _librarySettingsRepository.Setup(r => r.GetOrCreateAsync()).ReturnsAsync(new DbLibrarySettings());
+
+        CollectionAssert.AreEqual(Array.Empty<string>(), (await _service.GetMetadataSourceOrder()).ToList());
+    }
+
+    [TestMethod]
+    public async Task GetMetadataSourceOrder_UnreadableJson_IsEmptyRatherThanAnError()
+    {
+        _librarySettingsRepository.Setup(r => r.GetOrCreateAsync())
+            .ReturnsAsync(new DbLibrarySettings { MetadataSourceOrderJson = "{not json" });
+
+        CollectionAssert.AreEqual(Array.Empty<string>(), (await _service.GetMetadataSourceOrder()).ToList());
+    }
+
+    [TestMethod]
+    public async Task UpdateMetadataSourceOrder_StoresTheNormalizedList_AndReturnsIt()
+    {
+        string? saved = null;
+        _librarySettingsRepository.Setup(r => r.SetMetadataSourceOrderJsonAsync(It.IsAny<string?>()))
+            .Callback<string?>(j => saved = j)
+            .Returns(Task.CompletedTask);
+
+        var result = await _service.UpdateMetadataSourceOrder(new[] { " Hardcover ", "", "audible", "Audible", "Goodreads" });
+
+        // Stored in the registered spelling, with the repeat dropped.
+        CollectionAssert.AreEqual(new[] { "Hardcover", "Audible", "Goodreads" }, result.ToList());
+        Assert.AreEqual("[\"Hardcover\",\"Audible\",\"Goodreads\"]", saved);
+    }
+
+    [TestMethod]
+    public async Task UpdateMetadataSourceOrder_EmptyList_ClearsTheStoredOrder()
+    {
+        string? saved = "[\"Audible\"]";
+        _librarySettingsRepository.Setup(r => r.SetMetadataSourceOrderJsonAsync(It.IsAny<string?>()))
+            .Callback<string?>(j => saved = j)
+            .Returns(Task.CompletedTask);
+
+        await _service.UpdateMetadataSourceOrder(Array.Empty<string>());
+
+        Assert.IsNull(saved);
+    }
+
+    // A typo used to be saved and then silently ignored by the sort.
+    [TestMethod]
+    public async Task UpdateMetadataSourceOrder_UnknownSource_IsRefusedByNameAndNothingIsSaved()
+    {
+        var ex = await Assert.ThrowsExactlyAsync<ArgumentException>(
+            () => _service.UpdateMetadataSourceOrder(new[] { "Audible", "Goodreadss" }));
+
+        StringAssert.Contains(ex.Message, "Goodreadss");
+        _librarySettingsRepository.Verify(r => r.SetMetadataSourceOrderJsonAsync(It.IsAny<string?>()), Times.Never);
     }
 
     #endregion

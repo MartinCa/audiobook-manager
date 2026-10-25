@@ -38,6 +38,7 @@ public class BrowseController : ControllerBase
     private readonly IAuthorConsistencyIssueRepository _authorConsistencyIssueRepository;
     private readonly IPendingAuthorRefreshRepository _pendingAuthorRefreshRepository;
     private readonly IEnumerable<IScraper> _scrapers;
+    private readonly ISettingsService _settingsService;
     private readonly IServiceScopeFactory _serviceScopeFactory;
     private readonly IOperationStatusRegistry _statusRegistry;
     private readonly IHostApplicationLifetime _appLifetime;
@@ -54,6 +55,7 @@ public class BrowseController : ControllerBase
         IPendingAuthorRefreshRepository pendingAuthorRefreshRepository,
         IExpectedBookWriteGate expectedBookWriteGate,
         IEnumerable<IScraper> scrapers,
+        ISettingsService settingsService,
         IServiceScopeFactory serviceScopeFactory,
         IOperationStatusRegistry statusRegistry,
         IHostApplicationLifetime appLifetime,
@@ -69,6 +71,7 @@ public class BrowseController : ControllerBase
         _pendingAuthorRefreshRepository = pendingAuthorRefreshRepository;
         _expectedBookWriteGate = expectedBookWriteGate;
         _scrapers = scrapers;
+        _settingsService = settingsService;
         _serviceScopeFactory = serviceScopeFactory;
         _statusRegistry = statusRegistry;
         _appLifetime = appLifetime;
@@ -84,10 +87,9 @@ public class BrowseController : ControllerBase
     [HttpGet("filter-options")]
     public async Task<BrowseFilterOptionsDto> GetFilterOptions()
     {
-        var sources = _scrapers
-            .Select(s => s.SourceName)
-            .Distinct()
-            .OrderBy(s => s, StringComparer.InvariantCulture)
+        var sources = Domain.MetadataSourceOrder.Sort(
+                _scrapers.Select(s => s.SourceName).Distinct(),
+                await _settingsService.GetMetadataSourceOrder())
             .Append(BookSummaryFilter.UnsupportedSource)
             .ToList();
 

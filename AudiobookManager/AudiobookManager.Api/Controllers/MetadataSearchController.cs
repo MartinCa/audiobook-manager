@@ -71,7 +71,7 @@ public class MetadataSearchController : ControllerBase
     }
 
     [HttpGet("services")]
-    public IList<MetadataSearchServiceInfo> GetSearchServices()
+    public Task<IList<MetadataSearchServiceInfo>> GetSearchServices()
     {
         return _scrapingService.GetSearchServiceInfo();
     }

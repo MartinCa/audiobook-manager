@@ -80,6 +80,13 @@ public class LibrarySettings
     [Column("metadata_apply_rules_json")]
     public string? MetadataApplyRulesJson { get; set; }
 
+    /// <summary>
+    /// The preferred order of the online metadata sources as a JSON array of source names, or null
+    /// for "none chosen". Owned (parsed, validated, applied) by <c>MetadataSourceOrder</c>.
+    /// </summary>
+    [Column("metadata_source_order_json")]
+    public string? MetadataSourceOrderJson { get; set; }
+
     public LibrarySettings() { }
 
     public LibrarySettings(

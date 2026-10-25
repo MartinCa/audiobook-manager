@@ -23,6 +23,7 @@ import type { FailedOrganizeTask } from "@/types/FailedOrganizeTask";
 import type { BookQualifierOptions } from "@/types/BookQualifier";
 import type { QualifierIndicators } from "@/types/QualifierIndicator";
 import type { MetadataApplyRules, UpdateMetadataApplyRules } from "@/types/MetadataApplyRules";
+import type { MetadataSourceOrder } from "@/types/MetadataSourceOrder";
 import type { LanguageOptions } from "@/types/Language";
 import type { LibrarySearchResult, LibrarySeriesHit } from "@/types/LibrarySearchResult";
 import type { LibrarySettings, UpdateLibrarySettings } from "@/types/LibrarySettings";
@@ -1048,6 +1049,11 @@ export const settingsApi = {
   // A field left out keeps its stored rules.
   updateMetadataApplyRules: (body: UpdateMetadataApplyRules) =>
     api.put<MetadataApplyRules>("/settings/metadata-apply-rules", body),
+
+  // Saves the preferred order of the online metadata sources. The order (with every registered
+  // source) is read back through metadataSearchApi.getServices().
+  updateMetadataSourceOrder: (sources: string[]) =>
+    api.put<MetadataSourceOrder>("/settings/metadata-source-order", { sources }),
 
   getLibrarySettings: () => api.get<LibrarySettings>("/settings/library"),
 

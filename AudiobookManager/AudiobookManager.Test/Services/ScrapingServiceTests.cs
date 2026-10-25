@@ -14,6 +14,7 @@ public class ScrapingServiceTests
     private Mock<IScraper> _goodreadsScraper = null!;
     private Mock<ILogger<ScrapingService>> _logger = null!;
     private Mock<IQualifierIndicatorService> _qualifierIndicators = null!;
+    private Mock<ISettingsService> _settings = null!;
     private ScrapingService _service = null!;
 
     [TestInitialize]
@@ -25,11 +26,18 @@ public class ScrapingServiceTests
         _qualifierIndicators = new Mock<IQualifierIndicatorService>();
         _qualifierIndicators.Setup(q => q.GetRulesAsync()).ReturnsAsync(new List<QualifierIndicatorRule>());
 
+        _settings = new Mock<ISettingsService>();
+        SetSourceOrder();
+
         _service = new ScrapingService(
             new[] { _audibleScraper.Object, _goodreadsScraper.Object },
             _qualifierIndicators.Object,
+            _settings.Object,
             _logger.Object);
     }
+
+    private void SetSourceOrder(params string[] order) =>
+        _settings.Setup(s => s.GetMetadataSourceOrder()).ReturnsAsync(order);
 
     private static Mock<IScraper> CreateScraperMock(string sourceName)
     {
@@ -67,6 +75,53 @@ public class ScrapingServiceTests
         Assert.IsTrue(goodreadsStatus.Success);
         Assert.AreEqual(1, goodreadsStatus.ResultCount);
         Assert.IsNull(goodreadsStatus.Error);
+    }
+
+    // Regression test: the searches run concurrently and were reported in whatever order they
+    // finished (or were registered), so the result tabs came out in a different order from run to
+    // run. The saved source order now decides, whichever source answers first.
+    [TestMethod]
+    public async Task SearchMultiple_ReportsSourcesInTheSavedOrder_WhicheverAnswersFirst()
+    {
+        SetSourceOrder("Goodreads", "Audible");
+        _audibleScraper.Setup(s => s.Search("book")).ReturnsAsync(new List<MetadataSearchResult>
+        {
+            new("https://audible.com/1", "From Audible"),
+        });
+        _goodreadsScraper.Setup(s => s.Search("book")).Returns(async () =>
+        {
+            await Task.Delay(50);
+            return new List<MetadataSearchResult> { new("https://goodreads.com/1", "From Goodreads") };
+        });
+
+        var result = await _service.SearchMultiple(new[] { "Audible", "Goodreads" }, "book");
+
+        CollectionAssert.AreEqual(new[] { "Goodreads", "Audible" }, result.SourceStatuses.Select(s => s.Source).ToList());
+        CollectionAssert.AreEqual(new[] { "Goodreads", "Audible" }, result.Results.Select(r => r.Source).ToList());
+    }
+
+    [TestMethod]
+    public async Task GetSearchServiceInfo_ListsSourcesInTheSavedOrder()
+    {
+        SetSourceOrder("Goodreads", "Audible");
+
+        var services = await _service.GetSearchServiceInfo();
+
+        CollectionAssert.AreEqual(new[] { "Goodreads", "Audible" }, services.Select(s => s.Name).ToList());
+    }
+
+    [TestMethod]
+    public async Task GetSearchServiceInfo_NoSavedOrder_IsAlphabeticalRatherThanRegistrationOrder()
+    {
+        var service = new ScrapingService(
+            new[] { _goodreadsScraper.Object, _audibleScraper.Object },
+            _qualifierIndicators.Object,
+            _settings.Object,
+            _logger.Object);
+
+        var services = await service.GetSearchServiceInfo();
+
+        CollectionAssert.AreEqual(new[] { "Audible", "Goodreads" }, services.Select(s => s.Name).ToList());
     }
 
     [TestMethod]
@@ -118,6 +173,7 @@ public class ScrapingServiceTests
         var service = new ScrapingService(
             new[] { _audibleScraper.Object, _goodreadsScraper.Object, hardcoverScraper.Object },
             _qualifierIndicators.Object,
+            _settings.Object,
             _logger.Object);
 
         var ex = await Assert.ThrowsExactlyAsync<ArgumentException>(() => service.GetBookDetails(url));

@@ -27,6 +27,7 @@ public class BrowseControllerTests
     private Mock<IAudiobookRepository> _audiobookRepo = null!;
     private Mock<IPersonRepository> _personRepo = null!;
     private Mock<IGenreRepository> _genreRepo = null!;
+    private Mock<ISettingsService> _settingsService = null!;
     private Mock<ISeriesService> _seriesService = null!;
     private Mock<IUpcomingReleaseService> _upcomingReleaseService = null!;
     private Mock<IAuthorReconciliationProvider> _authorReconciliation = null!;
@@ -62,11 +63,14 @@ public class BrowseControllerTests
         mockScope.Setup(s => s.ServiceProvider).Returns(mockServiceProvider.Object);
         _serviceScopeFactory.Setup(f => f.CreateScope()).Returns(mockScope.Object);
 
+        _settingsService = new Mock<ISettingsService>();
+        _settingsService.Setup(s => s.GetMetadataSourceOrder()).ReturnsAsync(Array.Empty<string>());
+
         _controller = new BrowseController(
             _audiobookRepo.Object, _personRepo.Object, _genreRepo.Object, _seriesService.Object,
             _upcomingReleaseService.Object, _authorReconciliation.Object,
             _authorConsistencyIssueRepository.Object, _pendingAuthorRefreshRepository.Object, _expectedBookWriteGate,
-            Array.Empty<IScraper>(),
+            Array.Empty<IScraper>(), _settingsService.Object,
             _serviceScopeFactory.Object, _statusRegistry.Object, Mock.Of<IHostApplicationLifetime>(),
             Mock.Of<ILogger<BrowseController>>());
     }
@@ -1618,6 +1622,34 @@ public class BrowseControllerTests
 
         _audiobookRepo.Verify(r => r.GetStandaloneBooksByAuthorAsync(7, 50, 0, null, It.Is<BookSummaryFilter?>(f =>
             f != null && f.QueueStates!.SequenceEqual(new[] { QueueState.NotQueued }))), Times.Once);
+    }
+
+    // The source dropdowns follow the order chosen in Library Settings (not alphabetical order),
+    // with the synthetic "Unsupported" bucket always last.
+    [TestMethod]
+    public async Task GetFilterOptions_ListsSourcesInTheSavedOrder_UnsupportedLast()
+    {
+        _genreRepo.Setup(r => r.GetAllGenreNamesAsync()).ReturnsAsync(new List<string>());
+        _audiobookRepo.Setup(r => r.GetAllLanguagesAsync()).ReturnsAsync(new List<string>());
+        _settingsService.Setup(s => s.GetMetadataSourceOrder()).ReturnsAsync(new[] { "Hardcover", "Audible" });
+
+        var scrapers = new[] { "Audible", "Goodreads", "Hardcover" }.Select(name =>
+        {
+            var scraper = new Mock<IScraper>();
+            scraper.Setup(s => s.SourceName).Returns(name);
+            return scraper.Object;
+        }).ToArray();
+        var controller = new BrowseController(
+            _audiobookRepo.Object, _personRepo.Object, _genreRepo.Object, _seriesService.Object,
+            _upcomingReleaseService.Object, _authorReconciliation.Object,
+            _authorConsistencyIssueRepository.Object, _pendingAuthorRefreshRepository.Object, _expectedBookWriteGate,
+            scrapers, _settingsService.Object,
+            _serviceScopeFactory.Object, _statusRegistry.Object, Mock.Of<IHostApplicationLifetime>(),
+            Mock.Of<ILogger<BrowseController>>());
+
+        var options = await controller.GetFilterOptions();
+
+        CollectionAssert.AreEqual(new[] { "Hardcover", "Audible", "Goodreads", "Unsupported" }, options.Sources.ToList());
     }
 
     // The option lists - values and wording - come from the backend; the client holds none.
