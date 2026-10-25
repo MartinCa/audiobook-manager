@@ -11,6 +11,7 @@ import { queryKeys } from "@/lib/queryKeys";
 import { handleApiError } from "@/lib/api";
 import { useSelectedSearchSources } from "@/hooks/useSelectedSearchSources";
 import { isAbsoluteHttpUrl } from "@/helpers/urlHelpers";
+import { orderLikeServices } from "@/helpers/metadataSources";
 import type { MetadataSearchResult } from "@/types/MetadataSearchResult";
 
 interface BookSearchDialogProps {
@@ -127,7 +128,8 @@ export function BookSearchDialog({
     try {
       const res = await metadataSearchApi.searchMultiple(activeSources, trimmedQuery);
       setResults(res.results || []);
-      setSearchedSources(activeSources);
+      // Tabs follow the order chosen in Library Settings, not the order sources were ticked in.
+      setSearchedSources(orderLikeServices(activeSources, services));
       setFailedSources(
         Object.fromEntries(
           (res.sourceStatuses ?? [])

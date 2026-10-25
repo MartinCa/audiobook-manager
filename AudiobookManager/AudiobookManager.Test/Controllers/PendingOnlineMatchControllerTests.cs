@@ -21,6 +21,7 @@ public class PendingOnlineMatchControllerTests
     private Mock<IServiceScopeFactory> _serviceScopeFactory = null!;
     private Mock<IOperationStatusRegistry> _statusRegistry = null!;
     private Mock<IPendingOnlineMatchService> _service = null!;
+    private Mock<ISettingsService> _settingsService = null!;
     private Mock<ILogger<PendingOnlineMatchController>> _logger = null!;
     private PendingOnlineMatchController _controller = null!;
 
@@ -45,8 +46,12 @@ public class PendingOnlineMatchControllerTests
         mockScope.Setup(s => s.ServiceProvider).Returns(mockServiceProvider.Object);
         _serviceScopeFactory.Setup(f => f.CreateScope()).Returns(mockScope.Object);
 
+        _settingsService = new Mock<ISettingsService>();
+        _settingsService.Setup(s => s.GetMetadataSourceOrder()).ReturnsAsync(Array.Empty<string>());
+
         _controller = new PendingOnlineMatchController(
             _service.Object,
+            _settingsService.Object,
             _hubContext.Object,
             _serviceScopeFactory.Object,
             _statusRegistry.Object,
@@ -331,6 +336,36 @@ public class PendingOnlineMatchControllerTests
         Assert.AreEqual(1, dto.Total);
         Assert.AreEqual(1, dto.Items.Count);
         Assert.AreEqual(1, dto.Items[0].AudiobookId);
+    }
+
+    // Regression test: a row stored the sources in the order they were searched in, so the badges
+    // and tabs came out in a different order per row. They follow the saved order now, while the
+    // results keep their stored order (a candidate is selected by its position there).
+    [TestMethod]
+    public async Task GetPending_ListsEachRowsSourcesInTheSavedOrder_AndLeavesTheResultsAlone()
+    {
+        _settingsService.Setup(s => s.GetMetadataSourceOrder()).ReturnsAsync(new[] { "Hardcover", "Audible" });
+        var book = new Database.Models.Audiobook(
+            1, "A Book", null, null, null, 2024,
+            null, null, null, null, null, null, null, null, null,
+            "/library/book.m4b", "book.m4b", 1000);
+        var row = new PendingOnlineMatch
+        {
+            AudiobookId = 1,
+            Audiobook = book,
+            SearchedAt = DateTime.UtcNow,
+            Status = PendingOnlineMatchStatus.Pending,
+            SourceNamesJson = "[\"Audible\",\"Goodreads\",\"Hardcover\"]",
+            ResultsJson = "{\"version\":1,\"results\":[]}",
+        };
+        _service.Setup(s => s.GetPageAsync(PendingOnlineMatchStatus.Pending, 0, 50))
+            .ReturnsAsync((new List<PendingOnlineMatch> { row }, 1));
+
+        var result = await _controller.GetPending();
+
+        var dto = (result.Result as OkObjectResult)?.Value as PendingOnlineMatchPageDto;
+        Assert.IsNotNull(dto);
+        CollectionAssert.AreEqual(new[] { "Hardcover", "Audible", "Goodreads" }, dto.Items[0].SourceNames.ToList());
     }
 
     [TestMethod]

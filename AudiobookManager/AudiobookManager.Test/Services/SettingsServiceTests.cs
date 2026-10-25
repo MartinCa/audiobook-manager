@@ -153,4 +153,63 @@ public class SettingsServiceTests
     }
 
     #endregion
+
+    #region Metadata source order
+
+    [TestMethod]
+    public async Task GetMetadataSourceOrder_NothingStored_IsEmpty()
+    {
+        _librarySettingsRepository.Setup(r => r.GetOrCreateAsync()).ReturnsAsync(new DbLibrarySettings());
+
+        CollectionAssert.AreEqual(Array.Empty<string>(), (await _service.GetMetadataSourceOrder()).ToList());
+    }
+
+    [TestMethod]
+    public async Task GetMetadataSourceOrder_UnreadableJson_IsEmptyRatherThanAnError()
+    {
+        _librarySettingsRepository.Setup(r => r.GetOrCreateAsync())
+            .ReturnsAsync(new DbLibrarySettings { MetadataSourceOrderJson = "{not json" });
+
+        CollectionAssert.AreEqual(Array.Empty<string>(), (await _service.GetMetadataSourceOrder()).ToList());
+    }
+
+    [TestMethod]
+    public async Task UpdateMetadataSourceOrder_StoresTheNormalizedList_AndReturnsIt()
+    {
+        string? saved = null;
+        _librarySettingsRepository.Setup(r => r.SetMetadataSourceOrderJsonAsync(It.IsAny<string?>()))
+            .Callback<string?>(j => saved = j)
+            .Returns(Task.CompletedTask);
+
+        var result = await _service.UpdateMetadataSourceOrder(new[] { " Hardcover ", "", "audible", "Audible", "Goodreads" });
+
+        CollectionAssert.AreEqual(new[] { "Hardcover", "audible", "Goodreads" }, result.ToList());
+        Assert.AreEqual("[\"Hardcover\",\"audible\",\"Goodreads\"]", saved);
+    }
+
+    [TestMethod]
+    public async Task UpdateMetadataSourceOrder_EmptyList_ClearsTheStoredOrder()
+    {
+        string? saved = "[\"Audible\"]";
+        _librarySettingsRepository.Setup(r => r.SetMetadataSourceOrderJsonAsync(It.IsAny<string?>()))
+            .Callback<string?>(j => saved = j)
+            .Returns(Task.CompletedTask);
+
+        await _service.UpdateMetadataSourceOrder(Array.Empty<string>());
+
+        Assert.IsNull(saved);
+    }
+
+    [TestMethod]
+    public async Task UpdateMetadataSourceOrder_TooManyOrTooLongNames_AreRefusedAndNothingIsSaved()
+    {
+        await Assert.ThrowsExactlyAsync<ArgumentException>(() => _service.UpdateMetadataSourceOrder(
+            Enumerable.Range(0, MetadataSourceOrder.MaxEntries + 1).Select(i => $"Source {i}").ToList()));
+        await Assert.ThrowsExactlyAsync<ArgumentException>(() => _service.UpdateMetadataSourceOrder(
+            new[] { new string('x', MetadataSourceOrder.MaxNameLength + 1) }));
+
+        _librarySettingsRepository.Verify(r => r.SetMetadataSourceOrderJsonAsync(It.IsAny<string?>()), Times.Never);
+    }
+
+    #endregion
 }

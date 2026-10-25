@@ -243,6 +243,31 @@ public class SettingsController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Saves the preferred order of the online metadata sources. Every place that lists sources
+    /// (the source picker, result tabs, pending matches, filter dropdowns) follows it; a source the
+    /// list leaves out follows the listed ones alphabetically. The current order, with every
+    /// registered source, is what <c>GET api/metadata-search/services</c> serves.
+    /// </summary>
+    [HttpPut("metadata-source-order")]
+    public async Task<ActionResult<MetadataSourceOrderDto>> UpdateMetadataSourceOrder([FromBody] MetadataSourceOrderDto dto)
+    {
+        if (dto?.Sources is null)
+        {
+            return this.InvalidRequest("Sources must be a list of source names.");
+        }
+
+        try
+        {
+            return Ok(new MetadataSourceOrderDto(await _settingsService.UpdateMetadataSourceOrder(dto.Sources)));
+        }
+        catch (ArgumentException ex)
+        {
+            // Raised only with messages written for the caller (too many sources, a name too long).
+            return this.InvalidRequest(ex.Message);
+        }
+    }
+
     private static MetadataApplyRulesDto ToDto(MetadataApplyRuleSet rules) =>
         new(
             MetadataApplyRuleSet.Fields.Select(f =>

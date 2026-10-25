@@ -8,15 +8,18 @@ public class ScrapingService : IScrapingService
 {
     private readonly IEnumerable<IScraper> _scrapers;
     private readonly IQualifierIndicatorService _qualifierIndicators;
+    private readonly ISettingsService _settingsService;
     private readonly ILogger<ScrapingService> _logger;
 
     public ScrapingService(
         IEnumerable<IScraper> scrapers,
         IQualifierIndicatorService qualifierIndicators,
+        ISettingsService settingsService,
         ILogger<ScrapingService> logger)
     {
         _scrapers = scrapers;
         _qualifierIndicators = qualifierIndicators;
+        _settingsService = settingsService;
         _logger = logger;
     }
 
@@ -96,7 +99,10 @@ public class ScrapingService : IScrapingService
             }
         });
 
-        var outcomes = await Task.WhenAll(searchTasks);
+        // The searches ran concurrently and finish in any order; the response lists the sources in
+        // the order chosen in Library Settings so the tabs and statuses are the same every time.
+        var order = await _settingsService.GetMetadataSourceOrder();
+        var outcomes = MetadataSourceOrder.Sort(await Task.WhenAll(searchTasks), o => o.Status.Source, order);
 
         return new MetadataMultiSourceSearchResult
         {
@@ -141,13 +147,15 @@ public class ScrapingService : IScrapingService
         return _scrapers.Select(x => x.SourceName).ToList();
     }
 
-    public IList<MetadataSearchServiceInfo> GetSearchServiceInfo()
+    public async Task<IList<MetadataSearchServiceInfo>> GetSearchServiceInfo()
     {
-        return _scrapers.Select(s =>
+        var services = _scrapers.Select(s =>
         {
             var enabled = !s.RequiresApiKey || s.IsApiKeyConfigured;
             string? disabledReason = !enabled ? "API key not configured" : null;
             return new MetadataSearchServiceInfo(s.SourceName, enabled, disabledReason);
-        }).ToList();
+        });
+
+        return MetadataSourceOrder.Sort(services, s => s.Name, await _settingsService.GetMetadataSourceOrder());
     }
 }

@@ -1,4 +1,5 @@
-﻿using AudiobookManager.Database.Repositories;
+using AudiobookManager.Database.Repositories;
+using AudiobookManager.Domain;
 using AudiobookManager.Services.MappingExtensions;
 
 namespace AudiobookManager.Services;
@@ -54,5 +55,16 @@ public class SettingsService : ISettingsService
         var resolved = MetadataApplyRuleSet.From(merged);
         await _librarySettingsRepository.SetMetadataApplyRulesJsonAsync(resolved.Serialize());
         return resolved;
+    }
+
+    public async Task<IReadOnlyList<string>> GetMetadataSourceOrder() =>
+        MetadataSourceOrder.Deserialize((await _librarySettingsRepository.GetOrCreateAsync()).MetadataSourceOrderJson);
+
+    public async Task<IReadOnlyList<string>> UpdateMetadataSourceOrder(IReadOnlyList<string> sources)
+    {
+        var normalized = MetadataSourceOrder.Normalize(sources);
+        MetadataSourceOrder.Validate(normalized);
+        await _librarySettingsRepository.SetMetadataSourceOrderJsonAsync(MetadataSourceOrder.Serialize(normalized));
+        return normalized;
     }
 }

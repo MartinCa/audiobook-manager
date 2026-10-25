@@ -17,6 +17,7 @@ public class PendingOnlineMatchController : ControllerBase
     private static readonly SemaphoreSlim _searchLock = new(1, 1);
 
     private readonly IPendingOnlineMatchService _service;
+    private readonly ISettingsService _settingsService;
     private readonly IHubContext<OrganizeHub, IOrganize> _organizeHub;
     private readonly IServiceScopeFactory _serviceScopeFactory;
     private readonly IOperationStatusRegistry _statusRegistry;
@@ -25,6 +26,7 @@ public class PendingOnlineMatchController : ControllerBase
 
     public PendingOnlineMatchController(
         IPendingOnlineMatchService service,
+        ISettingsService settingsService,
         IHubContext<OrganizeHub, IOrganize> organizeHub,
         IServiceScopeFactory serviceScopeFactory,
         IOperationStatusRegistry statusRegistry,
@@ -32,6 +34,7 @@ public class PendingOnlineMatchController : ControllerBase
         ILogger<PendingOnlineMatchController> logger)
     {
         _service = service;
+        _settingsService = settingsService;
         _organizeHub = organizeHub;
         _serviceScopeFactory = serviceScopeFactory;
         _statusRegistry = statusRegistry;
@@ -120,8 +123,13 @@ public class PendingOnlineMatchController : ControllerBase
 
         var (items, total) = await _service.GetPageAsync(status, page, pageSize);
 
+        // Each row stored the sources in the order they were searched in; the page shows them in
+        // the order chosen in Library Settings now. The results themselves stay as stored - the
+        // client selects a candidate by its position in that list.
+        var sourceOrder = await _settingsService.GetMetadataSourceOrder();
+
         return Ok(new PendingOnlineMatchPageDto(
-            items.Select(ToListItemDto).ToList(),
+            items.Select(i => ToListItemDto(i, sourceOrder)).ToList(),
             total));
     }
 
@@ -173,12 +181,14 @@ public class PendingOnlineMatchController : ControllerBase
         return Ok();
     }
 
-    private static PendingOnlineMatchListItemDto ToListItemDto(PendingOnlineMatch row) => new(
+    private static PendingOnlineMatchListItemDto ToListItemDto(PendingOnlineMatch row, IReadOnlyList<string> sourceOrder) => new(
         row.AudiobookId,
         row.Audiobook.BookName,
         row.Audiobook.Authors.Select(a => a.Name).ToList(),
         row.SearchedAt,
-        System.Text.Json.JsonSerializer.Deserialize<List<string>>(row.SourceNamesJson) ?? new List<string>(),
+        Domain.MetadataSourceOrder.Sort(
+            System.Text.Json.JsonSerializer.Deserialize<List<string>>(row.SourceNamesJson) ?? new List<string>(),
+            sourceOrder),
         PendingOnlineMatchPayload.Parse(row.ResultsJson)
             .Select(s => new PendingRefreshSnapshotDto(
                 s.Url,

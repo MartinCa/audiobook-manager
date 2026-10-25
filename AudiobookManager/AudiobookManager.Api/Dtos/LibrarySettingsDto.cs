@@ -63,3 +63,9 @@ public record MetadataApplyRuleInputDto(string Field, string Interactive, string
 
 /// <summary>The body of PUT api/settings/metadata-apply-rules. A field left out keeps its stored rules.</summary>
 public record UpdateMetadataApplyRulesDto(IReadOnlyList<MetadataApplyRuleInputDto> Rules);
+
+/// <summary>
+/// The preferred order of the online metadata sources, as source names, first to last. Used as the
+/// body of PUT api/settings/metadata-source-order and as its response (the order that was saved).
+/// </summary>
+public record MetadataSourceOrderDto(IReadOnlyList<string> Sources);

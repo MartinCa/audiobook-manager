@@ -1,4 +1,4 @@
-﻿namespace AudiobookManager.Services;
+namespace AudiobookManager.Services;
 
 public interface ISettingsService
 {
@@ -17,4 +17,14 @@ public interface ISettingsService
     /// </summary>
     /// <exception cref="ArgumentException">A field is unknown or a rule is not allowed for it.</exception>
     Task<MetadataApplyRuleSet> UpdateMetadataApplyRules(IReadOnlyDictionary<string, Domain.FieldApplyRule> rules);
+
+    /// <summary>
+    /// The saved order of the online metadata sources, by name (empty when none was chosen). Apply
+    /// it with <see cref="Domain.MetadataSourceOrder.Sort{T}"/> wherever sources are listed.
+    /// </summary>
+    Task<IReadOnlyList<string>> GetMetadataSourceOrder();
+
+    /// <summary>Saves the source order (normalized) and returns what was stored.</summary>
+    /// <exception cref="ArgumentException">The list is too long or a name is too long.</exception>
+    Task<IReadOnlyList<string>> UpdateMetadataSourceOrder(IReadOnlyList<string> sources);
 }
