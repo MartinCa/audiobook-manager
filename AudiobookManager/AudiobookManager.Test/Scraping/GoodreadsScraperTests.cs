@@ -19,7 +19,21 @@ public class GoodreadsScraperTests
         return new GoodreadsScraper(httpClientFactory.Object, bookSeriesMapper.Object, logger.Object);
     }
 
+    // Shapes taken from live auto_complete responses: `description: { html, truncated, ... }` for a
+    // book with a description, the key omitted entirely for one without.
     [TestMethod]
+    [DataRow("""{ "title": "T", "description": { "html": "In a hole in the ground…", "truncated": true } }""", true)]
+    [DataRow("""{ "title": "T" }""", false)]
+    [DataRow("""{ "title": "T", "description": { "html": "  ", "truncated": false } }""", false)]
+    [DataRow("""{ "title": "T", "description": { "truncated": false } }""", false)]
+    [DataRow("""{ "title": "T", "description": null }""", false)]
+    public void AutocompleteHasDescription_ReflectsWhetherTheHitCarriesDescriptionText(string hitJson, bool expected)
+    {
+        var hit = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(hitJson);
+
+        Assert.AreEqual(expected, GoodreadsScraper.AutocompleteHasDescription(hit));
+    }
+
     public async Task ParseNewBookJson()
     {
         var target = CreateScraper();

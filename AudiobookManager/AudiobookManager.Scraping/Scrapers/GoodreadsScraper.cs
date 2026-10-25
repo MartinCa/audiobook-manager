@@ -207,6 +207,7 @@ public partial class GoodreadsScraper : IScraper
                         Series = new List<MetadataSeriesSearchResult>(),
                         Rating = rating,
                         NumberOfRatings = numberOfRatings,
+                        HasDescription = AutocompleteHasDescription(r),
                     };
                 })
                 .Where(r => r is not null)
@@ -215,6 +216,16 @@ public partial class GoodreadsScraper : IScraper
                 .ToList();
         }, new CancellationToken());
     }
+
+    /// <summary>
+    /// The autocomplete hit carries a (truncated) <c>description: { html }</c> and omits the key for
+    /// a book without one - confirmed live - so an absent or blank value is a definite "missing".
+    /// Only the presence is kept: the truncated text must never be mistaken for the real description.
+    /// </summary>
+    public static bool AutocompleteHasDescription(JsonElement hit) =>
+        hit.TryGetProperty("description", out var description) &&
+        description.ValueKind == JsonValueKind.Object &&
+        !string.IsNullOrWhiteSpace(description.GetPropertyValueOrNull("html"));
 
     private async Task<IList<MetadataSearchResult>> SearchViaHtml(HttpClient httpClient, string searchTerm)
     {

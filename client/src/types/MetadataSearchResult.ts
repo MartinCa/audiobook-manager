@@ -26,6 +26,14 @@ export interface MetadataSearchResult {
   series: MetadataSeriesSearchResult[];
   description?: string;
   genres: string[];
+  /**
+   * What the source's search response said about a description / genres: true or false as
+   * reported, null/undefined when that response does not say. A search hit carries neither the
+   * description nor the genres themselves, so this is all a results list can show without a
+   * details request per hit.
+   */
+  hasDescription?: boolean | null;
+  hasGenres?: boolean | null;
   rating?: number;
   numberOfRatings?: number;
   copyright?: string;

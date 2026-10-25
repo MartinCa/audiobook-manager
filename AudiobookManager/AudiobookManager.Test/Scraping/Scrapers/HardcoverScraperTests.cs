@@ -170,6 +170,63 @@ public class HardcoverScraperTests
         Assert.AreEqual(0, results.Count);
     }
 
+    // ---------- Search() available-tag flags ----------
+
+    // Shapes taken from a live search: the document omits `description` for a book without one
+    // (the details query confirmed it null) and always carries `genres`, `[]` when there are none.
+    private const string _tagFlagsResponseJson = """
+        {
+          "data": { "search": { "results": { "hits": [
+            { "document": { "id": "1", "slug": "complete", "title": "Complete",
+                            "description": "A story.", "genres": ["Fantasy", "Classics"] } },
+            { "document": { "id": "2", "slug": "bare", "title": "Bare", "genres": [] } },
+            { "document": { "id": "3", "slug": "genre-only", "title": "Genre Only", "genres": ["Fantasy"] } },
+            { "document": { "id": "4", "slug": "fiction-only", "title": "Fiction Only",
+                            "description": "   ", "genres": ["Fiction", "fiction"] } },
+            { "document": { "id": "5", "slug": "no-genres-key", "title": "No Genres Key" } }
+          ] } } }
+        }
+        """;
+
+    [TestMethod]
+    public async Task Search_ReportsDescriptionAndGenresAvailabilityFromTheSearchDocument()
+    {
+        var target = CreateScraper(_tagFlagsResponseJson, out _);
+
+        var results = await target.Search("tags");
+
+        var complete = results.Single(r => r.BookName == "Complete");
+        Assert.AreEqual(true, complete.HasDescription);
+        Assert.AreEqual(true, complete.HasGenres);
+
+        // Absent description / empty genres are a definite "missing" for this source, not unknown.
+        var bare = results.Single(r => r.BookName == "Bare");
+        Assert.AreEqual(false, bare.HasDescription);
+        Assert.AreEqual(false, bare.HasGenres);
+
+        var genreOnly = results.Single(r => r.BookName == "Genre Only");
+        Assert.AreEqual(false, genreOnly.HasDescription);
+        Assert.AreEqual(true, genreOnly.HasGenres);
+
+        // A blank description and a book whose only genre is one the details path drops are missing.
+        var fictionOnly = results.Single(r => r.BookName == "Fiction Only");
+        Assert.AreEqual(false, fictionOnly.HasDescription);
+        Assert.AreEqual(false, fictionOnly.HasGenres);
+
+        Assert.AreEqual(false, results.Single(r => r.BookName == "No Genres Key").HasGenres);
+    }
+
+    [TestMethod]
+    public async Task Search_NeverFillsDescriptionOrGenresThemselves_OnlyTheFlags()
+    {
+        var target = CreateScraper(_tagFlagsResponseJson, out _);
+
+        var complete = (await target.Search("tags")).Single(r => r.BookName == "Complete");
+
+        Assert.IsNull(complete.Description);
+        Assert.AreEqual(0, complete.Genres.Count);
+    }
+
     // ---------- Search() series parsing ----------
 
     // Shapes confirmed live against the API (2026-09): featured_series is an object with a

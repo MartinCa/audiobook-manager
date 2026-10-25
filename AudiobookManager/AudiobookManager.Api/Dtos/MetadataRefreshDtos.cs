@@ -42,7 +42,10 @@ public record PendingRefreshSnapshotDto(
     /// <summary>Every series the source reported (<c>SeriesName</c>/<c>SeriesPart</c> are only the first). Empty when it reported none.</summary>
     IReadOnlyList<PendingRefreshSeriesDto>? Series = null,
     /// <summary>Keys of the book qualifiers the source reported (the book name is already clean of their wording). Null when none.</summary>
-    IReadOnlyList<string>? Qualifiers = null);
+    IReadOnlyList<string>? Qualifiers = null,
+    /// <summary>What the source's search response said about a description / genres: true or false as reported, null when it does not say.</summary>
+    bool? HasDescription = null,
+    bool? HasGenres = null);
 
 /// <summary>One series a source reported for a book: the mapped name, its part, and the name before series mapping.</summary>
 public record PendingRefreshSeriesDto(string SeriesName, string? SeriesPart, string? OriginalSeriesName);

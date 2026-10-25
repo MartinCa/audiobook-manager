@@ -100,7 +100,7 @@ describe("MetadataSearchResultCard", () => {
   it("renders no image when imageUrl is absent", () => {
     render(<MetadataSearchResultCard result={baseResult} />);
 
-    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+    expect(screen.queryByRole("img", { name: baseResult.bookName })).not.toBeInTheDocument();
   });
 
   it("renders the average rating and the grouped review count", () => {
@@ -129,5 +129,23 @@ describe("MetadataSearchResultCard", () => {
     render(<MetadataSearchResultCard result={baseResult} />);
 
     expect(screen.queryByTestId("result-rating")).not.toBeInTheDocument();
+  });
+
+  it("shows which tags the source's search response reported", () => {
+    render(
+      <MetadataSearchResultCard
+        result={{ ...baseResult, hasDescription: true, hasGenres: false }}
+      />,
+    );
+
+    expect(screen.getByTestId("tag-description")).toHaveAttribute("data-state", "present");
+    expect(screen.getByTestId("tag-genres")).toHaveAttribute("data-state", "missing");
+  });
+
+  it("shows both tags as unknown when the result carries no availability", () => {
+    render(<MetadataSearchResultCard result={baseResult} />);
+
+    expect(screen.getByTestId("tag-description")).toHaveAttribute("data-state", "unknown");
+    expect(screen.getByTestId("tag-genres")).toHaveAttribute("data-state", "unknown");
   });
 });

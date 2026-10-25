@@ -27,6 +27,24 @@ describe("pendingSnapshotToSearchResult", () => {
     ).toBe(4321);
   });
 
+  it("carries what the search response said about a description and genres, false included", () => {
+    const result = pendingSnapshotToSearchResult({
+      ...snapshot,
+      hasDescription: false,
+      hasGenres: true,
+    });
+
+    expect(result.hasDescription).toBe(false);
+    expect(result.hasGenres).toBe(true);
+  });
+
+  it("leaves the tag availability undefined for a snapshot stored before it was persisted", () => {
+    const result = pendingSnapshotToSearchResult(snapshot);
+
+    expect(result.hasDescription).toBeUndefined();
+    expect(result.hasGenres).toBeUndefined();
+  });
+
   it("leaves the review count undefined for a snapshot stored before it was persisted", () => {
     expect(pendingSnapshotToSearchResult(snapshot).numberOfRatings).toBeUndefined();
   });

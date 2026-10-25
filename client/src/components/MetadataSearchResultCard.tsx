@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { ExternalLink, Star } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { MetadataTagAvailability } from "@/components/MetadataTagAvailability";
 import { metadataSearchApi } from "@/services/api";
 import type { MetadataSearchResult } from "@/types/MetadataSearchResult";
 
@@ -96,6 +97,10 @@ export function MetadataSearchResultCard({
                   .join("; ")}
               </div>
             )}
+            <MetadataTagAvailability
+              hasDescription={result.hasDescription}
+              hasGenres={result.hasGenres}
+            />
             {ratingSummary && (
               <div className="flex items-center gap-1" data-testid="result-rating">
                 <Star className="h-3 w-3 fill-current" aria-hidden="true" />

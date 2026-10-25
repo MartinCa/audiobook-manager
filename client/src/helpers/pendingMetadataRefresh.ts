@@ -33,6 +33,8 @@ export function pendingSnapshotToSearchResult(snapshot: SnapshotWireShape): Meta
     language: snapshot.language ?? undefined,
     rating: snapshot.rating ? Number(snapshot.rating) : undefined,
     numberOfRatings: snapshot.numberOfRatings ?? undefined,
+    hasDescription: snapshot.hasDescription ?? undefined,
+    hasGenres: snapshot.hasGenres ?? undefined,
     copyright: snapshot.copyright ?? undefined,
     publisher: snapshot.publisher ?? undefined,
     asin: snapshot.asin ?? undefined,
