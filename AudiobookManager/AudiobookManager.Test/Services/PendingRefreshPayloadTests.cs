@@ -97,6 +97,38 @@ public class PendingRefreshPayloadTests
     }
 
     [TestMethod]
+    public void FromSearchResult_CarriesTheSearchResponsesTagAvailability_AndRoundTripsIt()
+    {
+        var fetched = new AudiobookManager.Scraping.Models.MetadataSearchResult("https://x/book", "Book")
+        {
+            Source = "Hardcover",
+            HasDescription = true,
+            HasGenres = false,
+        };
+
+        var parsed = PendingRefreshPayload.TryParse(PendingRefreshPayload.Serialize(PendingRefreshPayload.FromSearchResult(fetched)));
+
+        Assert.IsNotNull(parsed);
+        Assert.AreEqual(true, parsed.HasDescription);
+        Assert.AreEqual(false, parsed.HasGenres);
+    }
+
+    // A row written before version 6 has no such keys: it must read as "the response did not say"
+    // (null), and re-serializing it must not add them (the re-evaluation compares bytes).
+    [TestMethod]
+    public void TryParse_RowWithoutTagAvailability_ReadsAsUnknownAndStaysByteIdentical()
+    {
+        var legacy = """{"version":5,"url":"https://x","source":"Audible","authors":[],"narrators":[],"bookName":"Book","genres":[]}""";
+
+        var parsed = PendingRefreshPayload.TryParse(legacy);
+
+        Assert.IsNotNull(parsed);
+        Assert.IsNull(parsed.HasDescription);
+        Assert.IsNull(parsed.HasGenres);
+        Assert.AreEqual(legacy, PendingRefreshPayload.Serialize(parsed));
+    }
+
+    [TestMethod]
     public void Serialize_UsesWebDefaults_SnakeCaseLowercase()
     {
         // The contract is hand-versioned, so its on-disk shape is part of it: camelCase keys

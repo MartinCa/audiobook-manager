@@ -6537,6 +6537,8 @@ export interface components {
             series?: components["schemas"]["MetadataSeriesSearchResult"][] | null;
             description?: string | null;
             genres?: string[] | null;
+            hasDescription?: boolean | null;
+            hasGenres?: boolean | null;
             /** Format: float */
             rating?: number | null;
             /** Format: int32 */
@@ -6698,6 +6700,8 @@ export interface components {
             numberOfRatings?: number | null;
             series?: components["schemas"]["PendingRefreshSeriesDto"][] | null;
             qualifiers?: string[] | null;
+            hasDescription?: boolean | null;
+            hasGenres?: boolean | null;
         };
         Person: {
             /** Format: int64 */

@@ -1608,8 +1608,31 @@ public class HardcoverScraper : IScraper
             NumberOfRatings = numberOfRatings,
             Series = ParseSearchHitSeries(document),
             Genres = new List<string>(),
+            HasDescription = SearchHitHasDescription(document),
+            HasGenres = SearchHitHasGenres(document),
         };
     }
+
+    /// <summary>
+    /// Confirmed against live responses: the search document omits <c>description</c> when the
+    /// book has none (and the details query agrees - null), so an absent or blank key is a
+    /// definite "missing", not an unknown.
+    /// </summary>
+    public static bool SearchHitHasDescription(JsonElement document) =>
+        !string.IsNullOrWhiteSpace(document.GetPropertyValueOrNull("description"));
+
+    /// <summary>
+    /// <c>genres</c> is always present in the search document, an empty array when there are none.
+    /// Applies the same ignored-genre filter as <see cref="ParseGenres"/>, so a book whose only
+    /// genre is one we drop is "missing" here exactly as it is after the details fetch.
+    /// </summary>
+    public static bool SearchHitHasGenres(JsonElement document) =>
+        document.TryGetProperty("genres", out var genresElement) &&
+        genresElement.ValueKind == JsonValueKind.Array &&
+        genresElement.EnumerateArray().Any(g =>
+            g.ValueKind == JsonValueKind.String &&
+            !string.IsNullOrWhiteSpace(g.GetString()) &&
+            _ignoredGenres.All(ignored => !string.Equals(ignored, g.GetString()!.Trim(), StringComparison.InvariantCultureIgnoreCase)));
 
     /// <summary>
     /// Series info straight from the Typesense search document, so the results preview can

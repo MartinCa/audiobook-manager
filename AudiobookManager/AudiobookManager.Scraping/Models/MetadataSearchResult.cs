@@ -17,6 +17,17 @@ public class MetadataSearchResult
     public IList<MetadataSeriesSearchResult>? Series { get; set; }
     public string? Description { get; set; }
     public IList<string> Genres { get; set; }
+
+    /// <summary>
+    /// Whether the source's <em>search response</em> says the book has a description. A search hit
+    /// carries no <see cref="Description"/> (Goodreads' is truncated, Audible's absent), so this is
+    /// the only signal a results list has without a details request per hit. <c>true</c>/<c>false</c>
+    /// are what the source reported; <c>null</c> means the search response does not say.
+    /// </summary>
+    public bool? HasDescription { get; set; }
+
+    /// <summary>As <see cref="HasDescription"/>, for genres: <c>null</c> when the search response does not say.</summary>
+    public bool? HasGenres { get; set; }
     public float? Rating { get; set; }
     public int? NumberOfRatings { get; set; }
     public string? Copyright { get; set; }

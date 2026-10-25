@@ -30,8 +30,11 @@ public static class PendingRefreshPayload
     /// earlier deserializes it as null and is read as the single series in
     /// <see cref="Snapshot.SeriesName"/>/<see cref="Snapshot.SeriesPart"/> (see <see cref="SeriesOf"/>). Version 5 added <see cref="Snapshot.Qualifiers"/>, the book
     /// qualifiers the source reported; a row written earlier deserializes it as null, meaning none.
+    /// Version 6 added <see cref="Snapshot.HasDescription"/>/<see cref="Snapshot.HasGenres"/>, what the
+    /// source's search response said about those tags (the online-match candidate list shows them);
+    /// a row written earlier deserializes them as null, meaning the response did not say.
     /// </summary>
-    public const int CurrentVersion = 5;
+    public const int CurrentVersion = 6;
 
     // WhenWritingNull matters beyond payload size: MetadataRefreshService.ReevaluatePendingRefreshesAsync
     // decides whether a row actually changed by comparing this serialized JSON byte-for-byte
@@ -85,7 +88,15 @@ public static class PendingRefreshPayload
         /// <see cref="BookName"/> is already clean of their wording. Null on a row written before
         /// Version 5 and whenever there are none.
         /// </summary>
-        IReadOnlyList<string>? Qualifiers = null);
+        IReadOnlyList<string>? Qualifiers = null,
+        /// <summary>
+        /// Whether the source's search response said the book has a description / genres: true or
+        /// false as reported, null when that response does not say. Only a search-derived snapshot
+        /// (an online-match candidate) carries them; for a fetched book <see cref="Description"/> and
+        /// <see cref="Genres"/> are the real values.
+        /// </summary>
+        bool? HasDescription = null,
+        bool? HasGenres = null);
 
     /// <summary>One series a source reported for the book.</summary>
     public sealed record SnapshotSeries(string Name, string? Part, string? OriginalName = null);
@@ -176,5 +187,7 @@ public static class PendingRefreshPayload
         fetched.Series is { Count: > 0 }
             ? fetched.Series.Select(s => new SnapshotSeries(s.SeriesName, s.SeriesPart, s.OriginalSeriesName ?? s.SeriesName)).ToList()
             : null,
-        fetched.Qualifiers is { Count: > 0 } ? BookQualifiers.Normalize(fetched.Qualifiers) : null);
+        fetched.Qualifiers is { Count: > 0 } ? BookQualifiers.Normalize(fetched.Qualifiers) : null,
+        fetched.HasDescription,
+        fetched.HasGenres);
 }

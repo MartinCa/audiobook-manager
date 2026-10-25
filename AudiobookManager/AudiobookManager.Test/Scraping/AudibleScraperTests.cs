@@ -232,6 +232,20 @@ public class AudibleScraperTests
         Assert.AreEqual("Simon & Schuster", result.Authors.Single().Name);
     }
 
+    // The Audible search page has no summary or genre markup (checked live), so the flags must stay
+    // unknown rather than claiming the book has none.
+    [TestMethod]
+    public async Task Search_LeavesDescriptionAndGenresAvailabilityUnknown()
+    {
+        var html = await File.ReadAllTextAsync("Scraping/TestData/audible-search-series.html");
+        var target = CreateScraper(new FakeAudibleHandler(_ => html));
+
+        var results = await target.Search("jack reacher");
+
+        Assert.IsTrue(results.Count > 0);
+        Assert.IsTrue(results.All(r => r.HasDescription is null && r.HasGenres is null));
+    }
+
     [TestMethod]
     public async Task SearchSeries_JackReacher_ReturnsDeduplicatedSeriesWithAuthors()
     {

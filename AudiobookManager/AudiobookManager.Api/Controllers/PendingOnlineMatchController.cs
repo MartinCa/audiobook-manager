@@ -211,7 +211,9 @@ public class PendingOnlineMatchController : ControllerBase
                 PendingRefreshPayload.SeriesOf(s)
                     .Select(e => new PendingRefreshSeriesDto(e.Name, e.Part, e.OriginalName))
                     .ToList(),
-                s.Qualifiers?.ToList()))
+                s.Qualifiers?.ToList(),
+                s.HasDescription,
+                s.HasGenres))
             .ToList(),
         QualifierColumn.Parse(row.Audiobook.Qualifiers));
 }
