@@ -246,6 +246,7 @@ public class AudibleScraperTests
         Assert.IsTrue(results.All(r => r.HasDescription is null && r.HasGenres is null));
     }
 
+    [TestMethod]
     public async Task SearchSeries_JackReacher_ReturnsDeduplicatedSeriesWithAuthors()
     {
         var html = await File.ReadAllTextAsync("Scraping/TestData/audible-search-series.html");

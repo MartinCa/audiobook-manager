@@ -34,6 +34,7 @@ public class GoodreadsScraperTests
         Assert.AreEqual(expected, GoodreadsScraper.AutocompleteHasDescription(hit));
     }
 
+    [TestMethod]
     public async Task ParseNewBookJson()
     {
         var target = CreateScraper();
