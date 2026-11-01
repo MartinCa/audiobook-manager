@@ -12,7 +12,7 @@ RUN dotnet restore
 RUN dotnet publish AudiobookManager.Api/AudiobookManager.Api.csproj -c Release --no-restore -p:InformationalVersion="${APP_VERSION}${COMMIT_HASH:++$COMMIT_HASH}" -o out
 
 # Build client app
-FROM docker.io/library/node:24-alpine@sha256:8a32c8cf649a49915a66e81e7a609223c708d0adabf288ee3f4077d765542f85 AS build-node
+FROM docker.io/library/node:26-alpine@sha256:c6ad9e9c1d80f6eb607c26b4b0a132ff7a2344fad1c78ea3baa2a7d4c8de6d94 AS build-node
 WORKDIR /app
 
 ARG APP_VERSION=dev
@@ -21,9 +21,11 @@ ENV VITE_APP_VERSION=$APP_VERSION
 ENV VITE_COMMIT_HASH=$COMMIT_HASH
 ENV CI=true
 
-RUN corepack enable
-
 COPY /client/package.json /client/pnpm-lock.yaml /client/pnpm-workspace.yaml ./
+
+# Node 26 no longer bundles Corepack, so install the pnpm release pinned in
+# package.json's `packageManager` field directly.
+RUN npm install --global "pnpm@$(node -p "require('./package.json').packageManager.split('@')[1].split('+')[0]")"
 
 # --ignore-scripts: this stage only needs the packages on disk to run `pnpm
 # build` below, never a package's own install script. Without it, lefthook's
