@@ -31,10 +31,13 @@ jobs:
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: "24.x"
+          node-version: "26.x"
 
-      - name: Enable Corepack
-        run: corepack enable
+      # Node 26 no longer bundles Corepack, so install pnpm with its own action.
+      - name: Set up pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: 12.16.1
 
       - name: Install
         working-directory: ./client
@@ -71,10 +74,13 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: "24.x"
+          node-version: "26.x"
 
-      - name: Enable Corepack
-        run: corepack enable
+      # Node 26 no longer bundles Corepack, so install pnpm with its own action.
+      - name: Set up pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: 12.16.1
 
       - name: Install
         working-directory: ./client
