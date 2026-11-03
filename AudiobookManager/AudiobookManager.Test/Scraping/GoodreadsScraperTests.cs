@@ -2,6 +2,7 @@ using AudiobookManager.Scraping;
 using AudiobookManager.Scraping.Models;
 using AudiobookManager.Scraping.Scrapers;
 using Microsoft.Extensions.Logging;
+using System.Net;
 using Moq;
 
 namespace AudiobookManager.Test.Scraping;
@@ -9,14 +10,18 @@ namespace AudiobookManager.Test.Scraping;
 [TestClass]
 public class GoodreadsScraperTests
 {
-    private static GoodreadsScraper CreateScraper()
+    private static GoodreadsScraper CreateScraper(HttpMessageHandler? handler = null)
     {
         var httpClientFactory = new Mock<IHttpClientFactory>();
+        if (handler is not null)
+        {
+            httpClientFactory.Setup(x => x.CreateClient(It.IsAny<string>())).Returns(() => new HttpClient(handler, disposeHandler: false));
+        }
         var bookSeriesMapper = new Mock<IBookSeriesMapper>();
         bookSeriesMapper.Setup(x => x.MapBookSeries(It.IsAny<IList<MetadataSeriesSearchResult>>())).Returns<IList<MetadataSeriesSearchResult>>(x => Task.FromResult(x));
         var logger = new Mock<ILogger<GoodreadsScraper>>();
 
-        return new GoodreadsScraper(httpClientFactory.Object, bookSeriesMapper.Object, logger.Object);
+        return new GoodreadsScraper(httpClientFactory.Object, bookSeriesMapper.Object, logger.Object, retryDelay: TimeSpan.Zero);
     }
 
     // Shapes taken from live auto_complete responses: `description: { html, truncated, ... }` for a
@@ -109,7 +114,8 @@ public class GoodreadsScraperTests
         Assert.AreEqual("9788770530149", parseResult.Isbn);
 
         // ASIN
-        Assert.AreEqual("8770530149", parseResult.Asin);
+        // details.asin holds the ISBN-10 for this print edition - not a Kindle ASIN, so not kept
+        Assert.IsNull(parseResult.Asin);
 
         // Description should be sanitized (no HTML tags)
         Assert.IsFalse(parseResult.Description.Contains("<br />"));
@@ -249,7 +255,8 @@ public class GoodreadsScraperTests
         Assert.AreEqual("9780450040184", result.Isbn);
 
         // ASIN
-        Assert.AreEqual("0450040186", result.Asin);
+        // ISBN-10 in details.asin, not a Kindle ASIN
+        Assert.IsNull(result.Asin);
     }
 
     [TestMethod]
@@ -265,5 +272,176 @@ public class GoodreadsScraperTests
         Assert.IsFalse(target.SupportsUrl("https://goodreads.com.example.net/book/show/1"));
         Assert.IsFalse(target.SupportsUrl("https://example.net/?to=https://goodreads.com/book/show/1"));
         Assert.IsFalse(target.SupportsUrl("file:///etc/passwd"));
+    }
+
+    private sealed class StubHandler(Func<HttpRequestMessage, HttpResponseMessage> respond) : HttpMessageHandler
+    {
+        public List<Uri> Requests { get; } = new();
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Requests.Add(request.RequestUri!);
+            return Task.FromResult(respond(request));
+        }
+    }
+
+    private static HttpResponseMessage Json(string json) =>
+        new(HttpStatusCode.OK) { Content = new StringContent(json) };
+
+    [TestMethod]
+    [DataRow("https://www.goodreads.com/book/show/6977769", "https://www.goodreads.com/book/show/6977769.xml")]
+    [DataRow("https://www.goodreads.com/book/show/6977769-61-hours", "https://www.goodreads.com/book/show/6977769.xml")]
+    [DataRow("https://www.goodreads.com/book/show/6977769.61_Hours?ac=1&from_search=true", "https://www.goodreads.com/book/show/6977769.xml")]
+    [DataRow("https://goodreads.com/book/show/6977769", "https://www.goodreads.com/book/show/6977769.xml")]
+    [DataRow("https://www.goodreads.com/book/show/6977769.xml", "https://www.goodreads.com/book/show/6977769.xml")]
+    public void ToDetailsUrl_RewritesBookPagesToTheWafFreeXmlVariant(string input, string expected)
+    {
+        Assert.AreEqual(expected, GoodreadsScraper.ToDetailsUrl(input));
+    }
+
+    [TestMethod]
+    [DataRow("https://www.goodreads.com/author/show/5091.Lee_Child")]
+    [DataRow("https://www.audible.com/pd/B0DN8P5BQF")]
+    public void ToDetailsUrl_LeavesOtherUrlsUntouched(string input)
+    {
+        Assert.AreEqual(input, GoodreadsScraper.ToDetailsUrl(input));
+    }
+
+    [TestMethod]
+    [DataRow("B0DN8P5BQF", "B0DN8P5BQF")]
+    [DataRow(" B0DN8P5BQF ", "B0DN8P5BQF")]
+    [DataRow("0385340583", null)] // ISBN-10, what Goodreads puts in details.asin for print editions
+    [DataRow("B0DN8P5BQ", null)]
+    [DataRow("b0dn8p5bqf", null)]
+    [DataRow("", null)]
+    [DataRow(null, null)]
+    public void ValidAsinOrNull_KeepsOnlyKindleAsins(string? input, string? expected)
+    {
+        Assert.AreEqual(expected, GoodreadsScraper.ValidAsinOrNull(input));
+    }
+
+    [TestMethod]
+    [DataRow("61 Hours (Jack Reacher, #14)", "61 Hours", "Jack Reacher", "14")]
+    [DataRow("The Poet (Jack McEvoy #1)", "The Poet", "Jack McEvoy", "1")]
+    [DataRow("Books 1-3 (Saga, #1-3)", "Books 1-3", "Saga", "1-3")]
+    [DataRow("Title (Series (Omnibus), #2)", "Title", "Series (Omnibus)", "2")]
+    [DataRow("61 Hours (Jack Reacher, #14) (Unabridged)", "61 Hours (Unabridged)", "Jack Reacher", "14")]
+    [DataRow("61 Hours (Unabridged) (Jack Reacher, #14)", "61 Hours (Unabridged)", "Jack Reacher", "14")]
+    [DataRow("The Hobbit (Illustrated) (Unabridged)", "The Hobbit (Illustrated) (Unabridged)", null, null)]
+    [DataRow("The Hobbit (Illustrated)", "The Hobbit (Illustrated)", null, null)]
+    [DataRow("Plain Title", "Plain Title", null, null)]
+    [DataRow("(Only Parens, #1)", "(Only Parens, #1)", null, null)]
+    [DataRow("Title (, #3)", "Title (, #3)", null, null)]
+    [DataRow("Title (Series, #)", "Title (Series, #)", null, null)]
+    public void SplitSeriesSuffix_OnlySplitsAParenthesisedGroupThatHoldsAHash(string input, string title, string? series, string? part)
+    {
+        Assert.AreEqual((title, series, part), GoodreadsScraper.SplitSeriesSuffix(input));
+    }
+
+    private const string AutocompleteJson = """
+        [
+          { "bookId": "6977769", "title": "61 Hours (Jack Reacher, #14)", "bookTitleBare": "61 Hours",
+            "author": { "name": "Lee Child" }, "avgRating": "4.13", "ratingsCount": 105145,
+            "imageUrl": "https://i.gr-assets.com/x._SY75_.jpg", "description": { "html": "Blurb", "truncated": true } },
+          { "bookId": "1", "title": "Summary of 61 Hours", "bookTitleBare": "Summary of 61 Hours", "author": { "name": "NOT A BOOK" } },
+          { "bookId": "2", "title": "61 Hours (Large Print)", "bookTitleBare": "61 Hours (Large Print)", "author": { "name": "Lee Child" } },
+          { "title": "No id", "author": { "name": "Lee Child" } },
+          { "bookId": "3", "title": "The Poet (Jack McEvoy, #1)", "author": { "name": "Michael Connelly" } },
+          "not an object"
+        ]
+        """;
+
+    [TestMethod]
+    public async Task Search_UsesBareTitleReportsSeriesFromTheSuffixAndDropsNonBooks()
+    {
+        var handler = new StubHandler(_ => Json(AutocompleteJson));
+        var target = CreateScraper(handler);
+
+        var results = await target.Search("61 hours");
+
+        CollectionAssert.AreEqual(new[] { "61 Hours", "The Poet" }, results.Select(r => r.BookName).ToArray());
+        var first = results[0];
+        Assert.AreEqual("https://www.goodreads.com/book/show/6977769", first.Url);
+        Assert.AreEqual("Lee Child", first.Authors.Single().Name);
+        Assert.AreEqual("Jack Reacher", first.Series!.Single().SeriesName);
+        Assert.AreEqual("14", first.Series!.Single().SeriesPart);
+        Assert.IsTrue(first.HasDescription);
+        // No bookTitleBare: the title falls back to the suffix-stripped one.
+        Assert.AreEqual("Jack McEvoy", results[1].Series!.Single().SeriesName);
+        Assert.AreEqual("1", results[1].Series!.Single().SeriesPart);
+    }
+
+    [TestMethod]
+    public async Task Search_DoesNotFallBackToTheHtmlSearchPage_WhenAutocompleteFails()
+    {
+        var handler = new StubHandler(_ => new HttpResponseMessage(HttpStatusCode.InternalServerError));
+        var target = CreateScraper(handler);
+
+        await Assert.ThrowsExactlyAsync<Exception>(() => target.Search("anything"));
+
+        Assert.IsTrue(handler.Requests.Count > 0);
+        Assert.IsTrue(handler.Requests.All(u => u.AbsolutePath == "/book/auto_complete"), string.Join(", ", handler.Requests));
+    }
+
+    [TestMethod]
+    public async Task Search_TreatsAWafChallengeAsAFailureRatherThanAnEmptyResult()
+    {
+        var handler = new StubHandler(_ => new HttpResponseMessage(HttpStatusCode.Accepted) { Content = new StringContent("") });
+        var target = CreateScraper(handler);
+
+        var ex = await Assert.ThrowsExactlyAsync<Exception>(() => target.Search("anything"));
+
+        StringAssert.Contains(ex.Message, "bot-protection challenge");
+    }
+
+    [TestMethod]
+    public async Task Search_ReturnsEmptyListForEmptyArray()
+    {
+        var target = CreateScraper(new StubHandler(_ => Json("[]")));
+
+        Assert.AreEqual(0, (await target.Search("nothing")).Count);
+    }
+
+    private const string BookPage = """
+        <html><body><script id="__NEXT_DATA__" type="application/json">{"props":{"pageProps":{"apolloState":{
+          "Book:1":{"id":"1","title":"61 Hours","description":"Blurb","imageUrl":"",
+            "primaryContributorEdge":{"role":"Author","node":{"__ref":"Contributor:5"}},
+            "secondaryContributorEdges":[],
+            "bookSeries":[{"userPosition":"14","series":{"__ref":"Series:9"}}],
+            "bookGenres":[],
+            "details":{"asin":"0385340583","isbn13":"9780385340588","publisher":"Delacorte","language":{"name":"English"},"publicationTime":1274166000000}},
+          "Contributor:5":{"id":"5","name":"Lee Child"},
+          "Series:9":{"id":"9","title":"Jack Reacher"},
+          "Work:1":{"id":"w","details":{"publicationTime":1268895600000},"stats":{"averageRating":4.13,"ratingsCount":105145}}
+        }}}}</script></body></html>
+        """;
+
+    [TestMethod]
+    public async Task GetBookDetails_FetchesTheXmlVariantWithoutQueryAndKeepsTheCallersUrl()
+    {
+        var handler = new StubHandler(_ => Json(BookPage));
+        var target = CreateScraper(handler);
+        var bookUrl = "https://www.goodreads.com/book/show/6977769-61-hours";
+
+        var result = await target.GetBookDetails(bookUrl);
+
+        Assert.AreEqual(1, handler.Requests.Count);
+        Assert.AreEqual("https://www.goodreads.com/book/show/6977769.xml", handler.Requests[0].ToString());
+        Assert.AreEqual(bookUrl, result.Url);
+        Assert.AreEqual("61 Hours", result.BookName);
+        Assert.AreEqual(2010, result.Year);
+        Assert.AreEqual("9780385340588", result.Isbn);
+        Assert.IsNull(result.Asin, "details.asin held an ISBN-10");
+    }
+
+    [TestMethod]
+    public async Task GetBookDetails_FailsClearly_WhenGoodreadsAnswersWithAWafChallenge()
+    {
+        var handler = new StubHandler(_ => new HttpResponseMessage(HttpStatusCode.Accepted) { Content = new StringContent("") });
+        var target = CreateScraper(handler);
+
+        var ex = await Assert.ThrowsExactlyAsync<Exception>(() => target.GetBookDetails("https://www.goodreads.com/book/show/6977769"));
+
+        StringAssert.Contains(ex.Message, "bot-protection challenge");
     }
 }

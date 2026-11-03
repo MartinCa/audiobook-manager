@@ -20,20 +20,17 @@ public partial class GoodreadsScraper : IScraper
     private const string _goodreadsBaseUrl = $"https://www.{_goodreadsDomain}";
     private const string _sourceName = "Goodreads";
     private const int _maxNumGenresToGet = 5;
+    private const string _notABookAuthor = "NOT A BOOK";
 
     private static readonly IList<string> _ignoredAuthorRoles = new List<string> { "illustrator" };
     private static readonly IList<string> _ignoredGenres = new List<string> { "Fiction" };
 
-    [GeneratedRegex(@"^([^\\?]+)")]
-    private static partial Regex ReUrlWithoutQuery();
     [GeneratedRegex(@"(.*_S\w)\d+(_\..*)")]
     private static partial Regex ReImgUrl();
-    [GeneratedRegex(@"(\d\.?\d*) avg")]
-    private static partial Regex ReRating();
-    [GeneratedRegex(@"([\d,]+)\s?ratings")]
-    private static partial Regex ReNumRatings();
-    [GeneratedRegex(@".*published\s+(\d+)")]
-    private static partial Regex ReYear();
+    [GeneratedRegex(@"/book/show/(\d+)")]
+    private static partial Regex ReBookId();
+    [GeneratedRegex(@"^B0[A-Z0-9]{8}$")]
+    private static partial Regex ReAsin();
     [GeneratedRegex(@"\d{4}")]
     private static partial Regex ReDetailsYear();
     [GeneratedRegex(@"by(.+)")]
@@ -48,7 +45,7 @@ public partial class GoodreadsScraper : IScraper
     private readonly IBookSeriesMapper _bookSeriesMapper;
     private readonly ILogger<GoodreadsScraper> _logger;
 
-    public GoodreadsScraper(IHttpClientFactory httpClientFactory, IBookSeriesMapper bookSeriesMapper, ILogger<GoodreadsScraper> logger)
+    public GoodreadsScraper(IHttpClientFactory httpClientFactory, IBookSeriesMapper bookSeriesMapper, ILogger<GoodreadsScraper> logger, TimeSpan? retryDelay = null)
     {
         _httpClientFactory = httpClientFactory;
         _bookSeriesMapper = bookSeriesMapper;
@@ -59,7 +56,7 @@ public partial class GoodreadsScraper : IScraper
         _resiliencePipeline = new ResiliencePipelineBuilder()
         .AddRetry(new RetryStrategyOptions {
             MaxRetryAttempts = maxRetries,
-            Delay = TimeSpan.FromSeconds(3),
+            Delay = retryDelay ?? TimeSpan.FromSeconds(3),
             BackoffType = DelayBackoffType.Constant,
             OnRetry = (args) =>
             {
@@ -70,23 +67,49 @@ public partial class GoodreadsScraper : IScraper
         .Build();
     }
 
+    /// <summary>
+    /// Goodreads fronts the extensionless book page (<c>/book/show/{id}</c>) with an AWS WAF challenge
+    /// that answers HTTP 202 with an empty body, while the <c>.xml</c> variant serves the same Next.js
+    /// page - <c>__NEXT_DATA__</c> included - without it. This returns the URL to actually fetch;
+    /// the caller's own URL stays the book's stored source URL. Anything that is not a Goodreads
+    /// book page URL is returned untouched.
+    /// </summary>
+    public static string ToDetailsUrl(string bookUrl)
+    {
+        if (!ScraperUrl.HasHost(bookUrl, _goodreadsDomain))
+        {
+            return bookUrl;
+        }
+
+        var match = ReBookId().Match(bookUrl);
+        return match.Success ? $"{_goodreadsBaseUrl}/book/show/{match.Groups[1].Value}.xml" : bookUrl;
+    }
+
+    /// <summary>
+    /// A WAF challenge is a "successful" 202 (or carries <c>x-amzn-waf-action</c>) with no page behind
+    /// it, so the status code alone cannot be trusted to mean a page arrived.
+    /// </summary>
+    public static bool IsWafChallenge(HttpResponseMessage response) =>
+        response.StatusCode == System.Net.HttpStatusCode.Accepted ||
+        response.Headers.Contains("x-amzn-waf-action");
+
     public async Task<MetadataSearchResult> GetBookDetails(string bookUrl)
     {
-        Dictionary<string, string?> queryParameters = new()
-        {
-            ["utf8"] = "✓"
-        };
-
-        var uri = QueryHelpers.AddQueryString(bookUrl, queryParameters);
+        var uri = ToDetailsUrl(bookUrl);
         var httpClient = _httpClientFactory.CreateClient("goodreads");
 
         return await _resiliencePipeline.ExecuteAsync(async cancellationToken =>
         {
             var response = await httpClient.GetAsync(uri, cancellationToken);
 
+            if (IsWafChallenge(response))
+            {
+                throw new Exception($"Goodreads answered {bookUrl} with a bot-protection challenge (status code: {(int)response.StatusCode}) instead of the book page");
+            }
+
             if (!response.IsSuccessStatusCode)
             {
-                throw new Exception($"Error getting search results from Goodreads, status code: {response.StatusCode}, reason: {response.ReasonPhrase}");
+                throw new Exception($"Error getting book details from Goodreads, status code: {response.StatusCode}, reason: {response.ReasonPhrase}");
             }
 
             var responseStream = await response.Content.ReadAsStreamAsync(cancellationToken);
@@ -108,30 +131,19 @@ public partial class GoodreadsScraper : IScraper
                 return await ParseNewBookJson(scriptElementNew.Text(), bookUrl);
             }
 
-            throw new Exception($"Error getting search results from Goodreads, status code: {response.StatusCode}, reason: {response.ReasonPhrase}");
+            throw new Exception($"Goodreads returned a page for {bookUrl} that contains no book data, status code: {response.StatusCode}");
         }, new CancellationToken());
     }
 
+    /// <summary>
+    /// Autocomplete is the only search: the <c>/search</c> HTML page sits behind the same bot
+    /// protection as the book page, so a "fallback" to it only replaced the real error with an
+    /// unrelated one. A failure here propagates to the caller.
+    /// </summary>
     public async Task<IList<MetadataSearchResult>> Search(string searchTerm)
     {
         var httpClient = _httpClientFactory.CreateClient("goodreads");
-
-        // Try autocomplete API first
-        try
-        {
-            var autocompleteResults = await SearchViaAutocomplete(httpClient, searchTerm);
-            if (autocompleteResults.Count > 0)
-            {
-                return autocompleteResults;
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Autocomplete API failed, falling back to HTML search");
-        }
-
-        // Fall back to HTML table parsing
-        return await SearchViaHtml(httpClient, searchTerm);
+        return await SearchViaAutocomplete(httpClient, searchTerm);
     }
 
     private async Task<IList<MetadataSearchResult>> SearchViaAutocomplete(HttpClient httpClient, string searchTerm)
@@ -142,9 +154,14 @@ public partial class GoodreadsScraper : IScraper
             ["q"] = searchTerm
         });
 
-        return await _resiliencePipeline.ExecuteAsync(async cancellationToken =>
+        var hits = await _resiliencePipeline.ExecuteAsync(async cancellationToken =>
         {
             var response = await httpClient.GetAsync(uri, cancellationToken);
+
+            if (IsWafChallenge(response))
+            {
+                throw new Exception($"Goodreads answered the autocomplete search with a bot-protection challenge (status code: {(int)response.StatusCode}) instead of results");
+            }
 
             if (!response.IsSuccessStatusCode)
             {
@@ -152,69 +169,186 @@ public partial class GoodreadsScraper : IScraper
             }
 
             var json = await response.Content.ReadAsStringAsync(cancellationToken);
-            var results = JsonSerializer.Deserialize<List<JsonElement>>(json);
+            return ParseAutocompleteHits(json);
+        }, new CancellationToken());
 
-            if (results is null || results.Count == 0)
+        var results = new List<MetadataSearchResult>();
+        foreach (var hit in hits)
+        {
+            results.Add(await ToSearchResult(hit));
+        }
+
+        return results;
+    }
+
+    private async Task<MetadataSearchResult> ToSearchResult(AutocompleteHit hit)
+    {
+        var series = new List<MetadataSeriesSearchResult>();
+        if (hit.SeriesName is not null)
+        {
+            series.Add(new MetadataSeriesSearchResult(hit.SeriesName) { SeriesPart = hit.SeriesPart });
+        }
+
+        return new MetadataSearchResult($"{_goodreadsBaseUrl}/book/show/{hit.BookId}", hit.Title)
+        {
+            Authors = string.IsNullOrEmpty(hit.AuthorName) ? new List<Person>() : new List<Person> { new Person(hit.AuthorName) },
+            Narrators = new List<Person>(),
+            ImageUrl = ConvertImgUrl(hit.ImageUrl),
+            Genres = new List<string>(),
+            Series = await _bookSeriesMapper.MapBookSeries(series),
+            Rating = hit.Rating,
+            NumberOfRatings = hit.NumberOfRatings,
+            HasDescription = hit.HasDescription,
+        };
+    }
+
+    private sealed record AutocompleteHit(
+        string BookId,
+        string Title,
+        string? AuthorName,
+        string? ImageUrl,
+        string? SeriesName,
+        string? SeriesPart,
+        float? Rating,
+        int? NumberOfRatings,
+        bool HasDescription);
+
+    /// <summary>
+    /// Turns an autocomplete response into usable hits. Rows without a book id or title are dropped,
+    /// as are the ones that are not a book a person would want: the placeholder author
+    /// <c>NOT A BOOK</c> Goodreads gives non-book listings, and large-print editions. The title is
+    /// <c>bookTitleBare</c> when the hit has one - the plain <c>title</c> carries a
+    /// <c>(Series, #N)</c> suffix, which would otherwise end up in the book name - and the series
+    /// that suffix names is reported as the hit's series.
+    /// </summary>
+    private static List<AutocompleteHit> ParseAutocompleteHits(string json)
+    {
+        var rows = JsonSerializer.Deserialize<List<JsonElement>>(json);
+        var hits = new List<AutocompleteHit>();
+        if (rows is null)
+        {
+            return hits;
+        }
+
+        foreach (var r in rows)
+        {
+            if (r.ValueKind != JsonValueKind.Object)
             {
-                return new List<MetadataSearchResult>();
+                continue;
             }
 
-            return results
-                .Select(r =>
+            var bookId = StringOrNull(r, "bookId");
+            var fullTitle = StringOrNull(r, "title");
+            if (string.IsNullOrWhiteSpace(bookId) || fullTitle is null)
+            {
+                continue;
+            }
+
+            string? authorName = null;
+            if (r.TryGetProperty("author", out var authorElement) && authorElement.ValueKind == JsonValueKind.Object)
+            {
+                authorName = StringOrNull(authorElement, "name");
+            }
+
+            if (string.Equals(authorName?.Trim(), _notABookAuthor, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var (strippedTitle, seriesName, seriesPart) = SplitSeriesSuffix(fullTitle);
+            var bareTitle = StringOrNull(r, "bookTitleBare");
+            var title = string.IsNullOrWhiteSpace(bareTitle) ? strippedTitle : bareTitle.Trim();
+
+            if (fullTitle.Contains("Large Print", StringComparison.OrdinalIgnoreCase) || title.Contains("Large Print", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            float? rating = null;
+            if (StringOrNull(r, "avgRating") is { } avgRating &&
+                float.TryParse(avgRating, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var parsedRating))
+            {
+                rating = parsedRating;
+            }
+
+            int? numberOfRatings = null;
+            if (r.TryGetProperty("ratingsCount", out var ratingsCountElement) &&
+                ratingsCountElement.ValueKind == JsonValueKind.Number &&
+                ratingsCountElement.TryGetInt32(out var parsedCount))
+            {
+                numberOfRatings = parsedCount;
+            }
+
+            hits.Add(new AutocompleteHit(bookId, title, authorName, StringOrNull(r, "imageUrl"), seriesName, seriesPart, rating, numberOfRatings, AutocompleteHasDescription(r)));
+        }
+
+        return hits;
+    }
+
+    private static string? StringOrNull(JsonElement element, string propertyName) =>
+        element.TryGetProperty(propertyName, out var property) && property.ValueKind == JsonValueKind.String
+            ? property.GetString()
+            : null;
+
+    /// <summary>
+    /// Splits a <c>(Series, #N)</c> group off the end of a Goodreads title (<c>61 Hours (Jack Reacher, #14)</c>).
+    /// The group is only a series when it holds a <c>#</c>; a title that merely ends in parentheses
+    /// (<c>The Hobbit (Illustrated)</c>) is returned whole. Trailing groups are walked backwards
+    /// until one holds a <c>#</c>, so <c>61 Hours (Jack Reacher, #14) (Unabridged)</c> still yields the
+    /// series, and the groups after it stay in the title (<c>61 Hours (Unabridged)</c>). Nested
+    /// parentheses are balanced, so <c>Title (Series (Omnibus), #2)</c> splits at the right bracket.
+    /// </summary>
+    public static (string Title, string? SeriesName, string? SeriesPart) SplitSeriesSuffix(string title)
+    {
+        var trimmed = title.Trim();
+        var end = trimmed.Length;
+
+        while (true)
+        {
+            var head = trimmed[..end].TrimEnd();
+            if (!head.EndsWith(')'))
+            {
+                return (trimmed, null, null);
+            }
+
+            var depth = 0;
+            var open = -1;
+            for (var i = head.Length - 1; i >= 0; i--)
+            {
+                if (head[i] == ')')
                 {
-                    var bookId = r.GetPropertyValueOrNull("bookId");
-                    var title = r.GetPropertyValueOrNull("title");
-                    var imageUrl = r.GetPropertyValueOrNull("imageUrl");
+                    depth++;
+                }
+                else if (head[i] == '(' && --depth == 0)
+                {
+                    open = i;
+                    break;
+                }
+            }
 
-                    if (bookId is null || title is null)
-                    {
-                        return null;
-                    }
+            if (open <= 0)
+            {
+                return (trimmed, null, null);
+            }
 
-                    var url = $"{_goodreadsBaseUrl}/book/show/{bookId}";
+            var inner = head[(open + 1)..^1];
+            var hash = inner.LastIndexOf('#');
+            if (hash < 0)
+            {
+                end = open;
+                continue;
+            }
 
-                    string? authorName = null;
-                    if (r.TryGetProperty("author", out var authorElement))
-                    {
-                        authorName = authorElement.GetPropertyValueOrNull("name");
-                    }
+            var name = inner[..hash].Trim().TrimEnd(',').Trim();
+            var part = inner[(hash + 1)..].Trim();
+            if (name.Length == 0 || part.Length == 0)
+            {
+                return (trimmed, null, null);
+            }
 
-                    var authors = new List<Person>();
-                    if (!string.IsNullOrEmpty(authorName))
-                    {
-                        authors.Add(new Person(authorName));
-                    }
-
-                    float? rating = null;
-                    var avgRatingStr = r.GetPropertyValueOrNull("avgRating");
-                    if (avgRatingStr is not null && float.TryParse(avgRatingStr, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var parsedRating))
-                    {
-                        rating = parsedRating;
-                    }
-
-                    int? numberOfRatings = null;
-                    if (r.TryGetProperty("ratingsCount", out var ratingsCountElement) && ratingsCountElement.TryGetInt32(out var parsedCount))
-                    {
-                        numberOfRatings = parsedCount;
-                    }
-
-                    return new MetadataSearchResult(url, title)
-                    {
-                        Authors = authors,
-                        Narrators = new List<Person>(),
-                        ImageUrl = ConvertImgUrl(imageUrl),
-                        Genres = new List<string>(),
-                        Series = new List<MetadataSeriesSearchResult>(),
-                        Rating = rating,
-                        NumberOfRatings = numberOfRatings,
-                        HasDescription = AutocompleteHasDescription(r),
-                    };
-                })
-                .Where(r => r is not null)
-                .Cast<MetadataSearchResult>()
-                .Where(r => !r.BookName.Contains("Large Print", StringComparison.OrdinalIgnoreCase))
-                .ToList();
-        }, new CancellationToken());
+            var rest = $"{head[..open].Trim()} {trimmed[head.Length..].Trim()}".Trim();
+            return (rest, name, part);
+        }
     }
 
     /// <summary>
@@ -226,51 +360,6 @@ public partial class GoodreadsScraper : IScraper
         hit.TryGetProperty("description", out var description) &&
         description.ValueKind == JsonValueKind.Object &&
         !string.IsNullOrWhiteSpace(description.GetPropertyValueOrNull("html"));
-
-    private async Task<IList<MetadataSearchResult>> SearchViaHtml(HttpClient httpClient, string searchTerm)
-    {
-        var termTokens = searchTerm.Split(" ", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-
-        Dictionary<string, string?> queryParameters = new()
-        {
-            ["utf8"] = "✓",
-            ["search_type"] = "books"
-        };
-
-        var uri = QueryHelpers.AddQueryString($"{_goodreadsBaseUrl}/search", queryParameters);
-        uri += $"&search[query]={string.Join("+", termTokens)}";
-
-        return await _resiliencePipeline.ExecuteAsync(async cancellationToken =>
-        {
-            var response = await httpClient.GetAsync(uri, cancellationToken);
-
-            if (!response.IsSuccessStatusCode)
-            {
-                throw new Exception($"Error getting search results from Goodreads, status code: {response.StatusCode}, reason: {response.ReasonPhrase}");
-            }
-
-            var responseStream = await response.Content.ReadAsStreamAsync(cancellationToken);
-
-            HtmlParser parser = new();
-            var doc = parser.ParseDocument(responseStream);
-
-            var tableRowTags = doc.QuerySelectorAll("table.tableList tr");
-            if (tableRowTags is not null && tableRowTags.Any())
-            {
-                return tableRowTags.Select(rowElem => ParseSearchResult(rowElem)).ToList();
-            }
-
-            var searchHeaderTag = doc.QuerySelector("h3.searchSubNavContainer");
-            if (searchHeaderTag is not null && searchHeaderTag.Text().Trim().StartsWith("No results"))
-            {
-                return new List<MetadataSearchResult>();
-            }
-
-            throw new Exception("Invalid response from Goodreads");
-        }, new CancellationToken());
-    }
-
-
 
     public bool IsSource(string sourceName) => string.Equals(sourceName, _sourceName, StringComparison.InvariantCultureIgnoreCase);
 
@@ -404,7 +493,7 @@ public partial class GoodreadsScraper : IScraper
             isbn = bookElement.GetNestedProperty("details").GetPropertyValueOrNull("isbn13")
                 ?? bookElement.GetNestedProperty("details").GetPropertyValueOrNull("isbn");
 
-            asin = bookElement.GetNestedProperty("details").GetPropertyValueOrNull("asin");
+            asin = ValidAsinOrNull(bookElement.GetNestedProperty("details").GetPropertyValueOrNull("asin"));
         }
         catch (Exception ex)
         {
@@ -597,69 +686,6 @@ public partial class GoodreadsScraper : IScraper
         };
     }
 
-    private static MetadataSearchResult ParseSearchResult(IElement resultElem)
-    {
-        var coverTag = resultElem.QuerySelector("td");
-        var coverLinkTag = coverTag?.QuerySelector("a");
-        var fullLink = $"{_goodreadsBaseUrl}{coverLinkTag?.Attributes["href"]?.Value}";
-        string? link = null;
-        var urlMatch = ReUrlWithoutQuery().Match(fullLink);
-        if (urlMatch.Success)
-        {
-            link = urlMatch.Groups[1].Value;
-        }
-
-        if (link is null)
-        {
-            throw new Exception("Could not read link from Goodreads");
-        }
-
-        var bookName = coverLinkTag?.Attributes["title"]?.Value;
-
-        if (bookName is null)
-        {
-            throw new Exception("Could not read book name from Goodreads");
-        }
-
-        var imgUrlSmall = coverTag?.QuerySelector("img")?.Attributes["src"]?.Value;
-        var imgUrl = ConvertImgUrl(imgUrlSmall);
-
-        var authors = ParseAuthors(resultElem);
-
-        ParsedRating? rating = null;
-        var ratingTag = resultElem.QuerySelector("span.minirating");
-        if (resultElem.TryGetTextFromQuerySelector("span.minirating", out var ratingText))
-        {
-            rating = ParseRating(ratingText);
-        }
-
-        int? year = null;
-        var publishedTag = ratingTag?.NextSibling;
-        if (ReYear().TryMatch(publishedTag?.Text().Trim(), out var match))
-        {
-            year = int.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture);
-        }
-
-        return new MetadataSearchResult(link, bookName)
-        {
-            Authors = authors,
-            Narrators = new List<Person>(),
-            Subtitle = null,
-            Duration = null,
-            Year = year,
-            Language = null,
-            ImageUrl = imgUrl,
-            Series = new List<MetadataSeriesSearchResult>(),
-            Description = null,
-            Genres = new List<string>(),
-            Rating = rating?.Rating,
-            NumberOfRatings = rating?.NumberOfRatings,
-            Copyright = null,
-            Publisher = null,
-            Asin = null,
-        };
-    }
-
     private static IList<Person> FilterAuthors(IEnumerable<Person> persons)
     {
         return persons
@@ -838,22 +864,13 @@ public partial class GoodreadsScraper : IScraper
         return parsed;
     }
 
-    private static ParsedRating ParseRating(string ratingText)
-    {
-        ParsedRating rating = new();
-
-        if (ReRating().TryMatch(ratingText, out var ratingMatch))
-        {
-            rating.Rating = float.Parse(ratingMatch.Groups[1].Value, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture);
-        }
-
-        if (ReNumRatings().TryMatch(ratingText, out var numRatingsMatch))
-        {
-            rating.NumberOfRatings = int.Parse(numRatingsMatch.Groups[1].Value, NumberStyles.AllowThousands, CultureInfo.InvariantCulture);
-        }
-
-        return rating;
-    }
+    /// <summary>
+    /// Goodreads' <c>details.asin</c> is not always a Kindle ASIN: print editions carry their ISBN-10
+    /// there (<c>0385340583</c>). Only a Kindle ASIN - <c>B0</c> plus eight alphanumerics - is kept,
+    /// so an ISBN-10 never ends up in a book's ASIN tag.
+    /// </summary>
+    public static string? ValidAsinOrNull(string? asin) =>
+        asin is not null && ReAsin().IsMatch(asin.Trim()) ? asin.Trim() : null;
 
     private static string? ConvertImgUrl(string? imgUrl)
     {
