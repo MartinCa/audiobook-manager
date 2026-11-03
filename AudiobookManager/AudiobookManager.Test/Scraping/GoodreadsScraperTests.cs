@@ -325,6 +325,9 @@ public class GoodreadsScraperTests
     [DataRow("The Poet (Jack McEvoy #1)", "The Poet", "Jack McEvoy", "1")]
     [DataRow("Books 1-3 (Saga, #1-3)", "Books 1-3", "Saga", "1-3")]
     [DataRow("Title (Series (Omnibus), #2)", "Title", "Series (Omnibus)", "2")]
+    [DataRow("61 Hours (Jack Reacher, #14) (Unabridged)", "61 Hours (Unabridged)", "Jack Reacher", "14")]
+    [DataRow("61 Hours (Unabridged) (Jack Reacher, #14)", "61 Hours (Unabridged)", "Jack Reacher", "14")]
+    [DataRow("The Hobbit (Illustrated) (Unabridged)", "The Hobbit (Illustrated) (Unabridged)", null, null)]
     [DataRow("The Hobbit (Illustrated)", "The Hobbit (Illustrated)", null, null)]
     [DataRow("Plain Title", "Plain Title", null, null)]
     [DataRow("(Only Parens, #1)", "(Only Parens, #1)", null, null)]
@@ -386,7 +389,9 @@ public class GoodreadsScraperTests
         var handler = new StubHandler(_ => new HttpResponseMessage(HttpStatusCode.Accepted) { Content = new StringContent("") });
         var target = CreateScraper(handler);
 
-        await Assert.ThrowsExactlyAsync<Exception>(() => target.Search("anything"));
+        var ex = await Assert.ThrowsExactlyAsync<Exception>(() => target.Search("anything"));
+
+        StringAssert.Contains(ex.Message, "bot-protection challenge");
     }
 
     [TestMethod]

@@ -158,7 +158,12 @@ public partial class GoodreadsScraper : IScraper
         {
             var response = await httpClient.GetAsync(uri, cancellationToken);
 
-            if (IsWafChallenge(response) || !response.IsSuccessStatusCode)
+            if (IsWafChallenge(response))
+            {
+                throw new Exception($"Goodreads answered the autocomplete search with a bot-protection challenge (status code: {(int)response.StatusCode}) instead of results");
+            }
+
+            if (!response.IsSuccessStatusCode)
             {
                 throw new Exception($"Autocomplete API returned status {response.StatusCode}");
             }
@@ -286,54 +291,64 @@ public partial class GoodreadsScraper : IScraper
             : null;
 
     /// <summary>
-    /// Splits a trailing <c>(Series, #N)</c> off a Goodreads title (<c>61 Hours (Jack Reacher, #14)</c>).
+    /// Splits a <c>(Series, #N)</c> group off the end of a Goodreads title (<c>61 Hours (Jack Reacher, #14)</c>).
     /// The group is only a series when it holds a <c>#</c>; a title that merely ends in parentheses
-    /// (<c>The Hobbit (Illustrated)</c>) is returned whole. Nested parentheses are balanced from the
-    /// end, so <c>Title (Series (Omnibus), #2)</c> splits at the right bracket.
+    /// (<c>The Hobbit (Illustrated)</c>) is returned whole. Trailing groups are walked backwards
+    /// until one holds a <c>#</c>, so <c>61 Hours (Jack Reacher, #14) (Unabridged)</c> still yields the
+    /// series, and the groups after it stay in the title (<c>61 Hours (Unabridged)</c>). Nested
+    /// parentheses are balanced, so <c>Title (Series (Omnibus), #2)</c> splits at the right bracket.
     /// </summary>
     public static (string Title, string? SeriesName, string? SeriesPart) SplitSeriesSuffix(string title)
     {
         var trimmed = title.Trim();
-        if (!trimmed.EndsWith(')'))
-        {
-            return (trimmed, null, null);
-        }
+        var end = trimmed.Length;
 
-        var depth = 0;
-        var open = -1;
-        for (var i = trimmed.Length - 1; i >= 0; i--)
+        while (true)
         {
-            if (trimmed[i] == ')')
+            var head = trimmed[..end].TrimEnd();
+            if (!head.EndsWith(')'))
             {
-                depth++;
+                return (trimmed, null, null);
             }
-            else if (trimmed[i] == '(' && --depth == 0)
+
+            var depth = 0;
+            var open = -1;
+            for (var i = head.Length - 1; i >= 0; i--)
             {
-                open = i;
-                break;
+                if (head[i] == ')')
+                {
+                    depth++;
+                }
+                else if (head[i] == '(' && --depth == 0)
+                {
+                    open = i;
+                    break;
+                }
             }
-        }
 
-        if (open <= 0)
-        {
-            return (trimmed, null, null);
-        }
+            if (open <= 0)
+            {
+                return (trimmed, null, null);
+            }
 
-        var inner = trimmed[(open + 1)..^1];
-        var hash = inner.LastIndexOf('#');
-        if (hash < 0)
-        {
-            return (trimmed, null, null);
-        }
+            var inner = head[(open + 1)..^1];
+            var hash = inner.LastIndexOf('#');
+            if (hash < 0)
+            {
+                end = open;
+                continue;
+            }
 
-        var name = inner[..hash].Trim().TrimEnd(',').Trim();
-        var part = inner[(hash + 1)..].Trim();
-        if (name.Length == 0 || part.Length == 0)
-        {
-            return (trimmed, null, null);
-        }
+            var name = inner[..hash].Trim().TrimEnd(',').Trim();
+            var part = inner[(hash + 1)..].Trim();
+            if (name.Length == 0 || part.Length == 0)
+            {
+                return (trimmed, null, null);
+            }
 
-        return (trimmed[..open].Trim(), name, part);
+            var rest = $"{head[..open].Trim()} {trimmed[head.Length..].Trim()}".Trim();
+            return (rest, name, part);
+        }
     }
 
     /// <summary>
