@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { FolderInput, RefreshCw, HardDrive, AlertCircle } from "lucide-react";
+import { FolderInput, RefreshCw, HardDrive, AlertCircle, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -16,6 +16,7 @@ import { SignalREvents } from "@/constants/signalrEvents";
 import { untaggedApi, queueApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { useSignalREvent, useSignalRReconnected } from "@/hooks/useSignalR";
+import { useKeptRows } from "@/hooks/useKeptRows";
 import { formatFileSize } from "@/helpers/formatHelpers";
 import { pathsEqual } from "@/helpers/pathHelpers";
 import { notifications } from "@/lib/notifications";
@@ -31,6 +32,8 @@ interface QueueErrorPayload {
   originalFileLocation: string;
   error: string;
 }
+
+const bookKey = (book: BookFileInfo) => book.fullPath;
 
 export function BookList() {
   const queryClient = useQueryClient();
@@ -66,8 +69,18 @@ export function BookList() {
     },
   });
 
-  const books: BookFileInfo[] = data?.items ?? [];
+  const books: BookFileInfo[] = useMemo(() => data?.items ?? [], [data]);
   const totalCount = data?.total ?? 0;
+
+  // A file that finished organizing leaves the untagged list on the next refetch. It stays where it
+  // was, marked as organized, until the page changes or the list is reloaded, so the rows below it
+  // do not jump just as the user reaches for the next one.
+  const {
+    rows: bookRows,
+    keep: keepRow,
+    recordOutcome,
+    clear: clearKeptRows,
+  } = useKeptRows<BookFileInfo, "organized">(books, bookKey, String(page));
 
   useSignalREvent<ProgressUpdatePayload>(SignalREvents.UpdateProgress, (payload) => {
     setProgressOverrides((prev) => {
@@ -88,6 +101,13 @@ export function BookList() {
     });
 
     if (payload.progress >= 100) {
+      const finished = books.find((book) =>
+        pathsEqual(book.fullPath, payload.originalFileLocation),
+      );
+      if (finished) {
+        keepRow(finished);
+        recordOutcome(finished.fullPath, "organized");
+      }
       void queryClient.invalidateQueries({ queryKey: queryKeys.untaggedBooks.all() });
     }
   });
@@ -130,6 +150,8 @@ export function BookList() {
         <Button
           variant="outline"
           onClick={() => {
+            // An explicit reload is a refresh: finished rows stop holding their place.
+            clearKeptRows();
             void refetch();
           }}
           disabled={loading}
@@ -167,7 +189,7 @@ export function BookList() {
             </div>
           ))}
         </div>
-      ) : books.length === 0 ? (
+      ) : bookRows.length === 0 ? (
         <Card className="p-12 text-center">
           <FolderInput className="text-muted-foreground/40 mx-auto mb-3 h-12 w-12" />
           <h3 className="text-foreground text-lg font-medium">No audiobooks to organize</h3>
@@ -181,7 +203,7 @@ export function BookList() {
           onValueChange={(items: string[]) => setActiveItem(items[0])}
           className="space-y-2"
         >
-          {books.map((book) => {
+          {bookRows.map(({ item: book, gone, outcome }) => {
             const overrideKey = Object.keys(progressOverrides).find((k) =>
               pathsEqual(k, book.fullPath),
             );
@@ -190,6 +212,40 @@ export function BookList() {
             const progress = override?.progress ?? book.queueProgress;
             const message = override?.message ?? book.queueMessage;
             const error = override?.error ?? book.error;
+            const isOrganized = outcome === "organized";
+
+            // A finished file is only a placeholder holding the rows below it in place - same
+            // header, nothing to open. That holds from the moment it finishes, not only once the
+            // refetch has dropped it, because the file is no longer there to organize.
+            if (gone || isOrganized) {
+              return (
+                <div
+                  key={book.fullPath}
+                  className="border-border bg-card flex flex-wrap items-center justify-between gap-x-3 gap-y-2 rounded-lg border px-4 py-3 shadow-sm"
+                >
+                  <div className="flex min-w-0 flex-1 items-center gap-3 pr-2">
+                    <div className="bg-primary/10 text-primary flex h-9 w-9 shrink-0 items-center justify-center rounded-md">
+                      <FolderInput className="h-4 w-4" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-foreground max-w-full min-w-0 truncate text-sm font-semibold">
+                        {book.fileName}
+                      </div>
+                      <div className="text-muted-foreground flex items-center gap-3 text-xs">
+                        <span className="flex items-center gap-1">
+                          <HardDrive className="h-3 w-3" />
+                          {formatFileSize(book.sizeInBytes)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                  <span className="text-muted-foreground flex shrink-0 items-center gap-1 text-xs">
+                    <CheckCircle2 className="h-3 w-3" />
+                    Organized
+                  </span>
+                </div>
+              );
+            }
 
             return (
               <AccordionItem

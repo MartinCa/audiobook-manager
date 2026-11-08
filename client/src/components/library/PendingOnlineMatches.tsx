@@ -1,5 +1,5 @@
 import { BookQualifierBadges } from "@/components/BookQualifierBadges";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, ChevronDown, ChevronRight, Loader2, Search, X } from "lucide-react";
@@ -16,12 +16,20 @@ import {
   useSingleBookOperation,
   type SingleBookOperationCompletePayload,
 } from "@/hooks/useSingleBookOperation";
+import { mergeKeptRows, useKeptRowState } from "@/hooks/useKeptRows";
+import { holdsPlaceWhenGone, type OperationOutcomeState } from "@/helpers/operationOutcome";
+import { OperationOutcomeBadge, OperationOutcomeMessage } from "./OperationOutcome";
 import type { PageSizeOption } from "@/constants/paging";
 import { usePageSize } from "@/hooks/usePageSize";
 import { formatDateTime } from "@/helpers/formatHelpers";
 import { handleApiError } from "@/lib/api";
 import { notifications } from "@/lib/notifications";
 import type { PendingOnlineMatchListItem } from "@/types/PendingOnlineMatch";
+
+const itemKey = (item: PendingOnlineMatchListItem) => item.audiobookId;
+
+/** What a finished selection is called on its row; a failure is always "Failed". */
+const SELECT_OUTCOME_LABELS = { completed: "Match selected" };
 
 /**
  * The two-list page a bulk "Search Online Metadata" run is processed from: Pending (a book still
@@ -37,6 +45,16 @@ export function PendingOnlineMatches() {
   const [rejectingId, setRejectingId] = useState<number | null>(null);
   const [dismissingId, setDismissingId] = useState<number | null>(null);
 
+  // A selected row leaves the server's list once it is settled. It stays where it was, marked with
+  // how it ended, until the page, page size or the page itself is left, so the rows below it do
+  // not jump just as the user reaches for the next one. Keyed by the page the user *asked for*:
+  // the page actually fetched is clamped to the server's page count, which shrinks when the last
+  // row of the last page finishes, and that must not read as the user leaving the view.
+  const kept = useKeptRowState<PendingOnlineMatchListItem, OperationOutcomeState>(
+    `${pendingPage}:${pageSize}`,
+    holdsPlaceWhenGone,
+  );
+
   // The page actually fetched must never exceed what's known to exist, or a shrinking list
   // (e.g. rejecting the last item on the final page) leaves the query asking for a page that no
   // longer exists - it comes back with items: [] while total still reads > 0, and with the
@@ -51,7 +69,7 @@ export function PendingOnlineMatches() {
   // fresh data, one from a stale cached placeholder for a different key) instead of converging.
   // When currentPendingPage is itself 0 this count query and the items query below share one
   // queryKey, so TanStack Query dedups them into a single request rather than fetching twice.
-  const { data: pendingCountData } = useQuery({
+  const { data: pendingCountData, isFetching: pendingCountFetching } = useQuery({
     queryKey: queryKeys.pendingOnlineMatch.pendingPage(0, pageSize),
     queryFn: () => pendingOnlineMatchApi.getPendingPage(0, pageSize),
   });
@@ -62,7 +80,25 @@ export function PendingOnlineMatches() {
 
   const pendingTotal = pendingCountData?.total ?? 0;
   const pendingPageCount = Math.max(1, Math.ceil(pendingTotal / pageSize));
-  const currentPendingPage = Math.min(pendingPage, pendingPageCount - 1);
+  // While a finished row is being held, stay on the page it is on even if the server has since
+  // dropped that page (it was the last row of the last page): clamping back would swap the whole
+  // view under the cursor, which is the jump this exists to avoid.
+  const currentPendingPage = kept.holding
+    ? pendingPage
+    : Math.min(pendingPage, pendingPageCount - 1);
+  // When nothing is held the requested page must be the displayed one. Left stale (page 2 emptied
+  // by a reject, display clamped to page 1, request still page 2), the next selection would start
+  // holding and the query would jump back to the page that no longer exists, taking the other rows
+  // with it. Waits for the count so a still-loading total (read as 0) is not mistaken for a clamp.
+  // Only from a settled count: a refetching one still holds the old total.
+  if (
+    !kept.holding &&
+    pendingCountData &&
+    !pendingCountFetching &&
+    pendingPage !== currentPendingPage
+  ) {
+    setPendingPage(currentPendingPage);
+  }
 
   const failedTotal = failedCountData?.total ?? 0;
   const failedPageCount = Math.max(1, Math.ceil(failedTotal / pageSize));
@@ -86,7 +122,10 @@ export function PendingOnlineMatches() {
     setFailedPage(0);
   };
 
-  const pendingItems = (pendingData?.items ?? []) as PendingOnlineMatchListItem[];
+  const pendingItems = useMemo(
+    () => (pendingData?.items ?? []) as PendingOnlineMatchListItem[],
+    [pendingData],
+  );
   const failedItems = (failedData?.items ?? []) as PendingOnlineMatchListItem[];
 
   const invalidateViews = () => {
@@ -100,9 +139,21 @@ export function PendingOnlineMatches() {
     void queryClient.invalidateQueries({ queryKey: queryKeys.metadataRefresh.all() });
     void queryClient.invalidateQueries({ queryKey: queryKeys.books.all() });
   };
+  const pendingRows = useMemo(
+    () => mergeKeptRows(pendingItems, itemKey, kept),
+    [pendingItems, kept],
+  );
+  const { keepAt, release: releaseRow, recordOutcome } = kept;
+  const keepRow = (item: PendingOnlineMatchListItem) =>
+    keepAt(
+      item,
+      itemKey(item),
+      pendingRows.findIndex((row) => row.key === itemKey(item)),
+    );
   const { busyIds: selectingIds, start: startSelect } = useSingleBookOperation(
     SingleBookOperations.pendingMatchSelect,
     (event: SingleBookOperationCompletePayload) => {
+      recordOutcome(event.audiobookId, { status: event.status, message: event.message });
       if (event.status === "failed") {
         notifications.error(event.message ?? "Selecting the match failed");
       } else {
@@ -174,7 +225,7 @@ export function PendingOnlineMatches() {
             <Loader2 className="text-primary mb-3 h-8 w-8 animate-spin" />
             <p className="text-sm">Loading pending matches...</p>
           </div>
-        ) : pendingTotal === 0 ? (
+        ) : pendingTotal === 0 && pendingRows.length === 0 ? (
           <Card className="p-8 text-center">
             <p className="text-muted-foreground text-sm">
               No pending online matches. Start a bulk search from the library's selection toolbar.
@@ -182,9 +233,11 @@ export function PendingOnlineMatches() {
           </Card>
         ) : (
           <div className="space-y-2">
-            {pendingItems.map((item) => {
+            {pendingRows.map(({ item, gone, outcome }) => {
               const isSelecting = selectingIds.has(item.audiobookId);
-              const isExpanded = expandedId === item.audiobookId;
+              // A settled row the server no longer lists is only a placeholder: nothing to open.
+              const isInert = isSelecting || gone;
+              const isExpanded = expandedId === item.audiobookId && !gone;
               return (
                 <div
                   key={item.audiobookId}
@@ -194,7 +247,7 @@ export function PendingOnlineMatches() {
                     <button
                       type="button"
                       className="flex min-w-0 flex-1 items-center gap-2 text-left"
-                      disabled={isSelecting}
+                      disabled={isInert}
                       onClick={() => setExpandedId(isExpanded ? null : item.audiobookId)}
                     >
                       {isExpanded ? (
@@ -207,6 +260,7 @@ export function PendingOnlineMatches() {
                           {item.authors.join(", ")} &mdash; {item.bookName}
                           <BookQualifierBadges qualifiers={item.qualifiers} className="ml-2" />
                         </div>
+                        <OperationOutcomeMessage outcome={outcome} />
                         <div className="text-muted-foreground mt-0.5 text-xs">
                           Searched {formatDateTime(item.searchedAt)} · {item.results.length}{" "}
                           {item.results.length === 1 ? "result" : "results"}
@@ -220,12 +274,12 @@ export function PendingOnlineMatches() {
                         </div>
                       </div>
                     </button>
-                    {isSelecting && (
-                      <Badge variant="outline" className="shrink-0">
-                        <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                        Selecting…
-                      </Badge>
-                    )}
+                    <OperationOutcomeBadge
+                      busy={isSelecting}
+                      busyLabel="Selecting…"
+                      outcome={outcome}
+                      labels={SELECT_OUTCOME_LABELS}
+                    />
                     <LinkButton
                       variant="ghost"
                       render={
@@ -239,7 +293,7 @@ export function PendingOnlineMatches() {
                     </LinkButton>
                     <Button
                       variant="outline"
-                      disabled={rejectingId === item.audiobookId || isSelecting}
+                      disabled={rejectingId === item.audiobookId || isInert}
                       onClick={() => {
                         void handleReject(item.audiobookId);
                       }}
@@ -258,7 +312,13 @@ export function PendingOnlineMatches() {
                       <PendingOnlineMatchRowPanel
                         item={item}
                         start={async (request) => {
-                          await startSelect(item.audiobookId, request);
+                          keepRow(item);
+                          try {
+                            await startSelect(item.audiobookId, request);
+                          } catch (err) {
+                            releaseRow(item.audiobookId);
+                            throw err;
+                          }
                           setExpandedId(null);
                         }}
                       />
@@ -270,8 +330,12 @@ export function PendingOnlineMatches() {
 
             <SectionPager
               currentPage={currentPendingPage}
-              pageCount={pendingPageCount}
-              totalCount={pendingTotal}
+              pageCount={Math.max(pendingPageCount, currentPendingPage + 1)}
+              totalCount={
+                kept.holding
+                  ? Math.max(pendingTotal, currentPendingPage * pageSize + pendingRows.length)
+                  : pendingTotal
+              }
               pageSize={pageSize}
               onPageChange={setPendingPage}
               onPageSizeChange={handlePageSizeChange}

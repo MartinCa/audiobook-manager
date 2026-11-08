@@ -386,6 +386,172 @@ describe("PendingOnlineMatches", () => {
       expect(notifications.success).not.toHaveBeenCalled();
     });
 
+    // A settled selection leaves the server's list. It must keep its place (and say how it ended)
+    // so the rows below it do not jump just as the user reaches for the next one.
+    it("keeps a settled row in place, inert and marked, after the list refetches without it", async () => {
+      const first = pendingItem();
+      const second = pendingItem({ audiobookId: 2, bookName: "Words of Radiance" });
+      const third = pendingItem({ audiobookId: 3, bookName: "Oathbringer" });
+      vi.mocked(pendingOnlineMatchApi.getPendingPage).mockResolvedValue({
+        items: [first, second, third],
+        total: 3,
+      });
+      vi.mocked(pendingOnlineMatchApi.selectResult).mockResolvedValue(undefined);
+      const { hub } = renderPage();
+      fireEvent.click(await screen.findByText(/Words of Radiance/));
+      fireEvent.click(await screen.findByRole("button", { name: /select this match/i }));
+      await waitFor(() => expect(pendingOnlineMatchApi.selectResult).toHaveBeenCalledWith(2, 0));
+
+      // The server settles the match and deletes the row, so the next fetch leaves it out.
+      vi.mocked(pendingOnlineMatchApi.getPendingPage).mockResolvedValue({
+        items: [first, third],
+        total: 2,
+      });
+      act(() =>
+        hub.emit(SignalREvents.SingleBookOperationComplete, completion({ audiobookId: 2 })),
+      );
+
+      await waitFor(() => expect(screen.getByText("Pending (2)")).toBeInTheDocument());
+      const titles = screen
+        .getAllByText(/ — /)
+        .map((el) => el.textContent ?? "")
+        .map((text) => text.replace(/\s+/g, " "));
+      expect(titles).toEqual([
+        expect.stringContaining("The Way of Kings"),
+        expect.stringContaining("Words of Radiance"),
+        expect.stringContaining("Oathbringer"),
+      ]);
+      expect(screen.getByText("Match selected")).toBeInTheDocument();
+      // Nothing to open or reject on the placeholder; its neighbours are unaffected.
+      fireEvent.click(screen.getByText(/Words of Radiance/));
+      expect(screen.queryByRole("button", { name: /select this match/i })).not.toBeInTheDocument();
+      const rejectButtons = screen.getAllByRole("button", { name: /reject/i });
+      expect(rejectButtons.map((button) => (button as HTMLButtonElement).disabled)).toEqual([
+        false,
+        true,
+        false,
+      ]);
+    });
+
+    it("marks a failed row with the reason and keeps it usable for a retry", async () => {
+      const { hub } = await startSelecting();
+      await screen.findByText("Selecting…");
+
+      act(() =>
+        hub.emit(
+          SignalREvents.SingleBookOperationComplete,
+          completion({ status: "failed", message: "Source unavailable" }),
+        ),
+      );
+
+      expect(await screen.findByText("Failed")).toBeInTheDocument();
+      expect(screen.getByText("Source unavailable")).toBeInTheDocument();
+      fireEvent.click(screen.getByText(/The Way of Kings/));
+      expect(await screen.findByRole("button", { name: /select this match/i })).toBeInTheDocument();
+    });
+
+    // Regression: with exactly one row on the last page, settling it shrinks the page count. The
+    // page actually fetched is clamped to that count, and the clamp used to read as the user
+    // leaving the view: the finished row was wiped and the previous page swapped in under the cursor.
+    it("keeps the finished row on its own page when settling it removes that last page", async () => {
+      const pageOne = Array.from({ length: 50 }, (_, i) =>
+        pendingItem({ audiobookId: 100 + i, bookName: `Filler ${i}` }),
+      );
+      const lonely = pendingItem({ audiobookId: 2, bookName: "Words of Radiance" });
+      vi.mocked(pendingOnlineMatchApi.getPendingPage).mockImplementation((page: number) =>
+        Promise.resolve(
+          page === 0 ? { items: pageOne, total: 51 } : { items: [lonely], total: 51 },
+        ),
+      );
+      vi.mocked(pendingOnlineMatchApi.selectResult).mockResolvedValue(undefined);
+      const { hub } = renderPage();
+      await screen.findByText(/Filler 0/);
+      fireEvent.click(screen.getByRole("button", { name: /next/i }));
+      fireEvent.click(await screen.findByText(/Words of Radiance/));
+      fireEvent.click(await screen.findByRole("button", { name: /select this match/i }));
+      await waitFor(() => expect(pendingOnlineMatchApi.selectResult).toHaveBeenCalledWith(2, 0));
+
+      // Settled: the server now has 50 rows, all on the first page.
+      vi.mocked(pendingOnlineMatchApi.getPendingPage).mockImplementation((page: number) =>
+        Promise.resolve(page === 0 ? { items: pageOne, total: 50 } : { items: [], total: 50 }),
+      );
+      act(() =>
+        hub.emit(SignalREvents.SingleBookOperationComplete, completion({ audiobookId: 2 })),
+      );
+
+      await waitFor(() => expect(screen.getByText("Pending (50)")).toBeInTheDocument());
+      expect(await screen.findByText("Match selected")).toBeInTheDocument();
+      expect(screen.getByText(/Words of Radiance/)).toBeInTheDocument();
+      // Still the page the user was on: the previous page did not replace it.
+      expect(screen.queryByText(/Filler 0/)).not.toBeInTheDocument();
+    });
+
+    // Regression: rejecting the only row of the last page clamps the display to the previous page,
+    // but the requested page stayed on the vanished one. The next selection made the page "held",
+    // which switched the query back to the requested (nonexistent) page and took every other row
+    // off the screen with it.
+    it("keeps the displayed page when a match is selected after the last page was emptied by a reject", async () => {
+      const pageOne = Array.from({ length: 50 }, (_, i) =>
+        pendingItem({ audiobookId: 100 + i, bookName: `Filler ${i}` }),
+      );
+      const lonely = pendingItem({ audiobookId: 2, bookName: "Words of Radiance" });
+      vi.mocked(pendingOnlineMatchApi.getPendingPage).mockImplementation((page: number) =>
+        Promise.resolve(
+          page === 0 ? { items: pageOne, total: 51 } : { items: [lonely], total: 51 },
+        ),
+      );
+      vi.mocked(pendingOnlineMatchApi.reject).mockResolvedValue(undefined);
+      vi.mocked(pendingOnlineMatchApi.selectResult).mockResolvedValue(undefined);
+      renderPage();
+      await screen.findByText(/Filler 0/);
+      fireEvent.click(screen.getByRole("button", { name: /next/i }));
+      await screen.findByText(/Words of Radiance/);
+      vi.mocked(pendingOnlineMatchApi.getPendingPage).mockImplementation((page: number) =>
+        Promise.resolve(page === 0 ? { items: pageOne, total: 50 } : { items: [], total: 50 }),
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: /reject/i }));
+      await waitFor(() => expect(pendingOnlineMatchApi.reject).toHaveBeenCalledWith(2));
+      // The display falls back to the page that still exists...
+      fireEvent.click(await screen.findByText(/Filler 0(?!\d)/));
+      fireEvent.click(await screen.findByRole("button", { name: /select this match/i }));
+      await waitFor(() => expect(pendingOnlineMatchApi.selectResult).toHaveBeenCalledWith(100, 0));
+      await screen.findByText("Selecting…");
+
+      // ...and starting work there does not send the query back to the page that is gone.
+      expect(screen.getByText(/Filler 7(?!\d)/)).toBeInTheDocument();
+      expect(screen.getByText(/Filler 49/)).toBeInTheDocument();
+    });
+
+    // Regression: a failed selection keeps its kept snapshot so the row can be retried. Rejecting
+    // that row then removes it from Pending - but the snapshot used to come back as a disabled
+    // placeholder still labelled Failed, alongside the same book in Failed/Rejected.
+    it("does not resurrect a failed row as a placeholder once it has been rejected", async () => {
+      const { hub, queryClient } = await startSelecting();
+      await screen.findByText("Selecting…");
+      act(() =>
+        hub.emit(
+          SignalREvents.SingleBookOperationComplete,
+          completion({ status: "failed", message: "Source unavailable" }),
+        ),
+      );
+      await screen.findByText("Failed");
+      vi.mocked(pendingOnlineMatchApi.reject).mockResolvedValue(undefined);
+      vi.mocked(pendingOnlineMatchApi.getPendingPage).mockResolvedValue({
+        items: [pendingItem({ audiobookId: 2, bookName: "Words of Radiance" })],
+        total: 1,
+      });
+
+      fireEvent.click(screen.getAllByRole("button", { name: /reject/i })[0]!);
+      await waitFor(() => expect(pendingOnlineMatchApi.reject).toHaveBeenCalledWith(1));
+      await queryClient.invalidateQueries();
+
+      await waitFor(() => expect(screen.queryByText(/The Way of Kings/)).not.toBeInTheDocument());
+      expect(screen.queryByText("Failed")).not.toBeInTheDocument();
+      expect(screen.queryByText("Source unavailable")).not.toBeInTheDocument();
+      expect(screen.getByText(/Words of Radiance/)).toBeInTheDocument();
+    });
+
     it("ignores another operation's completion for the same book", async () => {
       const { hub } = await startSelecting();
       await screen.findByText("Selecting…");

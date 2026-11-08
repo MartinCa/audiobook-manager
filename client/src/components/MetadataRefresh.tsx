@@ -38,6 +38,9 @@ import { metadataRefreshApi, metadataSearchApi, seriesApi } from "@/services/api
 import { queryKeys } from "@/lib/queryKeys";
 import { useSignalREvent } from "@/hooks/useSignalR";
 import { useOperationResync } from "@/hooks/useOperationResync";
+import { useKeptRows } from "@/hooks/useKeptRows";
+import { holdsPlaceWhenGone, type OperationOutcomeState } from "@/helpers/operationOutcome";
+import { OperationOutcomeBadge, OperationOutcomeMessage } from "./library/OperationOutcome";
 import {
   useSingleBookOperation,
   type SingleBookOperationCompletePayload,
@@ -49,6 +52,15 @@ import { handleApiError } from "@/lib/api";
 import { notifications } from "@/lib/notifications";
 import { METADATA_REFRESH_FIELDS, METADATA_REFRESH_FIELD_LABELS } from "@/types/MetadataRefresh";
 import type { PendingMetadataRefreshListItem } from "@/types/MetadataRefresh";
+
+const pendingItemKey = (item: PendingMetadataRefreshListItem) => item.audiobookId;
+
+/** What a finished quick apply is called on its row; a failure is always "Failed". */
+const APPLY_OUTCOME_LABELS = {
+  completed: "Applied",
+  nothingToApply: "Nothing to apply",
+  targetExists: "Target exists",
+};
 
 interface ApplyProgressPayload {
   processed: number;
@@ -119,7 +131,16 @@ export function MetadataRefresh() {
       metadataRefreshApi.getPendingPage(page, pageSize, fieldFilterList, sourceFilterList),
   });
 
-  const totalCount = pageData?.total ?? 0;
+  // The total comes from the first page's own query, not from whichever page is showing: a page
+  // the user returns to can still be cached from before the list changed, and its total is then as
+  // stale as the page. When the showing page *is* the first one the two share a key and dedupe.
+  const { data: countData, isFetching: countFetching } = useQuery({
+    queryKey: queryKeys.metadataRefresh.pendingPage(0, pageSize, fieldFilterList, sourceFilterList),
+    queryFn: () =>
+      metadataRefreshApi.getPendingPage(0, pageSize, fieldFilterList, sourceFilterList),
+  });
+
+  const totalCount = countData?.total ?? pageData?.total ?? 0;
   const pendingItems = (pageData?.items ?? []) as PendingMetadataRefreshListItem[];
   const pageCount = Math.max(1, Math.ceil(totalCount / pageSize));
   // Clamped here rather than only where the pager is drawn, so the page that is *fetched* and the
@@ -154,9 +175,37 @@ export function MetadataRefresh() {
 
   // A single row's quick apply runs in the background: the row collapses as soon as the server
   // accepts it, and the outcome arrives here (not in the row panel, which has unmounted by then).
+  // An applied row leaves the server's list; it stays where it was, marked with how it ended, until
+  // the page, page size or filters change, so the rows below it do not jump under the cursor.
+  const {
+    rows: pendingRows,
+    keep: keepRow,
+    release: releaseRow,
+    recordOutcome,
+    holding,
+  } = useKeptRows<PendingMetadataRefreshListItem, OperationOutcomeState>(
+    pendingItems,
+    pendingItemKey,
+    // The page the user asked for, not the clamped one: the clamp follows the server's page count,
+    // which shrinks when the last row of the last page is applied, and that is not the user
+    // leaving the view.
+    `${page}:${pageSize}:${fieldFilterList.join(",")}:${sourceFilterList.join(",")}`,
+    holdsPlaceWhenGone,
+  );
+  // The pager follows the page the list is actually showing. Held, that is the requested page even
+  // when the server's count no longer reaches it (the applied row was the last of the last page);
+  // clamping it then would disable both Previous and Next with the remaining rows unreachable.
+  // Otherwise the requested page follows the clamp, so what is fetched is what is displayed.
+  // Only from a settled count: while it refetches (after a bulk refresh grew the list, say) its
+  // total is the old one, and acting on it would bounce a page the user just navigated to.
+  if (!holding && countData && !countFetching && page !== currentPage) {
+    setPage(currentPage);
+  }
+  const pagerPage = holding ? page : currentPage;
   const { busyIds: applyingIds, start: startApply } = useSingleBookOperation(
     SingleBookOperations.pendingRefreshApply,
     (event: SingleBookOperationCompletePayload) => {
+      recordOutcome(event.audiobookId, { status: event.status, message: event.message });
       if (event.status === "completed") {
         notifications.success("Metadata changes applied");
       } else if (event.status === "nothingToApply") {
@@ -685,7 +734,7 @@ export function MetadataRefresh() {
             <Loader2 className="text-primary mb-3 h-8 w-8 animate-spin" />
             <p className="text-sm">Loading pending changes...</p>
           </div>
-        ) : totalCount === 0 ? (
+        ) : totalCount === 0 && pendingRows.length === 0 ? (
           <Card className="p-12 text-center">
             <CheckCircle2 className="text-muted-foreground/40 mx-auto mb-3 h-12 w-12" />
             <h3 className="text-foreground text-lg font-medium">No pending metadata changes</h3>
@@ -702,9 +751,12 @@ export function MetadataRefresh() {
               <span className="text-muted-foreground text-xs">Select shown ({pageIds.length})</span>
             </div>
 
-            {pendingItems.map((item) => {
+            {pendingRows.map(({ item, gone, outcome }) => {
               const isApplying = applyingIds.has(item.audiobookId);
-              const isExpanded = expandedId === item.audiobookId;
+              // An applied row the server no longer lists is only a placeholder: nothing to open
+              // or select.
+              const isInert = isApplying || gone;
+              const isExpanded = expandedId === item.audiobookId && !gone;
               return (
                 <div
                   key={item.audiobookId}
@@ -713,13 +765,13 @@ export function MetadataRefresh() {
                   <div className="flex items-center gap-3 p-3">
                     <Checkbox
                       checked={selectedIds.has(item.audiobookId)}
-                      disabled={isApplying}
+                      disabled={isInert}
                       onCheckedChange={() => toggleSelected(item.audiobookId)}
                     />
                     <button
                       type="button"
                       className="flex min-w-0 flex-1 items-center gap-2 text-left"
-                      disabled={isApplying}
+                      disabled={isInert}
                       onClick={() => setExpandedId(isExpanded ? null : item.audiobookId)}
                     >
                       {isExpanded ? (
@@ -732,6 +784,7 @@ export function MetadataRefresh() {
                           {item.authors.join(", ")} &mdash; {item.bookName}
                           <BookQualifierBadges qualifiers={item.qualifiers} className="ml-2" />
                         </div>
+                        <OperationOutcomeMessage outcome={outcome} />
                         <div className="text-muted-foreground mt-0.5 text-xs">
                           Pending since {formatDateTime(item.fetchedAt)}
                         </div>
@@ -744,12 +797,12 @@ export function MetadataRefresh() {
                         </div>
                       </div>
                     </button>
-                    {isApplying && (
-                      <Badge variant="outline" className="shrink-0">
-                        <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                        Applying…
-                      </Badge>
-                    )}
+                    <OperationOutcomeBadge
+                      busy={isApplying}
+                      busyLabel="Applying…"
+                      outcome={outcome}
+                      labels={APPLY_OUTCOME_LABELS}
+                    />
                     <Badge variant="secondary" className="shrink-0">
                       {item.sourceName}
                     </Badge>
@@ -771,7 +824,20 @@ export function MetadataRefresh() {
                       <PendingRefreshRowPanel
                         audiobookId={item.audiobookId}
                         start={async (request) => {
-                          await startApply(item.audiobookId, request);
+                          keepRow(item);
+                          try {
+                            await startApply(item.audiobookId, request);
+                          } catch (err) {
+                            releaseRow(item.audiobookId);
+                            throw err;
+                          }
+                          // No longer a candidate for a bulk action started from this page.
+                          setSelectedIds((prev) => {
+                            if (!prev.has(item.audiobookId)) return prev;
+                            const next = new Set(prev);
+                            next.delete(item.audiobookId);
+                            return next;
+                          });
                           setExpandedId(null);
                         }}
                       />
@@ -784,9 +850,13 @@ export function MetadataRefresh() {
             {/* Stays rendered even if this page comes back empty while the count is non-zero, so
                 the user can page back instead of staring at a dead-end heading. */}
             <SectionPager
-              currentPage={currentPage}
-              pageCount={pageCount}
-              totalCount={totalCount}
+              currentPage={pagerPage}
+              pageCount={Math.max(pageCount, pagerPage + 1)}
+              totalCount={
+                holding
+                  ? Math.max(totalCount, pagerPage * pageSize + pendingRows.length)
+                  : totalCount
+              }
               pageSize={pageSize}
               onPageChange={goToPage}
               onPageSizeChange={handlePageSizeChange}
