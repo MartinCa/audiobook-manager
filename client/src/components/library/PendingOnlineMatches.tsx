@@ -1,5 +1,5 @@
 import { BookQualifierBadges } from "@/components/BookQualifierBadges";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, ChevronDown, ChevronRight, Loader2, Search, X } from "lucide-react";
@@ -16,12 +16,23 @@ import {
   useSingleBookOperation,
   type SingleBookOperationCompletePayload,
 } from "@/hooks/useSingleBookOperation";
+import { useKeptRows } from "@/hooks/useKeptRows";
+import {
+  OperationOutcomeBadge,
+  OperationOutcomeMessage,
+  type OperationOutcomeState,
+} from "./OperationOutcome";
 import type { PageSizeOption } from "@/constants/paging";
 import { usePageSize } from "@/hooks/usePageSize";
 import { formatDateTime } from "@/helpers/formatHelpers";
 import { handleApiError } from "@/lib/api";
 import { notifications } from "@/lib/notifications";
 import type { PendingOnlineMatchListItem } from "@/types/PendingOnlineMatch";
+
+const itemKey = (item: PendingOnlineMatchListItem) => item.audiobookId;
+
+/** What a finished selection is called on its row; a failure is always "Failed". */
+const SELECT_OUTCOME_LABELS = { completed: "Match selected" };
 
 /**
  * The two-list page a bulk "Search Online Metadata" run is processed from: Pending (a book still
@@ -86,7 +97,10 @@ export function PendingOnlineMatches() {
     setFailedPage(0);
   };
 
-  const pendingItems = (pendingData?.items ?? []) as PendingOnlineMatchListItem[];
+  const pendingItems = useMemo(
+    () => (pendingData?.items ?? []) as PendingOnlineMatchListItem[],
+    [pendingData],
+  );
   const failedItems = (failedData?.items ?? []) as PendingOnlineMatchListItem[];
 
   const invalidateViews = () => {
@@ -100,9 +114,23 @@ export function PendingOnlineMatches() {
     void queryClient.invalidateQueries({ queryKey: queryKeys.metadataRefresh.all() });
     void queryClient.invalidateQueries({ queryKey: queryKeys.books.all() });
   };
+  // A selected row leaves the server's list once it is settled. It stays where it was, marked with
+  // how it ended, until the page, page size or the page itself is left, so the rows below it do
+  // not jump just as the user reaches for the next one.
+  const {
+    rows: pendingRows,
+    keep: keepRow,
+    release: releaseRow,
+    recordOutcome,
+  } = useKeptRows<PendingOnlineMatchListItem, OperationOutcomeState>(
+    pendingItems,
+    itemKey,
+    `${currentPendingPage}:${pageSize}`,
+  );
   const { busyIds: selectingIds, start: startSelect } = useSingleBookOperation(
     SingleBookOperations.pendingMatchSelect,
     (event: SingleBookOperationCompletePayload) => {
+      recordOutcome(event.audiobookId, { status: event.status, message: event.message });
       if (event.status === "failed") {
         notifications.error(event.message ?? "Selecting the match failed");
       } else {
@@ -174,7 +202,7 @@ export function PendingOnlineMatches() {
             <Loader2 className="text-primary mb-3 h-8 w-8 animate-spin" />
             <p className="text-sm">Loading pending matches...</p>
           </div>
-        ) : pendingTotal === 0 ? (
+        ) : pendingTotal === 0 && pendingRows.length === 0 ? (
           <Card className="p-8 text-center">
             <p className="text-muted-foreground text-sm">
               No pending online matches. Start a bulk search from the library's selection toolbar.
@@ -182,9 +210,11 @@ export function PendingOnlineMatches() {
           </Card>
         ) : (
           <div className="space-y-2">
-            {pendingItems.map((item) => {
+            {pendingRows.map(({ item, gone, outcome }) => {
               const isSelecting = selectingIds.has(item.audiobookId);
-              const isExpanded = expandedId === item.audiobookId;
+              // A settled row the server no longer lists is only a placeholder: nothing to open.
+              const isInert = isSelecting || gone;
+              const isExpanded = expandedId === item.audiobookId && !gone;
               return (
                 <div
                   key={item.audiobookId}
@@ -194,7 +224,7 @@ export function PendingOnlineMatches() {
                     <button
                       type="button"
                       className="flex min-w-0 flex-1 items-center gap-2 text-left"
-                      disabled={isSelecting}
+                      disabled={isInert}
                       onClick={() => setExpandedId(isExpanded ? null : item.audiobookId)}
                     >
                       {isExpanded ? (
@@ -207,6 +237,7 @@ export function PendingOnlineMatches() {
                           {item.authors.join(", ")} &mdash; {item.bookName}
                           <BookQualifierBadges qualifiers={item.qualifiers} className="ml-2" />
                         </div>
+                        <OperationOutcomeMessage outcome={outcome} />
                         <div className="text-muted-foreground mt-0.5 text-xs">
                           Searched {formatDateTime(item.searchedAt)} · {item.results.length}{" "}
                           {item.results.length === 1 ? "result" : "results"}
@@ -220,12 +251,12 @@ export function PendingOnlineMatches() {
                         </div>
                       </div>
                     </button>
-                    {isSelecting && (
-                      <Badge variant="outline" className="shrink-0">
-                        <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                        Selecting…
-                      </Badge>
-                    )}
+                    <OperationOutcomeBadge
+                      busy={isSelecting}
+                      busyLabel="Selecting…"
+                      outcome={outcome}
+                      labels={SELECT_OUTCOME_LABELS}
+                    />
                     <LinkButton
                       variant="ghost"
                       render={
@@ -239,7 +270,7 @@ export function PendingOnlineMatches() {
                     </LinkButton>
                     <Button
                       variant="outline"
-                      disabled={rejectingId === item.audiobookId || isSelecting}
+                      disabled={rejectingId === item.audiobookId || isInert}
                       onClick={() => {
                         void handleReject(item.audiobookId);
                       }}
@@ -258,7 +289,13 @@ export function PendingOnlineMatches() {
                       <PendingOnlineMatchRowPanel
                         item={item}
                         start={async (request) => {
-                          await startSelect(item.audiobookId, request);
+                          keepRow(item);
+                          try {
+                            await startSelect(item.audiobookId, request);
+                          } catch (err) {
+                            releaseRow(item.audiobookId);
+                            throw err;
+                          }
                           setExpandedId(null);
                         }}
                       />

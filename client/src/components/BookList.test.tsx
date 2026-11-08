@@ -211,4 +211,102 @@ describe("BookList", () => {
       await screen.findByRole("button", { name: /organize into library/i }),
     ).toBeInTheDocument();
   });
+
+  describe("a finished file keeps its place", () => {
+    const books = ["One", "Two", "Three"].map((name): BookFileInfo => ({
+      ...sampleBook,
+      fullPath: `/data/import/${name}.m4b`,
+      fileName: `${name}.m4b`,
+    }));
+    const finish = (path: string) =>
+      act(() => {
+        capturedSignalRHandlers[SignalREvents.UpdateProgress]?.({
+          originalFileLocation: path,
+          progress: 100,
+          progressMessage: "Done",
+        });
+      });
+    const names = () =>
+      screen
+        .getAllByText(/\.m4b$/)
+        .map((el) => el.textContent)
+        .filter((name): name is string => name !== null);
+
+    it("leaves the organized file where it was once the list refetches without it, so the rows below do not shift", async () => {
+      vi.mocked(untaggedApi.getUntagged).mockResolvedValue({ items: books, total: 3, count: 3 });
+      renderWithProviders();
+      await screen.findByText("Two.m4b");
+
+      // The file is moved out of the import directory, so the next fetch no longer lists it.
+      vi.mocked(untaggedApi.getUntagged).mockResolvedValue({
+        items: [books[0]!, books[2]!],
+        total: 2,
+        count: 2,
+      });
+      finish(books[1]!.fullPath);
+
+      await waitFor(() => {
+        expect(untaggedApi.getUntagged).toHaveBeenCalledTimes(2);
+      });
+      await waitFor(() =>
+        expect(screen.getByText("Showing 2 of 2 files to organize")).toBeInTheDocument(),
+      );
+      expect(names()).toEqual(["One.m4b", "Two.m4b", "Three.m4b"]);
+      expect(screen.getByText("Organized")).toBeInTheDocument();
+    });
+
+    it("makes the finished placeholder inert: it is not an accordion trigger", async () => {
+      vi.mocked(untaggedApi.getUntagged).mockResolvedValue({ items: books, total: 3, count: 3 });
+      renderWithProviders();
+      await screen.findByText("Two.m4b");
+      expect(screen.getAllByRole("button", { name: /\.m4b/ })).toHaveLength(3);
+
+      vi.mocked(untaggedApi.getUntagged).mockResolvedValue({
+        items: [books[0]!, books[2]!],
+        total: 2,
+        count: 2,
+      });
+      finish(books[1]!.fullPath);
+
+      await screen.findByText("Organized");
+      expect(screen.getAllByRole("button", { name: /\.m4b/ })).toHaveLength(2);
+    });
+
+    it("drops the finished row when the list is explicitly reloaded", async () => {
+      vi.mocked(untaggedApi.getUntagged).mockResolvedValue({ items: books, total: 3, count: 3 });
+      renderWithProviders();
+      await screen.findByText("Two.m4b");
+      vi.mocked(untaggedApi.getUntagged).mockResolvedValue({
+        items: [books[0]!, books[2]!],
+        total: 2,
+        count: 2,
+      });
+      finish(books[1]!.fullPath);
+      await screen.findByText("Organized");
+
+      fireEvent.click(screen.getByRole("button", { name: /reload/i }));
+
+      await waitFor(() => expect(screen.queryByText("Organized")).not.toBeInTheDocument());
+      expect(names()).toEqual(["One.m4b", "Three.m4b"]);
+    });
+
+    it("shows the empty state, not a stale list, once the last file is reloaded away", async () => {
+      vi.mocked(untaggedApi.getUntagged).mockResolvedValue({
+        items: [books[0]!],
+        total: 1,
+        count: 1,
+      });
+      renderWithProviders();
+      await screen.findByText("One.m4b");
+      vi.mocked(untaggedApi.getUntagged).mockResolvedValue({ items: [], total: 0, count: 0 });
+      finish(books[0]!.fullPath);
+
+      // Still holding its place rather than collapsing the list to the empty state under the cursor.
+      await screen.findByText("Organized");
+      expect(screen.queryByText("No audiobooks to organize")).not.toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole("button", { name: /reload/i }));
+      expect(await screen.findByText("No audiobooks to organize")).toBeInTheDocument();
+    });
+  });
 });

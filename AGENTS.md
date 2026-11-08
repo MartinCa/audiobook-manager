@@ -423,6 +423,20 @@ client the row collapses as soon as the request is accepted, and the **page** (n
 which has unmounted) listens through `useSingleBookOperation`, which tracks the busy ids and, after a
 SignalR reconnect, clears them and refetches - an event sent while disconnected is gone for good.
 
+**A row whose work finished keeps its place until the view changes.** Work on a list row (selecting a
+pending online match, applying a pending refresh, organizing a file) ends with the server dropping
+that row, and an auto-removed row makes everything below it jump just as the user reaches for the
+next one. `useKeptRows` (`client/src/hooks/useKeptRows.ts`) is the one implementation: the page
+`keep`s the row when it starts the work, and once the refetch no longer lists it the row is spliced
+back in at its old position, flagged `gone` (rendered from the snapshot, inert: nothing to open,
+select or reject), with the outcome shown by `OperationOutcomeBadge`/`OperationOutcomeMessage`.
+A row the server still lists (a failed apply, say) renders from the server's own data and stays
+usable for a retry. State lives in the component, so refreshing or leaving the page drops it, and a
+change of the `resetKey` (page, page size, filters) or an explicit reload does too - a kept row
+belongs to the view it was in. A request the server refused `release`s the row, since nothing
+started. The empty state must test the merged rows, not the server total, or the last finished row
+collapses the list under the cursor. Bulk selections must forget a kept row.
+
 Resolve DI services for background work from `_serviceScopeFactory.CreateScope()`, never from the
 controller's own request-scoped instances. At startup, use `app.Services.CreateScope()` — never
 `builder.Services.BuildServiceProvider()`, which builds a second, never-disposed container whose

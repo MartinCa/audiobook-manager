@@ -386,6 +386,70 @@ describe("PendingOnlineMatches", () => {
       expect(notifications.success).not.toHaveBeenCalled();
     });
 
+    // A settled selection leaves the server's list. It must keep its place (and say how it ended)
+    // so the rows below it do not jump just as the user reaches for the next one.
+    it("keeps a settled row in place, inert and marked, after the list refetches without it", async () => {
+      const first = pendingItem();
+      const second = pendingItem({ audiobookId: 2, bookName: "Words of Radiance" });
+      const third = pendingItem({ audiobookId: 3, bookName: "Oathbringer" });
+      vi.mocked(pendingOnlineMatchApi.getPendingPage).mockResolvedValue({
+        items: [first, second, third],
+        total: 3,
+      });
+      vi.mocked(pendingOnlineMatchApi.selectResult).mockResolvedValue(undefined);
+      const { hub } = renderPage();
+      fireEvent.click(await screen.findByText(/Words of Radiance/));
+      fireEvent.click(await screen.findByRole("button", { name: /select this match/i }));
+      await waitFor(() => expect(pendingOnlineMatchApi.selectResult).toHaveBeenCalledWith(2, 0));
+
+      // The server settles the match and deletes the row, so the next fetch leaves it out.
+      vi.mocked(pendingOnlineMatchApi.getPendingPage).mockResolvedValue({
+        items: [first, third],
+        total: 2,
+      });
+      act(() =>
+        hub.emit(SignalREvents.SingleBookOperationComplete, completion({ audiobookId: 2 })),
+      );
+
+      await waitFor(() => expect(screen.getByText("Pending (2)")).toBeInTheDocument());
+      const titles = screen
+        .getAllByText(/ — /)
+        .map((el) => el.textContent ?? "")
+        .map((text) => text.replace(/\s+/g, " "));
+      expect(titles).toEqual([
+        expect.stringContaining("The Way of Kings"),
+        expect.stringContaining("Words of Radiance"),
+        expect.stringContaining("Oathbringer"),
+      ]);
+      expect(screen.getByText("Match selected")).toBeInTheDocument();
+      // Nothing to open or reject on the placeholder; its neighbours are unaffected.
+      fireEvent.click(screen.getByText(/Words of Radiance/));
+      expect(screen.queryByRole("button", { name: /select this match/i })).not.toBeInTheDocument();
+      const rejectButtons = screen.getAllByRole("button", { name: /reject/i });
+      expect(rejectButtons.map((button) => (button as HTMLButtonElement).disabled)).toEqual([
+        false,
+        true,
+        false,
+      ]);
+    });
+
+    it("marks a failed row with the reason and keeps it usable for a retry", async () => {
+      const { hub } = await startSelecting();
+      await screen.findByText("Selecting…");
+
+      act(() =>
+        hub.emit(
+          SignalREvents.SingleBookOperationComplete,
+          completion({ status: "failed", message: "Source unavailable" }),
+        ),
+      );
+
+      expect(await screen.findByText("Failed")).toBeInTheDocument();
+      expect(screen.getByText("Source unavailable")).toBeInTheDocument();
+      fireEvent.click(screen.getByText(/The Way of Kings/));
+      expect(await screen.findByRole("button", { name: /select this match/i })).toBeInTheDocument();
+    });
+
     it("ignores another operation's completion for the same book", async () => {
       const { hub } = await startSelecting();
       await screen.findByText("Selecting…");
