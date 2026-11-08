@@ -433,9 +433,16 @@ select or reject), with the outcome shown by `OperationOutcomeBadge`/`OperationO
 A row the server still lists (a failed apply, say) renders from the server's own data and stays
 usable for a retry. State lives in the component, so refreshing or leaving the page drops it, and a
 change of the `resetKey` (page, page size, filters) or an explicit reload does too - a kept row
-belongs to the view it was in. A request the server refused `release`s the row, since nothing
-started. The empty state must test the merged rows, not the server total, or the last finished row
-collapses the list under the cursor. Bulk selections must forget a kept row.
+belongs to the view it was in - and the `resetKey` must be what the *user chose* (the requested
+page, page size, filters), never the page clamped to the server's page count, which shrinks when the
+last row of the last page finishes and would otherwise wipe the row and swap the previous page in.
+A paged list whose fetched page is clamped therefore uses `useKeptRowState` + `mergeKeptRows` and
+stops clamping while `holding`. A request the server refused `release`s the row, since nothing
+started. A *failed* row stays in the server's list because it is still pending, so `shouldHold`
+(`holdsPlaceWhenGone`) refuses to show a failed row the server has dropped for another reason
+(rejected, dismissed elsewhere) as a placeholder. The empty state must test the merged rows, not the
+server total, or the last finished row collapses the list under the cursor. Bulk selections must
+forget a kept row.
 
 Resolve DI services for background work from `_serviceScopeFactory.CreateScope()`, never from the
 controller's own request-scoped instances. At startup, use `app.Services.CreateScope()` — never

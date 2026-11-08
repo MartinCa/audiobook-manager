@@ -450,6 +450,71 @@ describe("PendingOnlineMatches", () => {
       expect(await screen.findByRole("button", { name: /select this match/i })).toBeInTheDocument();
     });
 
+    // Regression: with exactly one row on the last page, settling it shrinks the page count. The
+    // page actually fetched is clamped to that count, and the clamp used to read as the user
+    // leaving the view: the finished row was wiped and the previous page swapped in under the cursor.
+    it("keeps the finished row on its own page when settling it removes that last page", async () => {
+      const pageOne = Array.from({ length: 50 }, (_, i) =>
+        pendingItem({ audiobookId: 100 + i, bookName: `Filler ${i}` }),
+      );
+      const lonely = pendingItem({ audiobookId: 2, bookName: "Words of Radiance" });
+      vi.mocked(pendingOnlineMatchApi.getPendingPage).mockImplementation((page: number) =>
+        Promise.resolve(
+          page === 0 ? { items: pageOne, total: 51 } : { items: [lonely], total: 51 },
+        ),
+      );
+      vi.mocked(pendingOnlineMatchApi.selectResult).mockResolvedValue(undefined);
+      const { hub } = renderPage();
+      await screen.findByText(/Filler 0/);
+      fireEvent.click(screen.getByRole("button", { name: /next/i }));
+      fireEvent.click(await screen.findByText(/Words of Radiance/));
+      fireEvent.click(await screen.findByRole("button", { name: /select this match/i }));
+      await waitFor(() => expect(pendingOnlineMatchApi.selectResult).toHaveBeenCalledWith(2, 0));
+
+      // Settled: the server now has 50 rows, all on the first page.
+      vi.mocked(pendingOnlineMatchApi.getPendingPage).mockImplementation((page: number) =>
+        Promise.resolve(page === 0 ? { items: pageOne, total: 50 } : { items: [], total: 50 }),
+      );
+      act(() =>
+        hub.emit(SignalREvents.SingleBookOperationComplete, completion({ audiobookId: 2 })),
+      );
+
+      await waitFor(() => expect(screen.getByText("Pending (50)")).toBeInTheDocument());
+      expect(await screen.findByText("Match selected")).toBeInTheDocument();
+      expect(screen.getByText(/Words of Radiance/)).toBeInTheDocument();
+      // Still the page the user was on: the previous page did not replace it.
+      expect(screen.queryByText(/Filler 0/)).not.toBeInTheDocument();
+    });
+
+    // Regression: a failed selection keeps its kept snapshot so the row can be retried. Rejecting
+    // that row then removes it from Pending - but the snapshot used to come back as a disabled
+    // placeholder still labelled Failed, alongside the same book in Failed/Rejected.
+    it("does not resurrect a failed row as a placeholder once it has been rejected", async () => {
+      const { hub, queryClient } = await startSelecting();
+      await screen.findByText("Selecting…");
+      act(() =>
+        hub.emit(
+          SignalREvents.SingleBookOperationComplete,
+          completion({ status: "failed", message: "Source unavailable" }),
+        ),
+      );
+      await screen.findByText("Failed");
+      vi.mocked(pendingOnlineMatchApi.reject).mockResolvedValue(undefined);
+      vi.mocked(pendingOnlineMatchApi.getPendingPage).mockResolvedValue({
+        items: [pendingItem({ audiobookId: 2, bookName: "Words of Radiance" })],
+        total: 1,
+      });
+
+      fireEvent.click(screen.getAllByRole("button", { name: /reject/i })[0]!);
+      await waitFor(() => expect(pendingOnlineMatchApi.reject).toHaveBeenCalledWith(1));
+      await queryClient.invalidateQueries();
+
+      await waitFor(() => expect(screen.queryByText(/The Way of Kings/)).not.toBeInTheDocument());
+      expect(screen.queryByText("Failed")).not.toBeInTheDocument();
+      expect(screen.queryByText("Source unavailable")).not.toBeInTheDocument();
+      expect(screen.getByText(/Words of Radiance/)).toBeInTheDocument();
+    });
+
     it("ignores another operation's completion for the same book", async () => {
       const { hub } = await startSelecting();
       await screen.findByText("Selecting…");

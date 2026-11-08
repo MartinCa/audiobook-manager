@@ -39,11 +39,8 @@ import { queryKeys } from "@/lib/queryKeys";
 import { useSignalREvent } from "@/hooks/useSignalR";
 import { useOperationResync } from "@/hooks/useOperationResync";
 import { useKeptRows } from "@/hooks/useKeptRows";
-import {
-  OperationOutcomeBadge,
-  OperationOutcomeMessage,
-  type OperationOutcomeState,
-} from "./library/OperationOutcome";
+import { holdsPlaceWhenGone, type OperationOutcomeState } from "@/helpers/operationOutcome";
+import { OperationOutcomeBadge, OperationOutcomeMessage } from "./library/OperationOutcome";
 import {
   useSingleBookOperation,
   type SingleBookOperationCompletePayload,
@@ -179,7 +176,11 @@ export function MetadataRefresh() {
   } = useKeptRows<PendingMetadataRefreshListItem, OperationOutcomeState>(
     pendingItems,
     pendingItemKey,
-    `${currentPage}:${pageSize}:${fieldFilterList.join(",")}:${sourceFilterList.join(",")}`,
+    // The page the user asked for, not the clamped one: the clamp follows the server's page count,
+    // which shrinks when the last row of the last page is applied, and that is not the user
+    // leaving the view.
+    `${page}:${pageSize}:${fieldFilterList.join(",")}:${sourceFilterList.join(",")}`,
+    holdsPlaceWhenGone,
   );
   const { busyIds: applyingIds, start: startApply } = useSingleBookOperation(
     SingleBookOperations.pendingRefreshApply,

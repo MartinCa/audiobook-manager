@@ -16,12 +16,9 @@ import {
   useSingleBookOperation,
   type SingleBookOperationCompletePayload,
 } from "@/hooks/useSingleBookOperation";
-import { useKeptRows } from "@/hooks/useKeptRows";
-import {
-  OperationOutcomeBadge,
-  OperationOutcomeMessage,
-  type OperationOutcomeState,
-} from "./OperationOutcome";
+import { mergeKeptRows, useKeptRowState } from "@/hooks/useKeptRows";
+import { holdsPlaceWhenGone, type OperationOutcomeState } from "@/helpers/operationOutcome";
+import { OperationOutcomeBadge, OperationOutcomeMessage } from "./OperationOutcome";
 import type { PageSizeOption } from "@/constants/paging";
 import { usePageSize } from "@/hooks/usePageSize";
 import { formatDateTime } from "@/helpers/formatHelpers";
@@ -48,6 +45,16 @@ export function PendingOnlineMatches() {
   const [rejectingId, setRejectingId] = useState<number | null>(null);
   const [dismissingId, setDismissingId] = useState<number | null>(null);
 
+  // A selected row leaves the server's list once it is settled. It stays where it was, marked with
+  // how it ended, until the page, page size or the page itself is left, so the rows below it do
+  // not jump just as the user reaches for the next one. Keyed by the page the user *asked for*:
+  // the page actually fetched is clamped to the server's page count, which shrinks when the last
+  // row of the last page finishes, and that must not read as the user leaving the view.
+  const kept = useKeptRowState<PendingOnlineMatchListItem, OperationOutcomeState>(
+    `${pendingPage}:${pageSize}`,
+    holdsPlaceWhenGone,
+  );
+
   // The page actually fetched must never exceed what's known to exist, or a shrinking list
   // (e.g. rejecting the last item on the final page) leaves the query asking for a page that no
   // longer exists - it comes back with items: [] while total still reads > 0, and with the
@@ -73,7 +80,12 @@ export function PendingOnlineMatches() {
 
   const pendingTotal = pendingCountData?.total ?? 0;
   const pendingPageCount = Math.max(1, Math.ceil(pendingTotal / pageSize));
-  const currentPendingPage = Math.min(pendingPage, pendingPageCount - 1);
+  // While a finished row is being held, stay on the page it is on even if the server has since
+  // dropped that page (it was the last row of the last page): clamping back would swap the whole
+  // view under the cursor, which is the jump this exists to avoid.
+  const currentPendingPage = kept.holding
+    ? pendingPage
+    : Math.min(pendingPage, pendingPageCount - 1);
 
   const failedTotal = failedCountData?.total ?? 0;
   const failedPageCount = Math.max(1, Math.ceil(failedTotal / pageSize));
@@ -114,19 +126,17 @@ export function PendingOnlineMatches() {
     void queryClient.invalidateQueries({ queryKey: queryKeys.metadataRefresh.all() });
     void queryClient.invalidateQueries({ queryKey: queryKeys.books.all() });
   };
-  // A selected row leaves the server's list once it is settled. It stays where it was, marked with
-  // how it ended, until the page, page size or the page itself is left, so the rows below it do
-  // not jump just as the user reaches for the next one.
-  const {
-    rows: pendingRows,
-    keep: keepRow,
-    release: releaseRow,
-    recordOutcome,
-  } = useKeptRows<PendingOnlineMatchListItem, OperationOutcomeState>(
-    pendingItems,
-    itemKey,
-    `${currentPendingPage}:${pageSize}`,
+  const pendingRows = useMemo(
+    () => mergeKeptRows(pendingItems, itemKey, kept),
+    [pendingItems, kept],
   );
+  const { keepAt, release: releaseRow, recordOutcome } = kept;
+  const keepRow = (item: PendingOnlineMatchListItem) =>
+    keepAt(
+      item,
+      itemKey(item),
+      pendingRows.findIndex((row) => row.key === itemKey(item)),
+    );
   const { busyIds: selectingIds, start: startSelect } = useSingleBookOperation(
     SingleBookOperations.pendingMatchSelect,
     (event: SingleBookOperationCompletePayload) => {
@@ -307,7 +317,7 @@ export function PendingOnlineMatches() {
 
             <SectionPager
               currentPage={currentPendingPage}
-              pageCount={pendingPageCount}
+              pageCount={Math.max(pendingPageCount, currentPendingPage + 1)}
               totalCount={pendingTotal}
               pageSize={pageSize}
               onPageChange={setPendingPage}

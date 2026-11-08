@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { act, renderHook } from "@testing-library/react";
-import { useKeptRows } from "./useKeptRows";
+import { mergeKeptRows, useKeptRows, useKeptRowState } from "./useKeptRows";
 
 interface Item {
   id: number;
@@ -13,10 +13,14 @@ const b: Item = { id: 2, name: "B" };
 const c: Item = { id: 3, name: "C" };
 const d: Item = { id: 4, name: "D" };
 
-function setup(initialItems: Item[], initialResetKey = "page-1") {
+function setup(
+  initialItems: Item[],
+  initialResetKey = "page-1",
+  shouldHold?: (outcome: string | undefined) => boolean,
+) {
   return renderHook(
     ({ items, resetKey }: { items: Item[]; resetKey: string }) =>
-      useKeptRows<Item, string>(items, key, resetKey),
+      useKeptRows<Item, string>(items, key, resetKey, shouldHold),
     { initialProps: { items: initialItems, resetKey: initialResetKey } },
   );
 }
@@ -117,5 +121,86 @@ describe("useKeptRows", () => {
     rerender({ items: [a], resetKey: "page-1" });
 
     expect(ids(result.current.rows)).toEqual([1, 3]);
+  });
+
+  describe("shouldHold", () => {
+    const holdUnlessFailed = (outcome: string | undefined) => outcome !== "failed";
+
+    // Regression: a failed row stays in the server's list because it is still pending. If it then
+    // leaves for another reason (rejected, dismissed, removed elsewhere) its kept snapshot used to
+    // come back as a placeholder still labelled Failed.
+    it("does not resurrect a failed row the server later drops for another reason", () => {
+      const { result, rerender } = setup([a, b, c], "page-1", holdUnlessFailed);
+      act(() => {
+        result.current.keep(b);
+        result.current.recordOutcome(2, "failed");
+      });
+      expect(result.current.rows[1]).toMatchObject({ key: 2, gone: false, outcome: "failed" });
+
+      rerender({ items: [a, c], resetKey: "page-1" });
+
+      expect(ids(result.current.rows)).toEqual([1, 3]);
+    });
+
+    it("still holds a row whose work is in flight (no outcome yet) when the server drops it", () => {
+      const { result, rerender } = setup([a, b, c], "page-1", holdUnlessFailed);
+      act(() => result.current.keep(b));
+
+      rerender({ items: [a, c], resetKey: "page-1" });
+
+      expect(result.current.rows.map((row) => row.gone)).toEqual([false, true, false]);
+    });
+
+    it("holds a row that finished successfully when the server drops it", () => {
+      const { result, rerender } = setup([a, b, c], "page-1", holdUnlessFailed);
+      act(() => {
+        result.current.keep(b);
+        result.current.recordOutcome(2, "completed");
+      });
+
+      rerender({ items: [a, c], resetKey: "page-1" });
+
+      expect(result.current.rows[1]).toMatchObject({ key: 2, gone: true, outcome: "completed" });
+    });
+  });
+
+  describe("holding", () => {
+    const holdUnlessFailed = (outcome: string | undefined) => outcome !== "failed";
+
+    it("is false until something is kept, true while a row is held, false once its work failed", () => {
+      const { result } = renderHook(() =>
+        useKeptRowState<Item, string>("page-1", holdUnlessFailed),
+      );
+      expect(result.current.holding).toBe(false);
+
+      act(() => result.current.keepAt(b, 2, 1));
+      expect(result.current.holding).toBe(true);
+
+      act(() => result.current.recordOutcome(2, "failed"));
+      expect(result.current.holding).toBe(false);
+    });
+
+    it("drops back to false when the view changes", () => {
+      const { result, rerender } = renderHook(
+        ({ resetKey }: { resetKey: string }) => useKeptRowState<Item, string>(resetKey),
+        { initialProps: { resetKey: "page-2" } },
+      );
+      act(() => result.current.keepAt(b, 2, 0));
+      expect(result.current.holding).toBe(true);
+
+      rerender({ resetKey: "page-1" });
+
+      expect(result.current.holding).toBe(false);
+    });
+
+    it("lets a caller merge the rows after it has used `holding` to pick which page to fetch", () => {
+      const { result } = renderHook(() => useKeptRowState<Item, string>("page-2"));
+      act(() => result.current.keepAt(b, 2, 0));
+
+      // The page the user is on came back empty because the held row was its only one.
+      const rows = mergeKeptRows([], key, result.current);
+
+      expect(rows).toEqual([{ item: b, key: 2, gone: true, outcome: undefined }]);
+    });
   });
 });

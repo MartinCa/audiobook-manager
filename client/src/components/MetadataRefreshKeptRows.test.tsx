@@ -216,4 +216,63 @@ describe("MetadataRefresh: rows that finished applying", () => {
     await waitFor(() => expect(metadataRefreshApi.getPendingPage).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(screen.queryByText(/Words of Radiance/)).not.toBeInTheDocument());
   });
+
+  // Regression: the reset key used the page clamped to the server's page count, which shrinks when
+  // the last row of the last page is applied. The clamp read as the user leaving the view and wiped
+  // the finished row.
+  it("keeps the applied row on its own page when applying it removes that last page", async () => {
+    const pageOne = Array.from({ length: 50 }, (_, i) => item(100 + i, `Filler ${i}`));
+    vi.mocked(metadataRefreshApi.getPendingPage).mockImplementation((page: number) =>
+      Promise.resolve(page === 0 ? { items: pageOne, total: 51 } : { items: [second], total: 51 }),
+    );
+    renderPage();
+    await screen.findByText(/Filler 0/);
+    fireEvent.click(screen.getByRole("button", { name: /next/i }));
+    fireEvent.click(await screen.findByText(/Words of Radiance/));
+    fireEvent.click(await screen.findByRole("button", { name: "Apply book 2" }));
+    await screen.findByText("Applying…");
+    vi.mocked(metadataRefreshApi.getPendingPage).mockImplementation((page: number) =>
+      Promise.resolve(page === 0 ? { items: pageOne, total: 50 } : { items: [], total: 50 }),
+    );
+
+    const fetchesBefore = vi.mocked(metadataRefreshApi.getPendingPage).mock.calls.length;
+
+    act(() => hub.emit(SignalREvents.SingleBookOperationComplete, completion(2)));
+
+    // Let the refetch with the shrunken total land and the page re-render with it.
+    await waitFor(() =>
+      expect(vi.mocked(metadataRefreshApi.getPendingPage).mock.calls.length).toBeGreaterThan(
+        fetchesBefore,
+      ),
+    );
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(screen.getByText("Applied")).toBeInTheDocument();
+    expect(screen.getByText(/Words of Radiance/)).toBeInTheDocument();
+  });
+
+  // Regression: a failed apply keeps its kept snapshot so the row can be retried. If the row then
+  // leaves the pending list for another reason (dismissed, say), the snapshot used to come back as a
+  // disabled placeholder still labelled Failed.
+  it("does not resurrect a failed row as a placeholder once it has left the pending list", async () => {
+    await startApplyingSecond();
+    act(() =>
+      hub.emit(
+        SignalREvents.SingleBookOperationComplete,
+        completion(2, "failed", "Another operation is already modifying audiobook 2."),
+      ),
+    );
+    await screen.findByText("Failed");
+    vi.mocked(metadataRefreshApi.getPendingPage).mockResolvedValue({
+      items: [first, third],
+      total: 2,
+    });
+
+    // Anything that refetches the list - here, a completion for another book.
+    act(() => hub.emit(SignalREvents.SingleBookOperationComplete, completion(1)));
+
+    await waitFor(() => expect(screen.queryByText(/Words of Radiance/)).not.toBeInTheDocument());
+    expect(screen.queryByText("Failed")).not.toBeInTheDocument();
+  });
 });

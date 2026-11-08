@@ -1,11 +1,6 @@
 import { AlertCircle, CheckCircle2, Loader2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-
-export interface OperationOutcomeState {
-  /** The operation's status as the server reported it (`completed`, `failed`, ...). */
-  status: string;
-  message?: string | null;
-}
+import { isFailedOutcome, type OperationOutcomeState } from "@/helpers/operationOutcome";
 
 interface OperationOutcomeProps {
   /** The work was accepted and has not reported back yet. */
@@ -16,10 +11,6 @@ interface OperationOutcomeProps {
   /** What each reported status is called on this page; an unlisted non-failure status shows nothing. */
   labels: Record<string, string>;
 }
-
-/** Whether the outcome is one the user may want to retry from the row. */
-const isFailedOutcome = (outcome: OperationOutcomeState | undefined): boolean =>
-  outcome !== undefined && (outcome.status === "failed" || outcome.status === "targetExists");
 
 /**
  * The badge on a row that has work in flight or has finished it. A finished row stays put (see
