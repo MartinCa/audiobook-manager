@@ -35,11 +35,13 @@ const APPLYING_AUTOMATED_RULES: ReadonlySet<string> = new Set([
 interface PendingRefreshRowPanelProps {
   audiobookId: number;
   /**
-   * Called once the server has accepted the apply, so the row can collapse and the user can move
-   * on to the next one. The rewrite itself continues in the background; the page reports its
-   * outcome when SingleBookOperationComplete arrives.
+   * Sends the request that starts the apply and resolves once the server has accepted it, at which
+   * point the page collapses the row so the user can move on to the next one (it rejects if the
+   * server refuses). The rewrite itself continues in the background; the page reports its outcome
+   * when SingleBookOperationComplete arrives. The page tracks the book as busy from before the
+   * request goes out, which is why the request is handed over rather than sent here.
    */
-  onStarted: (audiobookId: number) => void;
+  start: (request: () => Promise<void>) => Promise<void>;
 }
 
 /**
@@ -52,7 +54,7 @@ interface PendingRefreshRowPanelProps {
  * previewed first, and a file already at the new library path opens the duplicate-target dialog
  * instead of failing.
  */
-export function PendingRefreshRowPanel({ audiobookId, onStarted }: PendingRefreshRowPanelProps) {
+export function PendingRefreshRowPanel({ audiobookId, start }: PendingRefreshRowPanelProps) {
   const [applying, setApplying] = useState(false);
   // Opt-in toggle to split a scraped "Title: Subtitle" title at its first colon-space. Defaults
   // off (see helpers/titleSplitter.ts); no need to persist across anything since this component
@@ -225,14 +227,15 @@ export function PendingRefreshRowPanel({ audiobookId, onStarted }: PendingRefres
           return;
         }
       }
-      await metadataRefreshApi.applyPending(
-        audiobookId,
-        fields,
-        splitTitleOnColonEnabled,
-        chosenPrimarySeries,
-        replaceExisting,
+      await start(() =>
+        metadataRefreshApi.applyPending(
+          audiobookId,
+          fields,
+          splitTitleOnColonEnabled,
+          chosenPrimarySeries,
+          replaceExisting,
+        ),
       );
-      onStarted(audiobookId);
     } catch (err: unknown) {
       notifications.error(handleApiError(err).message);
     } finally {

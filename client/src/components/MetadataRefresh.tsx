@@ -154,7 +154,7 @@ export function MetadataRefresh() {
 
   // A single row's quick apply runs in the background: the row collapses as soon as the server
   // accepts it, and the outcome arrives here (not in the row panel, which has unmounted by then).
-  const { busyIds: applyingIds, markStarted: markApplyStarted } = useSingleBookOperation(
+  const { busyIds: applyingIds, start: startApply } = useSingleBookOperation(
     SingleBookOperations.pendingRefreshApply,
     (event: SingleBookOperationCompletePayload) => {
       if (event.status === "completed") {
@@ -704,7 +704,7 @@ export function MetadataRefresh() {
 
             {pendingItems.map((item) => {
               const isApplying = applyingIds.has(item.audiobookId);
-              const isExpanded = expandedId === item.audiobookId && !isApplying;
+              const isExpanded = expandedId === item.audiobookId;
               return (
                 <div
                   key={item.audiobookId}
@@ -770,8 +770,8 @@ export function MetadataRefresh() {
                     <div className="border-border bg-muted/20 border-t p-3">
                       <PendingRefreshRowPanel
                         audiobookId={item.audiobookId}
-                        onStarted={(id) => {
-                          markApplyStarted(id);
+                        start={async (request) => {
+                          await startApply(item.audiobookId, request);
                           setExpandedId(null);
                         }}
                       />

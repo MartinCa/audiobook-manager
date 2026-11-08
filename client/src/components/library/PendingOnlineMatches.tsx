@@ -100,7 +100,7 @@ export function PendingOnlineMatches() {
     void queryClient.invalidateQueries({ queryKey: queryKeys.metadataRefresh.all() });
     void queryClient.invalidateQueries({ queryKey: queryKeys.books.all() });
   };
-  const { busyIds: selectingIds, markStarted: markSelectStarted } = useSingleBookOperation(
+  const { busyIds: selectingIds, start: startSelect } = useSingleBookOperation(
     SingleBookOperations.pendingMatchSelect,
     (event: SingleBookOperationCompletePayload) => {
       if (event.status === "failed") {
@@ -184,7 +184,7 @@ export function PendingOnlineMatches() {
           <div className="space-y-2">
             {pendingItems.map((item) => {
               const isSelecting = selectingIds.has(item.audiobookId);
-              const isExpanded = expandedId === item.audiobookId && !isSelecting;
+              const isExpanded = expandedId === item.audiobookId;
               return (
                 <div
                   key={item.audiobookId}
@@ -257,8 +257,8 @@ export function PendingOnlineMatches() {
                     <div className="border-border bg-muted/20 border-t p-3">
                       <PendingOnlineMatchRowPanel
                         item={item}
-                        onStarted={(id) => {
-                          markSelectStarted(id);
+                        start={async (request) => {
+                          await startSelect(item.audiobookId, request);
                           setExpandedId(null);
                         }}
                       />

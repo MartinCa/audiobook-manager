@@ -11,11 +11,14 @@ import type { PendingOnlineMatchListItem } from "@/types/PendingOnlineMatch";
 export interface PendingOnlineMatchRowPanelProps {
   item: PendingOnlineMatchListItem;
   /**
-   * Called once the server has accepted the selection, so the row can collapse and the user can
-   * move on. The work (fetching the candidate, applying what the automated rules accept) continues
-   * in the background; the page reports its outcome when SingleBookOperationComplete arrives.
+   * Sends the request that starts the selection and resolves once the server has accepted it, at
+   * which point the page collapses the row so the user can move on (it rejects if the server
+   * refuses). The work (fetching the candidate, applying what the automated rules accept) continues
+   * in the background; the page reports its outcome when SingleBookOperationComplete arrives. The
+   * page tracks the book as busy from before the request goes out, which is why the request is
+   * handed over rather than sent here.
    */
-  onStarted: (audiobookId: number) => void;
+  start: (request: () => Promise<void>) => Promise<void>;
 }
 
 /**
@@ -28,14 +31,13 @@ export interface PendingOnlineMatchRowPanelProps {
  * that in the background and answers right away, so the panel only waits for the request to be
  * accepted.
  */
-export function PendingOnlineMatchRowPanel({ item, onStarted }: PendingOnlineMatchRowPanelProps) {
+export function PendingOnlineMatchRowPanel({ item, start }: PendingOnlineMatchRowPanelProps) {
   const [selectingIndex, setSelectingIndex] = useState<number | null>(null);
 
   const handleSelect = async (index: number) => {
     setSelectingIndex(index);
     try {
-      await pendingOnlineMatchApi.selectResult(item.audiobookId, index);
-      onStarted(item.audiobookId);
+      await start(() => pendingOnlineMatchApi.selectResult(item.audiobookId, index));
     } catch (err: unknown) {
       notifications.error(handleApiError(err).message);
     } finally {

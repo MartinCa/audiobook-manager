@@ -281,6 +281,65 @@ describe("PendingOnlineMatches", () => {
       expect(await screen.findByRole("button", { name: /select this match/i })).toBeInTheDocument();
     });
 
+    // Regression: the server starts the work before it returns 202, so a fast failure can reach the
+    // page before the POST resolves. The book used to be marked busy only after the POST, which
+    // re-added it after the event had cleared it - a row stuck on "Selecting…" until a remount.
+    it("does not leave the row stuck busy when the completion arrives before the POST resolves", async () => {
+      vi.mocked(pendingOnlineMatchApi.getPendingPage).mockResolvedValue({
+        items: [pendingItem()],
+        total: 1,
+      });
+      let acceptPost!: () => void;
+      vi.mocked(pendingOnlineMatchApi.selectResult).mockReturnValue(
+        new Promise<void>((resolve) => {
+          acceptPost = resolve;
+        }),
+      );
+      const { hub } = renderPage();
+      fireEvent.click(await screen.findByText(/The Way of Kings/));
+      fireEvent.click(await screen.findByRole("button", { name: /select this match/i }));
+      await screen.findByText("Selecting…");
+
+      act(() =>
+        hub.emit(
+          SignalREvents.SingleBookOperationComplete,
+          completion({ status: "failed", message: "Source unavailable" }),
+        ),
+      );
+      await waitFor(() => expect(screen.queryByText("Selecting…")).not.toBeInTheDocument());
+      await act(() => {
+        acceptPost();
+        return Promise.resolve();
+      });
+
+      expect(screen.queryByText("Selecting…")).not.toBeInTheDocument();
+      expect(notifications.error).toHaveBeenCalledWith("Source unavailable");
+      // The row is free to be reopened and retried.
+      fireEvent.click(screen.getByText(/The Way of Kings/));
+      expect(await screen.findByRole("button", { name: /select this match/i })).toBeInTheDocument();
+    });
+
+    it("keeps the row open and not busy when the server refuses the pick", async () => {
+      vi.mocked(pendingOnlineMatchApi.getPendingPage).mockResolvedValue({
+        items: [pendingItem()],
+        total: 1,
+      });
+      vi.mocked(pendingOnlineMatchApi.selectResult).mockRejectedValue(
+        new Error("A match for audiobook 1 is already being selected."),
+      );
+      renderPage();
+      fireEvent.click(await screen.findByText(/The Way of Kings/));
+      fireEvent.click(await screen.findByRole("button", { name: /select this match/i }));
+
+      await waitFor(() =>
+        expect(notifications.error).toHaveBeenCalledWith(
+          "A match for audiobook 1 is already being selected.",
+        ),
+      );
+      expect(screen.queryByText("Selecting…")).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /select this match/i })).toBeInTheDocument();
+    });
+
     it("keeps a busy row from being reopened or rejected", async () => {
       await startSelecting();
       await screen.findByText("Selecting…");

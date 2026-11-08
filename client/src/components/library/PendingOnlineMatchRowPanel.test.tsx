@@ -45,9 +45,11 @@ const baseItem: PendingOnlineMatchListItem = {
   ],
 };
 
-function renderPanel(item: PendingOnlineMatchListItem = baseItem, onStarted = vi.fn()) {
-  render(<PendingOnlineMatchRowPanel item={item} onStarted={onStarted} />);
-  return { onStarted };
+// Stands in for the page's useSingleBookOperation().start: sends the request, resolving once it is accepted.
+function renderPanel(item: PendingOnlineMatchListItem = baseItem) {
+  const start = vi.fn((request: () => Promise<void>) => request());
+  render(<PendingOnlineMatchRowPanel item={item} start={start} />);
+  return { start };
 }
 
 describe("PendingOnlineMatchRowPanel", () => {
@@ -93,9 +95,9 @@ describe("PendingOnlineMatchRowPanel", () => {
     expect(screen.queryByRole("button", { name: /select this match/i })).not.toBeInTheDocument();
   });
 
-  it("selecting a candidate calls selectResult with the book id and its index, then reports it started", async () => {
+  it("selecting a candidate sends selectResult with the book id and its index through the page's start", async () => {
     vi.mocked(pendingOnlineMatchApi.selectResult).mockResolvedValue(undefined);
-    const { onStarted } = renderPanel();
+    const { start } = renderPanel();
 
     // Goodreads candidate: index 1 in the flat list although it is the only card in its tab
     await userEvent.click(screen.getByRole("tab", { name: "Goodreads (1)" }));
@@ -104,24 +106,20 @@ describe("PendingOnlineMatchRowPanel", () => {
     await waitFor(() => {
       expect(pendingOnlineMatchApi.selectResult).toHaveBeenCalledWith(1, 1);
     });
-    await waitFor(() => {
-      expect(onStarted).toHaveBeenCalledWith(1);
-    });
-    expect(onStarted).toHaveBeenCalledTimes(1);
+    expect(start).toHaveBeenCalledTimes(1);
     // The outcome is the page's to report (the row has collapsed by then), not the panel's.
     expect(notifications.success).not.toHaveBeenCalled();
   });
 
-  it("shows an error toast and does not report started when selecting a candidate fails", async () => {
+  it("shows an error toast when selecting a candidate fails", async () => {
     vi.mocked(pendingOnlineMatchApi.selectResult).mockRejectedValue(new Error("Network error"));
-    const { onStarted } = renderPanel();
+    renderPanel();
 
     fireEvent.click(screen.getAllByRole("button", { name: /select this match/i })[0]!);
 
     await waitFor(() => {
       expect(notifications.error).toHaveBeenCalled();
     });
-    expect(onStarted).not.toHaveBeenCalled();
   });
 
   it("disables every select button while one selection is in flight", async () => {

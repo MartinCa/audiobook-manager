@@ -55,11 +55,14 @@ function ratingRules(
   };
 }
 
-function renderPanel(onStarted: (audiobookId: number) => void = vi.fn()) {
+// Stands in for the page's useSingleBookOperation().start: sends the request, resolving once it is accepted.
+const passThroughStart = () => vi.fn((request: () => Promise<void>) => request());
+
+function renderPanel(start: (request: () => Promise<void>) => Promise<void> = passThroughStart()) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
-      <PendingRefreshRowPanel audiobookId={42} onStarted={onStarted} />
+      <PendingRefreshRowPanel audiobookId={42} start={start} />
     </QueryClientProvider>,
   );
 }
@@ -287,27 +290,26 @@ describe("PendingRefreshRowPanel", () => {
       );
     }
 
-    it("reports the book as started once the server accepts the apply, without announcing a result itself", async () => {
+    it("hands the apply request to the page's start, without announcing a result itself", async () => {
       setUpRatingDiff();
       vi.mocked(metadataRefreshApi.applyPending).mockResolvedValue(undefined);
-      const onStarted = vi.fn();
+      const start = passThroughStart();
 
-      renderPanel(onStarted);
+      renderPanel(start);
       fireEvent.click(await screen.findByRole("button", { name: /apply selected/i }));
 
-      await waitFor(() => expect(onStarted).toHaveBeenCalledWith(42));
-      expect(onStarted).toHaveBeenCalledTimes(1);
+      await waitFor(() => expect(start).toHaveBeenCalledTimes(1));
+      await waitFor(() => expect(metadataRefreshApi.applyPending).toHaveBeenCalledTimes(1));
       expect(notifications.success).not.toHaveBeenCalled();
     });
 
-    it("keeps the row open and shows the error when the server refuses the apply (for example the book is busy)", async () => {
+    it("shows the error when the server refuses the apply (for example the book is busy)", async () => {
       setUpRatingDiff();
       vi.mocked(metadataRefreshApi.applyPending).mockRejectedValue(
         new Error("Another operation is already modifying audiobook 42."),
       );
-      const onStarted = vi.fn();
 
-      renderPanel(onStarted);
+      renderPanel();
       fireEvent.click(await screen.findByRole("button", { name: /apply selected/i }));
 
       await waitFor(() =>
@@ -315,7 +317,6 @@ describe("PendingRefreshRowPanel", () => {
           "Another operation is already modifying audiobook 42.",
         ),
       );
-      expect(onStarted).not.toHaveBeenCalled();
     });
   });
 
@@ -341,9 +342,9 @@ describe("PendingRefreshRowPanel", () => {
     it("offers the duplicate-target dialog instead of applying when a file is already at the new path", async () => {
       setUpRatingDiff();
       vi.mocked(metadataRefreshApi.checkApplyTarget).mockResolvedValue(collision);
-      const onStarted = vi.fn();
+      const start = passThroughStart();
 
-      renderPanel(onStarted);
+      renderPanel(start);
       fireEvent.click(await screen.findByRole("button", { name: /apply selected/i }));
 
       expect(await screen.findByText("Duplicate file at target location")).toBeInTheDocument();
@@ -355,16 +356,16 @@ describe("PendingRefreshRowPanel", () => {
         undefined,
       );
       expect(metadataRefreshApi.applyPending).not.toHaveBeenCalled();
-      // Nothing was started, so the row must stay open for the user's answer.
-      expect(onStarted).not.toHaveBeenCalled();
+      // Nothing was started, so the book must not be marked busy while the user decides.
+      expect(start).not.toHaveBeenCalled();
     });
 
     it("applies the checked fields with replaceExisting once the user chooses to replace", async () => {
       setUpRatingDiff();
       vi.mocked(metadataRefreshApi.checkApplyTarget).mockResolvedValue(collision);
-      const onStarted = vi.fn();
+      const start = passThroughStart();
 
-      renderPanel(onStarted);
+      renderPanel(start);
       fireEvent.click(await screen.findByRole("button", { name: /apply selected/i }));
       fireEvent.click(await screen.findByRole("button", { name: "Replace existing" }));
 
@@ -376,7 +377,7 @@ describe("PendingRefreshRowPanel", () => {
         undefined,
         true,
       );
-      await waitFor(() => expect(onStarted).toHaveBeenCalledWith(42));
+      await waitFor(() => expect(start).toHaveBeenCalledTimes(1));
     });
 
     it("applies nothing when the user cancels the dialog", async () => {
