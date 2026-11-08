@@ -307,4 +307,37 @@ describe("MetadataRefresh: rows that finished applying", () => {
     await waitFor(() => expect(screen.queryByText(/Words of Radiance/)).not.toBeInTheDocument());
     expect(screen.queryByText("Failed")).not.toBeInTheDocument();
   });
+
+  // Regression: the page was reconciled from the total of whichever page was showing. After the
+  // list shrank, page two stayed cached as an empty page with total 50; once the list grew again,
+  // going back to it read that obsolete total during render and bounced straight back to page one,
+  // on every click, although page one's fresh total showed page two exists.
+  it("does not bounce off a page whose cached response predates the list growing again", async () => {
+    const pageOne = Array.from({ length: 50 }, (_, i) => item(100 + i, `Filler ${i}`));
+    const listOf = (total: number) => (page: number) =>
+      Promise.resolve(
+        page === 0 ? { items: pageOne, total } : { items: total > 50 ? [second] : [], total },
+      );
+    vi.mocked(metadataRefreshApi.getPendingPage).mockImplementation(listOf(51));
+    renderPage();
+    await screen.findByText(/Filler 0/);
+    fireEvent.click(screen.getByRole("button", { name: /next/i }));
+    await screen.findByText(/Words of Radiance/);
+
+    // The list shrinks: page two no longer exists and the view falls back to page one.
+    vi.mocked(metadataRefreshApi.getPendingPage).mockImplementation(listOf(50));
+    act(() => hub.emit(SignalREvents.SingleBookOperationComplete, completion(1)));
+    await screen.findByText(/Filler 0(?!\d)/);
+    expect(screen.queryByText(/Words of Radiance/)).not.toBeInTheDocument();
+
+    // It grows again. Only the page on screen refetches; page two stays cached as it was.
+    vi.mocked(metadataRefreshApi.getPendingPage).mockImplementation(listOf(51));
+    act(() => hub.emit(SignalREvents.SingleBookOperationComplete, completion(1)));
+    await screen.findByText(/Showing 1–50 of 51/);
+
+    fireEvent.click(screen.getByRole("button", { name: /next/i }));
+
+    expect(await screen.findByText(/Words of Radiance/)).toBeInTheDocument();
+    expect(screen.queryByText(/Filler 0(?!\d)/)).not.toBeInTheDocument();
+  });
 });

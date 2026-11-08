@@ -69,7 +69,7 @@ export function PendingOnlineMatches() {
   // fresh data, one from a stale cached placeholder for a different key) instead of converging.
   // When currentPendingPage is itself 0 this count query and the items query below share one
   // queryKey, so TanStack Query dedups them into a single request rather than fetching twice.
-  const { data: pendingCountData } = useQuery({
+  const { data: pendingCountData, isFetching: pendingCountFetching } = useQuery({
     queryKey: queryKeys.pendingOnlineMatch.pendingPage(0, pageSize),
     queryFn: () => pendingOnlineMatchApi.getPendingPage(0, pageSize),
   });
@@ -90,7 +90,13 @@ export function PendingOnlineMatches() {
   // by a reject, display clamped to page 1, request still page 2), the next selection would start
   // holding and the query would jump back to the page that no longer exists, taking the other rows
   // with it. Waits for the count so a still-loading total (read as 0) is not mistaken for a clamp.
-  if (!kept.holding && pendingCountData && pendingPage !== currentPendingPage) {
+  // Only from a settled count: a refetching one still holds the old total.
+  if (
+    !kept.holding &&
+    pendingCountData &&
+    !pendingCountFetching &&
+    pendingPage !== currentPendingPage
+  ) {
     setPendingPage(currentPendingPage);
   }
 

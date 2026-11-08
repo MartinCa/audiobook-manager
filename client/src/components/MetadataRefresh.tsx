@@ -131,7 +131,16 @@ export function MetadataRefresh() {
       metadataRefreshApi.getPendingPage(page, pageSize, fieldFilterList, sourceFilterList),
   });
 
-  const totalCount = pageData?.total ?? 0;
+  // The total comes from the first page's own query, not from whichever page is showing: a page
+  // the user returns to can still be cached from before the list changed, and its total is then as
+  // stale as the page. When the showing page *is* the first one the two share a key and dedupe.
+  const { data: countData, isFetching: countFetching } = useQuery({
+    queryKey: queryKeys.metadataRefresh.pendingPage(0, pageSize, fieldFilterList, sourceFilterList),
+    queryFn: () =>
+      metadataRefreshApi.getPendingPage(0, pageSize, fieldFilterList, sourceFilterList),
+  });
+
+  const totalCount = countData?.total ?? pageData?.total ?? 0;
   const pendingItems = (pageData?.items ?? []) as PendingMetadataRefreshListItem[];
   const pageCount = Math.max(1, Math.ceil(totalCount / pageSize));
   // Clamped here rather than only where the pager is drawn, so the page that is *fetched* and the
@@ -187,7 +196,9 @@ export function MetadataRefresh() {
   // when the server's count no longer reaches it (the applied row was the last of the last page);
   // clamping it then would disable both Previous and Next with the remaining rows unreachable.
   // Otherwise the requested page follows the clamp, so what is fetched is what is displayed.
-  if (!holding && pageData && page !== currentPage) {
+  // Only from a settled count: while it refetches (after a bulk refresh grew the list, say) its
+  // total is the old one, and acting on it would bounce a page the user just navigated to.
+  if (!holding && countData && !countFetching && page !== currentPage) {
     setPage(currentPage);
   }
   const pagerPage = holding ? page : currentPage;
