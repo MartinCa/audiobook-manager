@@ -250,6 +250,38 @@ describe("MetadataRefresh: rows that finished applying", () => {
     });
     expect(screen.getByText("Applied")).toBeInTheDocument();
     expect(screen.getByText(/Words of Radiance/)).toBeInTheDocument();
+
+    // The pager must still lead to the rest: held on a page the server no longer reaches, Previous
+    // used to be disabled along with Next, leaving the remaining 50 rows unreachable.
+    const previous = screen.getByRole("button", { name: /previous/i });
+    expect(previous).toBeEnabled();
+    fireEvent.click(previous);
+    expect(await screen.findByText(/Filler 0(?!\d)/)).toBeInTheDocument();
+    expect(screen.queryByText("Applied")).not.toBeInTheDocument();
+  });
+
+  // Regression: the page fetched stayed on the requested page while the pager showed the clamped
+  // one, so when the list shrank past the page (nothing held) the user saw an empty list with the
+  // pager claiming they were on page 1.
+  it("follows the server's page count when the list shrinks past the page and nothing is held", async () => {
+    const pageOne = Array.from({ length: 50 }, (_, i) => item(100 + i, `Filler ${i}`));
+    vi.mocked(metadataRefreshApi.getPendingPage).mockImplementation((page: number) =>
+      Promise.resolve(page === 0 ? { items: pageOne, total: 51 } : { items: [second], total: 51 }),
+    );
+    renderPage();
+    await screen.findByText(/Filler 0/);
+    fireEvent.click(screen.getByRole("button", { name: /next/i }));
+    await screen.findByText(/Words of Radiance/);
+    // The last row went away by some other route (another tab, a dismiss): page two no longer exists.
+    vi.mocked(metadataRefreshApi.getPendingPage).mockImplementation((page: number) =>
+      Promise.resolve(page === 0 ? { items: pageOne, total: 50 } : { items: [], total: 50 }),
+    );
+
+    // Anything that refetches the list - here, a completion for another book.
+    act(() => hub.emit(SignalREvents.SingleBookOperationComplete, completion(1)));
+
+    expect(await screen.findByText(/Filler 0(?!\d)/)).toBeInTheDocument();
+    expect(screen.queryByText(/Words of Radiance/)).not.toBeInTheDocument();
   });
 
   // Regression: a failed apply keeps its kept snapshot so the row can be retried. If the row then

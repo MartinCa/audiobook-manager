@@ -86,6 +86,13 @@ export function PendingOnlineMatches() {
   const currentPendingPage = kept.holding
     ? pendingPage
     : Math.min(pendingPage, pendingPageCount - 1);
+  // When nothing is held the requested page must be the displayed one. Left stale (page 2 emptied
+  // by a reject, display clamped to page 1, request still page 2), the next selection would start
+  // holding and the query would jump back to the page that no longer exists, taking the other rows
+  // with it. Waits for the count so a still-loading total (read as 0) is not mistaken for a clamp.
+  if (!kept.holding && pendingCountData && pendingPage !== currentPendingPage) {
+    setPendingPage(currentPendingPage);
+  }
 
   const failedTotal = failedCountData?.total ?? 0;
   const failedPageCount = Math.max(1, Math.ceil(failedTotal / pageSize));
@@ -318,7 +325,11 @@ export function PendingOnlineMatches() {
             <SectionPager
               currentPage={currentPendingPage}
               pageCount={Math.max(pendingPageCount, currentPendingPage + 1)}
-              totalCount={pendingTotal}
+              totalCount={
+                kept.holding
+                  ? Math.max(pendingTotal, currentPendingPage * pageSize + pendingRows.length)
+                  : pendingTotal
+              }
               pageSize={pageSize}
               onPageChange={setPendingPage}
               onPageSizeChange={handlePageSizeChange}

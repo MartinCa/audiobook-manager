@@ -437,7 +437,9 @@ belongs to the view it was in - and the `resetKey` must be what the *user chose*
 page, page size, filters), never the page clamped to the server's page count, which shrinks when the
 last row of the last page finishes and would otherwise wipe the row and swap the previous page in.
 A paged list whose fetched page is clamped therefore uses `useKeptRowState` + `mergeKeptRows` and
-stops clamping while `holding`. A request the server refused `release`s the row, since nothing
+stops clamping while `holding`; when nothing is held the requested page follows the clamp (set it
+back), or the next held row would send the query to the page that no longer exists, and the pager
+shows the held page (not the clamped one) so Previous still reaches the rest. A request the server refused `release`s the row, since nothing
 started. A *failed* row stays in the server's list because it is still pending, so `shouldHold`
 (`holdsPlaceWhenGone`) refuses to show a failed row the server has dropped for another reason
 (rejected, dismissed elsewhere) as a placeholder. The empty state must test the merged rows, not the

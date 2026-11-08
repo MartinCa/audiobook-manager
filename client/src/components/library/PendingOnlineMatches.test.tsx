@@ -486,6 +486,43 @@ describe("PendingOnlineMatches", () => {
       expect(screen.queryByText(/Filler 0/)).not.toBeInTheDocument();
     });
 
+    // Regression: rejecting the only row of the last page clamps the display to the previous page,
+    // but the requested page stayed on the vanished one. The next selection made the page "held",
+    // which switched the query back to the requested (nonexistent) page and took every other row
+    // off the screen with it.
+    it("keeps the displayed page when a match is selected after the last page was emptied by a reject", async () => {
+      const pageOne = Array.from({ length: 50 }, (_, i) =>
+        pendingItem({ audiobookId: 100 + i, bookName: `Filler ${i}` }),
+      );
+      const lonely = pendingItem({ audiobookId: 2, bookName: "Words of Radiance" });
+      vi.mocked(pendingOnlineMatchApi.getPendingPage).mockImplementation((page: number) =>
+        Promise.resolve(
+          page === 0 ? { items: pageOne, total: 51 } : { items: [lonely], total: 51 },
+        ),
+      );
+      vi.mocked(pendingOnlineMatchApi.reject).mockResolvedValue(undefined);
+      vi.mocked(pendingOnlineMatchApi.selectResult).mockResolvedValue(undefined);
+      renderPage();
+      await screen.findByText(/Filler 0/);
+      fireEvent.click(screen.getByRole("button", { name: /next/i }));
+      await screen.findByText(/Words of Radiance/);
+      vi.mocked(pendingOnlineMatchApi.getPendingPage).mockImplementation((page: number) =>
+        Promise.resolve(page === 0 ? { items: pageOne, total: 50 } : { items: [], total: 50 }),
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: /reject/i }));
+      await waitFor(() => expect(pendingOnlineMatchApi.reject).toHaveBeenCalledWith(2));
+      // The display falls back to the page that still exists...
+      fireEvent.click(await screen.findByText(/Filler 0(?!\d)/));
+      fireEvent.click(await screen.findByRole("button", { name: /select this match/i }));
+      await waitFor(() => expect(pendingOnlineMatchApi.selectResult).toHaveBeenCalledWith(100, 0));
+      await screen.findByText("Selecting…");
+
+      // ...and starting work there does not send the query back to the page that is gone.
+      expect(screen.getByText(/Filler 7(?!\d)/)).toBeInTheDocument();
+      expect(screen.getByText(/Filler 49/)).toBeInTheDocument();
+    });
+
     // Regression: a failed selection keeps its kept snapshot so the row can be retried. Rejecting
     // that row then removes it from Pending - but the snapshot used to come back as a disabled
     // placeholder still labelled Failed, alongside the same book in Failed/Rejected.

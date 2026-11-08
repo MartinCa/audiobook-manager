@@ -173,6 +173,7 @@ export function MetadataRefresh() {
     keep: keepRow,
     release: releaseRow,
     recordOutcome,
+    holding,
   } = useKeptRows<PendingMetadataRefreshListItem, OperationOutcomeState>(
     pendingItems,
     pendingItemKey,
@@ -182,6 +183,14 @@ export function MetadataRefresh() {
     `${page}:${pageSize}:${fieldFilterList.join(",")}:${sourceFilterList.join(",")}`,
     holdsPlaceWhenGone,
   );
+  // The pager follows the page the list is actually showing. Held, that is the requested page even
+  // when the server's count no longer reaches it (the applied row was the last of the last page);
+  // clamping it then would disable both Previous and Next with the remaining rows unreachable.
+  // Otherwise the requested page follows the clamp, so what is fetched is what is displayed.
+  if (!holding && pageData && page !== currentPage) {
+    setPage(currentPage);
+  }
+  const pagerPage = holding ? page : currentPage;
   const { busyIds: applyingIds, start: startApply } = useSingleBookOperation(
     SingleBookOperations.pendingRefreshApply,
     (event: SingleBookOperationCompletePayload) => {
@@ -830,9 +839,13 @@ export function MetadataRefresh() {
             {/* Stays rendered even if this page comes back empty while the count is non-zero, so
                 the user can page back instead of staring at a dead-end heading. */}
             <SectionPager
-              currentPage={currentPage}
-              pageCount={pageCount}
-              totalCount={totalCount}
+              currentPage={pagerPage}
+              pageCount={Math.max(pageCount, pagerPage + 1)}
+              totalCount={
+                holding
+                  ? Math.max(totalCount, pagerPage * pageSize + pendingRows.length)
+                  : totalCount
+              }
               pageSize={pageSize}
               onPageChange={goToPage}
               onPageSizeChange={handlePageSizeChange}
