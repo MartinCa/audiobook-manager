@@ -1,10 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { act, render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { PendingOnlineMatches } from "./PendingOnlineMatches";
 import { RouterTestWrapper } from "@/test-utils/routerTestUtils";
 import { pendingOnlineMatchApi } from "@/services/api";
 import { notifications } from "@/lib/notifications";
+import { SignalRContext } from "@/context/SignalRContext";
+import { SignalREvents, SingleBookOperations } from "@/constants/signalrEvents";
+import { createFakeSignalR } from "@/test-utils/fakeSignalR";
 import type { PendingOnlineMatchListItem } from "@/types/PendingOnlineMatch";
 
 vi.mock("@/lib/notifications", () => ({
@@ -49,12 +52,16 @@ function pendingItem(
 
 function renderPage() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const hub = createFakeSignalR();
+  const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
   render(
-    <QueryClientProvider client={queryClient}>
-      <RouterTestWrapper ui={<PendingOnlineMatches />} />
-    </QueryClientProvider>,
+    <SignalRContext.Provider value={hub.value}>
+      <QueryClientProvider client={queryClient}>
+        <RouterTestWrapper ui={<PendingOnlineMatches />} />
+      </QueryClientProvider>
+    </SignalRContext.Provider>,
   );
-  return { queryClient };
+  return { queryClient, hub, invalidateSpy };
 }
 
 describe("PendingOnlineMatches", () => {
@@ -231,6 +238,108 @@ describe("PendingOnlineMatches", () => {
 
     await waitFor(() => {
       expect(notifications.error).toHaveBeenCalled();
+    });
+  });
+
+  describe("selecting a candidate (runs in the background)", () => {
+    async function startSelecting() {
+      vi.mocked(pendingOnlineMatchApi.getPendingPage).mockResolvedValue({
+        items: [pendingItem(), pendingItem({ audiobookId: 2, bookName: "Words of Radiance" })],
+        total: 2,
+      });
+      vi.mocked(pendingOnlineMatchApi.selectResult).mockResolvedValue(undefined);
+
+      const page = renderPage();
+      fireEvent.click(await screen.findByText(/The Way of Kings/));
+      fireEvent.click(await screen.findByRole("button", { name: /select this match/i }));
+      await waitFor(() => expect(pendingOnlineMatchApi.selectResult).toHaveBeenCalledWith(1, 0));
+      return page;
+    }
+
+    const completion = (overrides: Record<string, unknown> = {}) => ({
+      audiobookId: 1,
+      operation: SingleBookOperations.pendingMatchSelect,
+      status: "completed",
+      message: null,
+      ...overrides,
+    });
+
+    it("collapses the row as soon as the server accepts the pick, so the next book can be worked on", async () => {
+      await startSelecting();
+
+      await waitFor(() => {
+        expect(
+          screen.queryByRole("button", { name: /select this match/i }),
+        ).not.toBeInTheDocument();
+      });
+      expect(screen.getByText("Selecting…")).toBeInTheDocument();
+      // Not announced yet: the work is still running, so claiming success now would be a guess.
+      expect(notifications.success).not.toHaveBeenCalled();
+
+      // The other book is free to be opened and selected while the first is still working.
+      fireEvent.click(screen.getByText(/Words of Radiance/));
+      expect(await screen.findByRole("button", { name: /select this match/i })).toBeInTheDocument();
+    });
+
+    it("keeps a busy row from being reopened or rejected", async () => {
+      await startSelecting();
+      await screen.findByText("Selecting…");
+
+      fireEvent.click(screen.getByText(/The Way of Kings/));
+
+      expect(screen.queryByRole("button", { name: /select this match/i })).not.toBeInTheDocument();
+      const rejectButtons = screen.getAllByRole("button", { name: /reject/i });
+      expect(rejectButtons[0]).toBeDisabled();
+      expect(rejectButtons[1]).toBeEnabled();
+    });
+
+    it("announces success, clears the busy badge and refreshes the views when the work completes", async () => {
+      const { hub, invalidateSpy } = await startSelecting();
+      await screen.findByText("Selecting…");
+      invalidateSpy.mockClear();
+
+      act(() => hub.emit(SignalREvents.SingleBookOperationComplete, completion()));
+
+      await waitFor(() => expect(screen.queryByText("Selecting…")).not.toBeInTheDocument());
+      expect(notifications.success).toHaveBeenCalledTimes(1);
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["pendingOnlineMatch"] });
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["metadataRefresh"] });
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["books"] });
+    });
+
+    it("shows the server's message when the work fails, and frees the row again", async () => {
+      const { hub } = await startSelecting();
+      await screen.findByText("Selecting…");
+
+      act(() =>
+        hub.emit(
+          SignalREvents.SingleBookOperationComplete,
+          completion({ status: "failed", message: "The Hardcover daily request limit is spent." }),
+        ),
+      );
+
+      await waitFor(() =>
+        expect(notifications.error).toHaveBeenCalledWith(
+          "The Hardcover daily request limit is spent.",
+        ),
+      );
+      expect(screen.queryByText("Selecting…")).not.toBeInTheDocument();
+      expect(notifications.success).not.toHaveBeenCalled();
+    });
+
+    it("ignores another operation's completion for the same book", async () => {
+      const { hub } = await startSelecting();
+      await screen.findByText("Selecting…");
+
+      act(() =>
+        hub.emit(
+          SignalREvents.SingleBookOperationComplete,
+          completion({ operation: SingleBookOperations.pendingRefreshApply }),
+        ),
+      );
+
+      expect(screen.getByText("Selecting…")).toBeInTheDocument();
+      expect(notifications.success).not.toHaveBeenCalled();
     });
   });
 });

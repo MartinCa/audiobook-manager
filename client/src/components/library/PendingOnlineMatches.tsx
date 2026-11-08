@@ -11,6 +11,11 @@ import { PendingOnlineMatchRowPanel } from "./PendingOnlineMatchRowPanel";
 import { SectionPager } from "./SectionPager";
 import { pendingOnlineMatchApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
+import { SingleBookOperations } from "@/constants/signalrEvents";
+import {
+  useSingleBookOperation,
+  type SingleBookOperationCompletePayload,
+} from "@/hooks/useSingleBookOperation";
 import type { PageSizeOption } from "@/constants/paging";
 import { usePageSize } from "@/hooks/usePageSize";
 import { formatDateTime } from "@/helpers/formatHelpers";
@@ -88,6 +93,32 @@ export function PendingOnlineMatches() {
     void queryClient.invalidateQueries({ queryKey: queryKeys.pendingOnlineMatch.all() });
   };
 
+  // Selecting a candidate runs in the background: the row collapses as soon as the server accepts
+  // the pick, and the outcome arrives here (not in the row panel, which has unmounted by then).
+  const invalidateAfterSelect = () => {
+    invalidateViews();
+    void queryClient.invalidateQueries({ queryKey: queryKeys.metadataRefresh.all() });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.books.all() });
+  };
+  const { busyIds: selectingIds, markStarted: markSelectStarted } = useSingleBookOperation(
+    SingleBookOperations.pendingMatchSelect,
+    (event: SingleBookOperationCompletePayload) => {
+      if (event.status === "failed") {
+        notifications.error(event.message ?? "Selecting the match failed");
+      } else {
+        // The server settles the pick by the automated apply rules: what they accept is applied,
+        // a diff-less candidate records nothing, and only a changeset with an Ask me field is left
+        // on the book's pending metadata banner. The event doesn't say which, so this can't promise
+        // any one outcome.
+        notifications.success(
+          "Match selected — changes the automated rules accept are applied; anything needing review appears on the book's pending metadata banner.",
+        );
+      }
+      invalidateAfterSelect();
+    },
+    invalidateAfterSelect,
+  );
+
   const handleReject = async (id: number) => {
     setRejectingId(id);
     try {
@@ -152,7 +183,8 @@ export function PendingOnlineMatches() {
         ) : (
           <div className="space-y-2">
             {pendingItems.map((item) => {
-              const isExpanded = expandedId === item.audiobookId;
+              const isSelecting = selectingIds.has(item.audiobookId);
+              const isExpanded = expandedId === item.audiobookId && !isSelecting;
               return (
                 <div
                   key={item.audiobookId}
@@ -162,6 +194,7 @@ export function PendingOnlineMatches() {
                     <button
                       type="button"
                       className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                      disabled={isSelecting}
                       onClick={() => setExpandedId(isExpanded ? null : item.audiobookId)}
                     >
                       {isExpanded ? (
@@ -187,6 +220,12 @@ export function PendingOnlineMatches() {
                         </div>
                       </div>
                     </button>
+                    {isSelecting && (
+                      <Badge variant="outline" className="shrink-0">
+                        <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                        Selecting…
+                      </Badge>
+                    )}
                     <LinkButton
                       variant="ghost"
                       render={
@@ -200,7 +239,7 @@ export function PendingOnlineMatches() {
                     </LinkButton>
                     <Button
                       variant="outline"
-                      disabled={rejectingId === item.audiobookId}
+                      disabled={rejectingId === item.audiobookId || isSelecting}
                       onClick={() => {
                         void handleReject(item.audiobookId);
                       }}
@@ -218,7 +257,10 @@ export function PendingOnlineMatches() {
                     <div className="border-border bg-muted/20 border-t p-3">
                       <PendingOnlineMatchRowPanel
                         item={item}
-                        onResolved={() => setExpandedId(null)}
+                        onStarted={(id) => {
+                          markSelectStarted(id);
+                          setExpandedId(null);
+                        }}
                       />
                     </div>
                   )}

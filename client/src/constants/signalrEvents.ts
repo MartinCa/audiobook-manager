@@ -52,7 +52,19 @@ export const SignalREvents = {
   UrlCleanupComplete: "UrlCleanupComplete",
   PendingOnlineMatchSearchProgress: "PendingOnlineMatchSearchProgress",
   PendingOnlineMatchSearchComplete: "PendingOnlineMatchSearchComplete",
+  SingleBookOperationComplete: "SingleBookOperationComplete",
 } as const;
+
+/**
+ * The `operation` carried by a SingleBookOperationComplete event: one single-book action that was
+ * accepted with a 202 and ran in the background (SingleBookOperations server-side).
+ */
+export const SingleBookOperations = {
+  pendingMatchSelect: "pending-match-select",
+  pendingRefreshApply: "pending-refresh-apply",
+} as const;
+
+export type SingleBookOperation = (typeof SingleBookOperations)[keyof typeof SingleBookOperations];
 
 export const OperationKeys = {
   consistencyResolve: "consistency-resolve",

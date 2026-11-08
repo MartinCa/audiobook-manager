@@ -37,4 +37,5 @@ public interface IOrganize
     Task UrlCleanupComplete(UrlCleanupComplete result);
     Task PendingOnlineMatchSearchProgress(PendingOnlineMatchSearchProgress progress);
     Task PendingOnlineMatchSearchComplete(PendingOnlineMatchSearchComplete result);
+    Task SingleBookOperationComplete(SingleBookOperationComplete result);
 }

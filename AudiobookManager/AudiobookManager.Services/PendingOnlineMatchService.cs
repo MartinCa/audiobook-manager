@@ -81,7 +81,21 @@ public class PendingOnlineMatchService : IPendingOnlineMatchService
         return new PendingOnlineMatchBatchResult(processed, audiobookIds.Count, succeeded, failed);
     }
 
+    public async Task ValidateSelectionAsync(long audiobookId, int resultIndex) =>
+        await GetCandidateAsync(audiobookId, resultIndex);
+
     public async Task SelectResultAsync(long audiobookId, int resultIndex)
+    {
+        var candidate = await GetCandidateAsync(audiobookId, resultIndex);
+        var fetched = await _scrapingService.GetBookDetails(candidate.Url);
+        await _metadataRefreshService.ApplyFetchedResultAsSnapshotAsync(audiobookId, fetched);
+
+        // Resolved either way: a diff-less fetch still means the search successfully confirmed
+        // this candidate matches what the book already has, which is itself a useful outcome.
+        await _repository.DeleteByAudiobookIdAsync(audiobookId);
+    }
+
+    private async Task<PendingRefreshPayload.Snapshot> GetCandidateAsync(long audiobookId, int resultIndex)
     {
         var row = await _repository.GetByAudiobookIdAsync(audiobookId);
         if (row is null)
@@ -96,13 +110,7 @@ public class PendingOnlineMatchService : IPendingOnlineMatchService
                 nameof(resultIndex), resultIndex, $"Audiobook {audiobookId} has {results.Count} candidate result(s).");
         }
 
-        var candidate = results[resultIndex];
-        var fetched = await _scrapingService.GetBookDetails(candidate.Url);
-        await _metadataRefreshService.ApplyFetchedResultAsSnapshotAsync(audiobookId, fetched);
-
-        // Resolved either way: a diff-less fetch still means the search successfully confirmed
-        // this candidate matches what the book already has, which is itself a useful outcome.
-        await _repository.DeleteByAudiobookIdAsync(audiobookId);
+        return results[resultIndex];
     }
 
     public Task<bool> RejectAsync(long audiobookId) =>

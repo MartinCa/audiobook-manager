@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { PendingRefreshRowPanel } from "./PendingRefreshRowPanel";
@@ -25,6 +25,7 @@ vi.mock("@/services/api", () => ({
 }));
 
 import { browseApi, metadataRefreshApi, settingsApi } from "@/services/api";
+import { notifications } from "@/lib/notifications";
 import type { MetadataApplyRules } from "@/types/MetadataApplyRules";
 
 function ratingRules(
@@ -54,11 +55,11 @@ function ratingRules(
   };
 }
 
-function renderPanel(onApplied: () => void = vi.fn()) {
+function renderPanel(onStarted: (audiobookId: number) => void = vi.fn()) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
-      <PendingRefreshRowPanel audiobookId={42} onApplied={onApplied} />
+      <PendingRefreshRowPanel audiobookId={42} onStarted={onStarted} />
     </QueryClientProvider>,
   );
 }
@@ -267,6 +268,57 @@ describe("PendingRefreshRowPanel", () => {
     expect(vi.mocked(metadataRefreshApi.applyPending).mock.lastCall?.[1]).toEqual(["Subtitle"]);
   });
 
+  // The apply runs in the background: the endpoint answers 202 once it accepts the request, and the
+  // page reports the outcome when SingleBookOperationComplete arrives. The panel's only job after
+  // the request is accepted is to let the page collapse the row so the next one can be started.
+  describe("starting the apply", () => {
+    // The mocked module's default (a resolved apply) must survive for the suites after this one.
+    afterEach(() => {
+      vi.mocked(metadataRefreshApi.applyPending).mockReset().mockResolvedValue(undefined);
+      vi.mocked(metadataRefreshApi.checkApplyTarget).mockReset().mockResolvedValue(undefined);
+    });
+
+    function setUpRatingDiff() {
+      vi.mocked(metadataRefreshApi.applyPending).mockReset();
+      vi.mocked(metadataRefreshApi.checkApplyTarget).mockReset();
+      vi.mocked(browseApi.getAudiobookDetail).mockResolvedValue(bookDetailWithOnlyRatingDiffering);
+      vi.mocked(metadataRefreshApi.getPendingForAudiobook).mockResolvedValue(
+        pendingWithOnlyRatingDiffering,
+      );
+    }
+
+    it("reports the book as started once the server accepts the apply, without announcing a result itself", async () => {
+      setUpRatingDiff();
+      vi.mocked(metadataRefreshApi.applyPending).mockResolvedValue(undefined);
+      const onStarted = vi.fn();
+
+      renderPanel(onStarted);
+      fireEvent.click(await screen.findByRole("button", { name: /apply selected/i }));
+
+      await waitFor(() => expect(onStarted).toHaveBeenCalledWith(42));
+      expect(onStarted).toHaveBeenCalledTimes(1);
+      expect(notifications.success).not.toHaveBeenCalled();
+    });
+
+    it("keeps the row open and shows the error when the server refuses the apply (for example the book is busy)", async () => {
+      setUpRatingDiff();
+      vi.mocked(metadataRefreshApi.applyPending).mockRejectedValue(
+        new Error("Another operation is already modifying audiobook 42."),
+      );
+      const onStarted = vi.fn();
+
+      renderPanel(onStarted);
+      fireEvent.click(await screen.findByRole("button", { name: /apply selected/i }));
+
+      await waitFor(() =>
+        expect(notifications.error).toHaveBeenCalledWith(
+          "Another operation is already modifying audiobook 42.",
+        ),
+      );
+      expect(onStarted).not.toHaveBeenCalled();
+    });
+  });
+
   describe("target path collision", () => {
     const collision = {
       targetPath: "/library/Author A/Same Title/Same Title.m4b",
@@ -289,8 +341,9 @@ describe("PendingRefreshRowPanel", () => {
     it("offers the duplicate-target dialog instead of applying when a file is already at the new path", async () => {
       setUpRatingDiff();
       vi.mocked(metadataRefreshApi.checkApplyTarget).mockResolvedValue(collision);
+      const onStarted = vi.fn();
 
-      renderPanel();
+      renderPanel(onStarted);
       fireEvent.click(await screen.findByRole("button", { name: /apply selected/i }));
 
       expect(await screen.findByText("Duplicate file at target location")).toBeInTheDocument();
@@ -302,14 +355,16 @@ describe("PendingRefreshRowPanel", () => {
         undefined,
       );
       expect(metadataRefreshApi.applyPending).not.toHaveBeenCalled();
+      // Nothing was started, so the row must stay open for the user's answer.
+      expect(onStarted).not.toHaveBeenCalled();
     });
 
     it("applies the checked fields with replaceExisting once the user chooses to replace", async () => {
       setUpRatingDiff();
       vi.mocked(metadataRefreshApi.checkApplyTarget).mockResolvedValue(collision);
-      const onApplied = vi.fn();
+      const onStarted = vi.fn();
 
-      renderPanel(onApplied);
+      renderPanel(onStarted);
       fireEvent.click(await screen.findByRole("button", { name: /apply selected/i }));
       fireEvent.click(await screen.findByRole("button", { name: "Replace existing" }));
 
@@ -321,7 +376,7 @@ describe("PendingRefreshRowPanel", () => {
         undefined,
         true,
       );
-      await waitFor(() => expect(onApplied).toHaveBeenCalled());
+      await waitFor(() => expect(onStarted).toHaveBeenCalledWith(42));
     });
 
     it("applies nothing when the user cancels the dialog", async () => {

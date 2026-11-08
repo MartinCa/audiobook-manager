@@ -1,9 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { act, render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { createRouter, createMemoryHistory, RouterProvider } from "@tanstack/react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { routeTree } from "@/routeTree.gen";
 import { SignalRContext } from "@/context/SignalRContext";
+import { SignalREvents, SingleBookOperations } from "@/constants/signalrEvents";
+import { createFakeSignalR } from "@/test-utils/fakeSignalR";
 import { ThemeProvider } from "@/components/theme-provider";
 import { notifications } from "@/lib/notifications";
 
@@ -48,14 +50,7 @@ import type { PendingMetadataRefreshListItem } from "@/types/MetadataRefresh";
 describe("MetadataRefresh", () => {
   let queryClient: QueryClient;
 
-  const mockSignalRValue = {
-    connection: null,
-    isConnected: false,
-    on: vi.fn(),
-    off: vi.fn(),
-    onReconnected: vi.fn(),
-    offReconnected: vi.fn(),
-  };
+  let hub: ReturnType<typeof createFakeSignalR>;
 
   const sampleItems: PendingMetadataRefreshListItem[] = [
     {
@@ -78,6 +73,7 @@ describe("MetadataRefresh", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    hub = createFakeSignalR();
     queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
@@ -94,7 +90,7 @@ describe("MetadataRefresh", () => {
 
     const result = render(
       <ThemeProvider defaultTheme="system" storageKey="theme">
-        <SignalRContext.Provider value={mockSignalRValue}>
+        <SignalRContext.Provider value={hub.value}>
           <QueryClientProvider client={queryClient}>
             <RouterProvider router={router} />
           </QueryClientProvider>
@@ -326,6 +322,88 @@ describe("MetadataRefresh", () => {
 
     await waitFor(() => {
       expect(metadataRefreshApi.applySelected).toHaveBeenCalledWith([1], true);
+    });
+  });
+
+  // A single row's quick apply runs in the background, and its row panel has unmounted by the time
+  // the server reports back, so the page is what announces the outcome.
+  describe("single-row apply outcome", () => {
+    const completion = (status: string, message: string | null = null) => ({
+      audiobookId: 1,
+      operation: SingleBookOperations.pendingRefreshApply,
+      status,
+      message,
+    });
+
+    it("announces a completed apply and refreshes the pending list, the library badges and the book", async () => {
+      renderWithRouter();
+      await screen.findByText(/The Way of Kings/);
+      const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+
+      act(() => hub.emit(SignalREvents.SingleBookOperationComplete, completion("completed")));
+
+      expect(notifications.success).toHaveBeenCalledWith("Metadata changes applied");
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["metadataRefresh"] });
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["books"] });
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["bookDetail", 1] });
+    });
+
+    it("says there was nothing to apply when the pending changes were already gone", async () => {
+      renderWithRouter();
+      await screen.findByText(/The Way of Kings/);
+
+      act(() => hub.emit(SignalREvents.SingleBookOperationComplete, completion("nothingToApply")));
+
+      expect(notifications.info).toHaveBeenCalledWith(
+        "Nothing to apply — this book had no pending changes left",
+      );
+      expect(notifications.success).not.toHaveBeenCalled();
+    });
+
+    it("shows the server's message when the apply fails", async () => {
+      renderWithRouter();
+      await screen.findByText(/The Way of Kings/);
+
+      act(() =>
+        hub.emit(
+          SignalREvents.SingleBookOperationComplete,
+          completion("failed", "Another operation is already modifying audiobook 1."),
+        ),
+      );
+
+      expect(notifications.error).toHaveBeenCalledWith(
+        "Another operation is already modifying audiobook 1.",
+      );
+    });
+
+    it("tells the user how to resolve a target that already exists", async () => {
+      renderWithRouter();
+      await screen.findByText(/The Way of Kings/);
+
+      act(() =>
+        hub.emit(
+          SignalREvents.SingleBookOperationComplete,
+          completion("targetExists", "'/library/A/Book.m4b' already exists"),
+        ),
+      );
+
+      expect(notifications.error).toHaveBeenCalledWith("'/library/A/Book.m4b' already exists", {
+        description: "Open the row and apply again to be asked whether to replace it.",
+      });
+    });
+
+    it("ignores the select operation's completion, which belongs to the pending-matches page", async () => {
+      renderWithRouter();
+      await screen.findByText(/The Way of Kings/);
+
+      act(() =>
+        hub.emit(SignalREvents.SingleBookOperationComplete, {
+          ...completion("completed"),
+          operation: SingleBookOperations.pendingMatchSelect,
+        }),
+      );
+
+      expect(notifications.success).not.toHaveBeenCalled();
     });
   });
 });

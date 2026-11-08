@@ -1,7 +1,6 @@
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { PendingOnlineMatchRowPanel } from "./PendingOnlineMatchRowPanel";
 import { pendingOnlineMatchApi } from "@/services/api";
 import { notifications } from "@/lib/notifications";
@@ -46,15 +45,9 @@ const baseItem: PendingOnlineMatchListItem = {
   ],
 };
 
-function renderPanel(item: PendingOnlineMatchListItem = baseItem, onResolved = vi.fn()) {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
-  render(
-    <QueryClientProvider client={queryClient}>
-      <PendingOnlineMatchRowPanel item={item} onResolved={onResolved} />
-    </QueryClientProvider>,
-  );
-  return { invalidateSpy, onResolved };
+function renderPanel(item: PendingOnlineMatchListItem = baseItem, onStarted = vi.fn()) {
+  render(<PendingOnlineMatchRowPanel item={item} onStarted={onStarted} />);
+  return { onStarted };
 }
 
 describe("PendingOnlineMatchRowPanel", () => {
@@ -100,9 +93,9 @@ describe("PendingOnlineMatchRowPanel", () => {
     expect(screen.queryByRole("button", { name: /select this match/i })).not.toBeInTheDocument();
   });
 
-  it("selecting a candidate calls selectResult with the book id and its index, invalidates views, and resolves", async () => {
+  it("selecting a candidate calls selectResult with the book id and its index, then reports it started", async () => {
     vi.mocked(pendingOnlineMatchApi.selectResult).mockResolvedValue(undefined);
-    const { invalidateSpy, onResolved } = renderPanel();
+    const { onStarted } = renderPanel();
 
     // Goodreads candidate: index 1 in the flat list although it is the only card in its tab
     await userEvent.click(screen.getByRole("tab", { name: "Goodreads (1)" }));
@@ -112,26 +105,23 @@ describe("PendingOnlineMatchRowPanel", () => {
       expect(pendingOnlineMatchApi.selectResult).toHaveBeenCalledWith(1, 1);
     });
     await waitFor(() => {
-      expect(notifications.success).toHaveBeenCalledWith(
-        "Match selected — changes the automated rules accept are applied; anything needing review appears on the book's pending metadata banner.",
-      );
+      expect(onStarted).toHaveBeenCalledWith(1);
     });
-    expect(onResolved).toHaveBeenCalledTimes(1);
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["pendingOnlineMatch"] });
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["metadataRefresh"] });
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["books"] });
+    expect(onStarted).toHaveBeenCalledTimes(1);
+    // The outcome is the page's to report (the row has collapsed by then), not the panel's.
+    expect(notifications.success).not.toHaveBeenCalled();
   });
 
-  it("shows an error toast and does not resolve when selecting a candidate fails", async () => {
+  it("shows an error toast and does not report started when selecting a candidate fails", async () => {
     vi.mocked(pendingOnlineMatchApi.selectResult).mockRejectedValue(new Error("Network error"));
-    const { onResolved } = renderPanel();
+    const { onStarted } = renderPanel();
 
     fireEvent.click(screen.getAllByRole("button", { name: /select this match/i })[0]!);
 
     await waitFor(() => {
       expect(notifications.error).toHaveBeenCalled();
     });
-    expect(onResolved).not.toHaveBeenCalled();
+    expect(onStarted).not.toHaveBeenCalled();
   });
 
   it("disables every select button while one selection is in flight", async () => {
