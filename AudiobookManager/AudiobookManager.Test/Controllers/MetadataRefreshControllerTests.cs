@@ -22,6 +22,8 @@ public class MetadataRefreshControllerTests
     private Mock<IOperationStatusRegistry> _statusRegistry = null!;
     private Mock<IMetadataRefreshService> _metadataRefreshService = null!;
     private Mock<ILogger<MetadataRefreshController>> _logger = null!;
+    private SingleBookOperationTracker _tracker = null!;
+    private AudiobookSaveGate _saveGate = null!;
     private MetadataRefreshController _controller = null!;
 
     [TestInitialize]
@@ -45,8 +47,13 @@ public class MetadataRefreshControllerTests
         mockScope.Setup(s => s.ServiceProvider).Returns(mockServiceProvider.Object);
         _serviceScopeFactory.Setup(f => f.CreateScope()).Returns(mockScope.Object);
 
+        _tracker = new SingleBookOperationTracker();
+        _saveGate = new AudiobookSaveGate();
+
         _controller = new MetadataRefreshController(
             _metadataRefreshService.Object,
+            _tracker,
+            _saveGate,
             _hubContext.Object,
             _serviceScopeFactory.Object,
             _statusRegistry.Object,
@@ -185,46 +192,158 @@ public class MetadataRefreshControllerTests
             r.StopReason == "Hardcover daily API request limit reached")), Times.Once);
     }
 
-    // Regression (review finding): ApplyOneAsync takes the shared per-audiobook save gate, which
-    // throws AudiobookBusyException when another operation already holds it for this book. That
-    // used to fall through to the generic InvalidOperationException catch's absence and surface
-    // as an unhandled 500 instead of the 409 every other file-mutating endpoint returns for the
-    // same condition (see ConsistencyController).
-    [TestMethod]
-    public async Task ApplyPending_BookBusy_Returns409NotA500()
+    // The single-book apply is fire-and-forget: it answers 202 and reports its outcome as a
+    // SingleBookOperationComplete event, because rewriting the m4b (tags, relocation, sidecars) is
+    // too slow to hold a request open for. These helpers wait on that event rather than sleeping.
+    private Task<SingleBookOperationComplete> NextCompletion()
     {
-        _metadataRefreshService.Setup(s => s.ApplyPendingRefreshAsync(55, null))
+        var tcs = new TaskCompletionSource<SingleBookOperationComplete>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _clientProxy.Setup(c => c.SingleBookOperationComplete(It.IsAny<SingleBookOperationComplete>()))
+            .Callback<SingleBookOperationComplete>(e => tcs.TrySetResult(e))
+            .Returns(Task.CompletedTask);
+        return tcs.Task;
+    }
+
+    [TestMethod]
+    public async Task ApplyPending_Valid_Returns202AndReportsCompletedOverSignalR()
+    {
+        var completion = NextCompletion();
+        _metadataRefreshService.Setup(s => s.ApplyPendingRefreshAsync(50, null, false, null, false)).ReturnsAsync(true);
+
+        var result = _controller.ApplyPending(50, null);
+
+        Assert.IsInstanceOfType<AcceptedResult>(result);
+        var outcome = await completion.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.AreEqual(new SingleBookOperationComplete(50, SingleBookOperations.PendingRefreshApply, SingleBookOperationStatus.Completed, null), outcome);
+    }
+
+    [TestMethod]
+    public async Task ApplyPending_NothingPending_ReportsNothingToApply()
+    {
+        var completion = NextCompletion();
+        _metadataRefreshService.Setup(s => s.ApplyPendingRefreshAsync(51, null, false, null, false)).ReturnsAsync(false);
+
+        _controller.ApplyPending(51, null);
+
+        var outcome = await completion.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.AreEqual(SingleBookOperationStatus.NothingToApply, outcome.Status);
+    }
+
+    // The gate is taken inside ApplyOneAsync, so a book that was free when the request arrived but
+    // is busy by the time the task runs is a reported failure, not an unobserved exception.
+    [TestMethod]
+    public async Task ApplyPending_BookBecomesBusyBeforeTheApplyRuns_ReportsFailedWithTheMessage()
+    {
+        var completion = NextCompletion();
+        _metadataRefreshService.Setup(s => s.ApplyPendingRefreshAsync(55, null, false, null, false))
             .ThrowsAsync(new AudiobookBusyException(55));
 
-        var result = await _controller.ApplyPending(55, null);
+        _controller.ApplyPending(55, null);
 
-        ProblemAssert.HasDetail(result, StatusCodes.Status409Conflict,
-            "Another operation is already modifying audiobook 55");
+        var outcome = await completion.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.AreEqual(SingleBookOperationStatus.Failed, outcome.Status);
+        Assert.AreEqual("Another operation is already modifying audiobook 55", outcome.Message);
+    }
+
+    [TestMethod]
+    public void ApplyPending_BookAlreadyBusy_Returns409WithoutStartingAnything()
+    {
+        Assert.IsTrue(_saveGate.TryAcquire(56, out var heldByAnotherOperation));
+        using (heldByAnotherOperation)
+        {
+            var result = _controller.ApplyPending(56, null);
+
+            ProblemAssert.HasDetail(result, StatusCodes.Status409Conflict,
+                "Another operation is already modifying audiobook 56.");
+        }
+
+        _metadataRefreshService.Verify(
+            s => s.ApplyPendingRefreshAsync(It.IsAny<long>(), It.IsAny<IReadOnlyCollection<string>?>(), It.IsAny<bool>(), It.IsAny<string?>(), It.IsAny<bool>()),
+            Times.Never);
+        Assert.IsFalse(_tracker.IsRunning(SingleBookOperations.PendingRefreshApply, 56), "A refused request must not leave its slot taken.");
+    }
+
+    [TestMethod]
+    public async Task ApplyPending_SecondApplyForTheSameBookWhileFirstRuns_Returns409AndRunsOnce()
+    {
+        var release = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var completion = NextCompletion();
+        _metadataRefreshService.Setup(s => s.ApplyPendingRefreshAsync(57, null, false, null, false))
+            .Returns(async () =>
+            {
+                started.TrySetResult();
+                return await release.Task;
+            });
+
+        Assert.IsInstanceOfType<AcceptedResult>(_controller.ApplyPending(57, null));
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        var second = _controller.ApplyPending(57, null);
+
+        ProblemAssert.HasDetail(second, StatusCodes.Status409Conflict, "An apply for audiobook 57 is already in progress.");
+        release.SetResult(true);
+        await completion.WaitAsync(TimeSpan.FromSeconds(5));
+        _metadataRefreshService.Verify(s => s.ApplyPendingRefreshAsync(57, null, false, null, false), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task ApplyPending_Finished_ReleasesTheSlotSoTheBookCanBeAppliedAgain()
+    {
+        var completion = NextCompletion();
+        _metadataRefreshService.Setup(s => s.ApplyPendingRefreshAsync(58, null, false, null, false)).ReturnsAsync(true);
+
+        _controller.ApplyPending(58, null);
+        await completion.WaitAsync(TimeSpan.FromSeconds(5));
+
+        // The slot is released before the event is sent, so by now it is free.
+        Assert.IsFalse(_tracker.IsRunning(SingleBookOperations.PendingRefreshApply, 58));
+        Assert.IsInstanceOfType<AcceptedResult>(_controller.ApplyPending(58, null));
     }
 
     // Regression: a file already at the target path used to escape as a bare System.Exception and
     // surface as a nondescript 500, leaving the user with no message and no way to resolve it.
     [TestMethod]
-    public async Task ApplyPending_TargetFileAlreadyExists_Returns409WithTheMessage()
+    public async Task ApplyPending_TargetFileAlreadyExists_ReportsTargetExistsWithTheMessage()
     {
-        _metadataRefreshService.Setup(s => s.ApplyPendingRefreshAsync(56, null))
+        var completion = NextCompletion();
+        _metadataRefreshService.Setup(s => s.ApplyPendingRefreshAsync(59, null, false, null, false))
             .ThrowsAsync(new TargetPathExistsException("/library/A/Book.m4b"));
 
-        var result = await _controller.ApplyPending(56, null);
+        _controller.ApplyPending(59, null);
 
-        ProblemAssert.HasDetail(result, StatusCodes.Status409Conflict, "'/library/A/Book.m4b' already exists");
+        var outcome = await completion.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.AreEqual(SingleBookOperationStatus.TargetExists, outcome.Status);
+        StringAssert.Contains(outcome.Message, "'/library/A/Book.m4b' already exists");
+    }
+
+    // An unexpected exception's text routinely contains absolute container paths and the event is
+    // broadcast to every client, so it is logged and replaced by a fixed sentence.
+    [TestMethod]
+    public async Task ApplyPending_UnexpectedException_ReportsFixedSentenceNotTheExceptionText()
+    {
+        var completion = NextCompletion();
+        _metadataRefreshService.Setup(s => s.ApplyPendingRefreshAsync(60, null, false, null, false))
+            .ThrowsAsync(new IOException("Could not open /data/library/Secret Author/Book.m4b"));
+
+        _controller.ApplyPending(60, null);
+
+        var outcome = await completion.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.AreEqual(SingleBookOperationStatus.Failed, outcome.Status);
+        Assert.IsFalse(outcome.Message!.Contains("/data/library"), outcome.Message);
     }
 
     [TestMethod]
     public async Task ApplyPending_ReplaceExistingInDto_PassesThroughToTheService()
     {
-        _metadataRefreshService.Setup(s => s.ApplyPendingRefreshAsync(57, null, false, null, true))
+        var completion = NextCompletion();
+        _metadataRefreshService.Setup(s => s.ApplyPendingRefreshAsync(61, null, false, null, true))
             .ReturnsAsync(true);
 
-        var result = await _controller.ApplyPending(57, new ApplyPendingRefreshDto(null, ReplaceExisting: true));
+        _controller.ApplyPending(61, new ApplyPendingRefreshDto(null, ReplaceExisting: true));
 
-        Assert.IsInstanceOfType<OkResult>(result);
-        _metadataRefreshService.Verify(s => s.ApplyPendingRefreshAsync(57, null, false, null, true), Times.Once);
+        await completion.WaitAsync(TimeSpan.FromSeconds(5));
+        _metadataRefreshService.Verify(s => s.ApplyPendingRefreshAsync(61, null, false, null, true), Times.Once);
     }
 
     [TestMethod]
@@ -262,38 +381,38 @@ public class MetadataRefreshControllerTests
         Assert.IsInstanceOfType<NoContentResult>(result.Result);
     }
 
-    // Mapping test, not a regression guard: the controller's InvalidOperationException catch
-    // predates this fix, so mocking the service to throw passes with or without it. The actual
-    // regression guard - a corrupt/unparseable payload throwing InvalidOperationException instead
-    // of returning false indistinguishably from "book no longer exists" - is
-    // MetadataRefreshServiceTests.ApplyPendingRefreshAsync_UnparseablePayload_ThrowsInsteadOfReturningFalse.
-    // This test only documents that once the service throws, the controller answers 400 not 204.
+    // The service throws (rather than returning false) for an unreadable payload, so the user is
+    // told why instead of being shown "nothing to apply". The regression guard for the throw itself is
+    // MetadataRefreshServiceTests.ApplyPendingRefreshAsync_UnparseablePayload_ThrowsInsteadOfReturningFalse;
+    // this one pins that the message still reaches the user now that the request has already returned.
     [TestMethod]
-    public async Task ApplyPending_UnparseablePayload_Returns400NotA204()
+    public async Task ApplyPending_UnparseablePayload_ReportsFailedWithTheMessageNotNothingToApply()
     {
-        _metadataRefreshService.Setup(s => s.ApplyPendingRefreshAsync(77, null))
+        var completion = NextCompletion();
+        _metadataRefreshService.Setup(s => s.ApplyPendingRefreshAsync(77, null, false, null, false))
             .ThrowsAsync(new InvalidOperationException("The pending metadata refresh for audiobook 77 could not be read; its stored payload is not valid."));
 
-        var result = await _controller.ApplyPending(77, null);
+        _controller.ApplyPending(77, null);
 
-        ProblemAssert.HasDetail(result, StatusCodes.Status400BadRequest,
-            "The pending metadata refresh for audiobook 77 could not be read; its stored payload is not valid.");
+        var outcome = await completion.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.AreEqual(SingleBookOperationStatus.Failed, outcome.Status);
+        Assert.AreEqual("The pending metadata refresh for audiobook 77 could not be read; its stored payload is not valid.", outcome.Message);
     }
 
-    // Regression for a review finding on the splitTitleOnColon toggle: the three apply endpoints
-    // are thin pass-throughs from their DTOs to the service, and nothing asserted the flag
-    // actually reaches the service call rather than being silently dropped along the way. The
-    // service and frontend threading already had their own coverage; this was the one untested hop.
+    // Regression for a review finding on the splitTitleOnColon toggle: the apply endpoints are thin
+    // pass-throughs from their DTOs to the service, and nothing asserted the flag actually reaches
+    // the service call rather than being silently dropped along the way.
     [TestMethod]
     public async Task ApplyPending_SplitTitleOnColonInDto_PassesThroughToTheService()
     {
-        _metadataRefreshService.Setup(s => s.ApplyPendingRefreshAsync(88, null, true))
+        var completion = NextCompletion();
+        _metadataRefreshService.Setup(s => s.ApplyPendingRefreshAsync(88, null, true, null, false))
             .ReturnsAsync(true);
 
-        var result = await _controller.ApplyPending(88, new ApplyPendingRefreshDto(null, SplitTitleOnColon: true));
+        _controller.ApplyPending(88, new ApplyPendingRefreshDto(null, SplitTitleOnColon: true));
 
-        Assert.IsInstanceOfType<OkResult>(result);
-        _metadataRefreshService.Verify(s => s.ApplyPendingRefreshAsync(88, null, true), Times.Once);
+        await completion.WaitAsync(TimeSpan.FromSeconds(5));
+        _metadataRefreshService.Verify(s => s.ApplyPendingRefreshAsync(88, null, true, null, false), Times.Once);
     }
 
     [TestMethod]

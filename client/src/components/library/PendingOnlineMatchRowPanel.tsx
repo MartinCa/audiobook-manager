@@ -1,10 +1,8 @@
 import { useMemo, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SourceTabbedResults } from "@/components/SourceTabbedResults";
 import { pendingOnlineMatchApi } from "@/services/api";
-import { queryKeys } from "@/lib/queryKeys";
 import { pendingSnapshotToSearchResult } from "@/helpers/pendingMetadataRefresh";
 import { handleApiError } from "@/lib/api";
 import { notifications } from "@/lib/notifications";
@@ -12,40 +10,34 @@ import type { PendingOnlineMatchListItem } from "@/types/PendingOnlineMatch";
 
 export interface PendingOnlineMatchRowPanelProps {
   item: PendingOnlineMatchListItem;
-  onResolved: () => void;
+  /**
+   * Sends the request that starts the selection and resolves once the server has accepted it, at
+   * which point the page collapses the row so the user can move on (it rejects if the server
+   * refuses). The work (fetching the candidate, applying what the automated rules accept) continues
+   * in the background; the page reports its outcome when SingleBookOperationComplete arrives. The
+   * page tracks the book as busy from before the request goes out, which is why the request is
+   * handed over rather than sent here.
+   */
+  start: (request: () => Promise<void>) => Promise<void>;
 }
 
 /**
  * A pending online-match row's expanded content: the candidate results, presented with
  * MetadataSearchResultCard - the same card the interactive "Search Online Metadata" dialog
  * renders, so a bulk-search candidate looks identical to one the user searched for by hand.
- * Selecting a candidate fetches its full details and hands them to the normal pending
- * metadata-refresh review/apply flow (the book's own "Refresh Now" review banner) rather than
- * saving anything directly here - this row's job is choosing, not applying.
+ * Selecting a candidate asks the server to fetch its full details and hand them to the normal
+ * pending metadata-refresh review/apply flow (the book's own "Refresh Now" review banner) rather
+ * than saving anything directly here - this row's job is choosing, not applying. The server runs
+ * that in the background and answers right away, so the panel only waits for the request to be
+ * accepted.
  */
-export function PendingOnlineMatchRowPanel({ item, onResolved }: PendingOnlineMatchRowPanelProps) {
-  const queryClient = useQueryClient();
+export function PendingOnlineMatchRowPanel({ item, start }: PendingOnlineMatchRowPanelProps) {
   const [selectingIndex, setSelectingIndex] = useState<number | null>(null);
-
-  const invalidateViews = () => {
-    void queryClient.invalidateQueries({ queryKey: queryKeys.pendingOnlineMatch.all() });
-    void queryClient.invalidateQueries({ queryKey: queryKeys.metadataRefresh.all() });
-    void queryClient.invalidateQueries({ queryKey: queryKeys.books.all() });
-  };
 
   const handleSelect = async (index: number) => {
     setSelectingIndex(index);
     try {
-      await pendingOnlineMatchApi.selectResult(item.audiobookId, index);
-      // The server settles the pick by the automated apply rules: what they accept is applied
-      // right away, a diff-less candidate records nothing, and only a changeset with an Ask me
-      // field is left on the book's pending metadata banner. The response says which, so this
-      // can't promise any one outcome.
-      notifications.success(
-        "Match selected — changes the automated rules accept are applied; anything needing review appears on the book's pending metadata banner.",
-      );
-      invalidateViews();
-      onResolved();
+      await start(() => pendingOnlineMatchApi.selectResult(item.audiobookId, index));
     } catch (err: unknown) {
       notifications.error(handleApiError(err).message);
     } finally {

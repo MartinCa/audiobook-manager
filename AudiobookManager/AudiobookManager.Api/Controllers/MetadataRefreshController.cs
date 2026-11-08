@@ -20,6 +20,8 @@ public class MetadataRefreshController : ControllerBase
     private static readonly SemaphoreSlim _applyLock = new(1, 1);
 
     private readonly IMetadataRefreshService _metadataRefreshService;
+    private readonly ISingleBookOperationTracker _operationTracker;
+    private readonly IAudiobookSaveGate _saveGate;
     private readonly IHubContext<OrganizeHub, IOrganize> _organizeHub;
     private readonly IServiceScopeFactory _serviceScopeFactory;
     private readonly IOperationStatusRegistry _statusRegistry;
@@ -28,6 +30,8 @@ public class MetadataRefreshController : ControllerBase
 
     public MetadataRefreshController(
         IMetadataRefreshService metadataRefreshService,
+        ISingleBookOperationTracker operationTracker,
+        IAudiobookSaveGate saveGate,
         IHubContext<OrganizeHub, IOrganize> organizeHub,
         IServiceScopeFactory serviceScopeFactory,
         IOperationStatusRegistry statusRegistry,
@@ -35,6 +39,8 @@ public class MetadataRefreshController : ControllerBase
         ILogger<MetadataRefreshController> logger)
     {
         _metadataRefreshService = metadataRefreshService;
+        _operationTracker = operationTracker;
+        _saveGate = saveGate;
         _organizeHub = organizeHub;
         _serviceScopeFactory = serviceScopeFactory;
         _statusRegistry = statusRegistry;
@@ -208,36 +214,70 @@ public class MetadataRefreshController : ControllerBase
     }
 
     /// <summary>
-    /// Applies one book's pending snapshot immediately - the metadata-refresh page's per-row
-    /// quick apply. Synchronous (one book, one save) unlike the bulk endpoints below.
+    /// Starts applying one book's pending snapshot - the metadata-refresh page's per-row quick
+    /// apply. Fire-and-forget: the apply rewrites the m4b's tags, may move the file and rewrites
+    /// the sidecars, which is slow enough that holding the request open froze the row. Returns 202
+    /// once accepted and reports the outcome as a <see cref="SingleBookOperationComplete"/> event
+    /// (applied, nothing to apply, target already exists, or a failure). A second apply for a book
+    /// already being applied, or whose file another operation is rewriting, is a 409.
     /// </summary>
     [HttpPost("{id:long}/apply")]
-    public async Task<IActionResult> ApplyPending(long id, [FromBody] ApplyPendingRefreshDto? dto)
+    public IActionResult ApplyPending(long id, [FromBody] ApplyPendingRefreshDto? dto)
     {
-        try
+        // Taken before the task starts so the 409 is exact from the moment this returns. The save
+        // gate is only checked, not held: ApplyOneAsync takes it itself and it is not reentrant,
+        // which is also what makes a busy book that races past this check a reported failure
+        // instead of a double write.
+        if (!_operationTracker.TryBegin(SingleBookOperations.PendingRefreshApply, id, out var lease))
         {
-            var applied = await _metadataRefreshService.ApplyPendingRefreshAsync(
-                id, dto?.Fields, dto?.SplitTitleOnColon ?? false, dto?.PrimarySeriesName, dto?.ReplaceExisting ?? false);
-            return applied ? Ok() : NoContent();
+            return this.ConflictingState($"An apply for audiobook {id} is already in progress.", "Apply in progress");
         }
-        catch (TargetPathExistsException ex)
+
+        if (_saveGate.IsBusy(id))
         {
-            // Another file already sits where the refreshed metadata would file this book. The
-            // client normally asks first (check-target); this is the answer when it raced or was
-            // skipped, and the user can resolve it by retrying with replaceExisting.
-            return this.ConflictingState(ex.Message, "Target file already exists");
+            lease.Dispose();
+            return this.ConflictingState($"Another operation is already modifying audiobook {id}.", "Cannot apply pending refresh");
         }
-        catch (AudiobookBusyException ex)
+
+        var fields = dto?.Fields;
+        var splitTitleOnColon = dto?.SplitTitleOnColon ?? false;
+        var primarySeriesName = dto?.PrimarySeriesName;
+        var replaceExisting = dto?.ReplaceExisting ?? false;
+
+        _ = Task.Run(async () =>
         {
-            // The apply takes the same per-audiobook save gate an interactive save/resolve/align
-            // does (MetadataRefreshService.ApplyOneAsync), so another operation already holding
-            // it for this book is a "try again", not a server error.
-            return this.ConflictingState(ex.Message, "Cannot apply pending refresh");
-        }
-        catch (InvalidOperationException ex)
-        {
-            return this.InvalidRequest(ex.Message);
-        }
+            SingleBookOperationComplete outcome;
+            try
+            {
+                using var scope = _serviceScopeFactory.CreateScope();
+                var service = scope.ServiceProvider.GetRequiredService<IMetadataRefreshService>();
+                var applied = await service.ApplyPendingRefreshAsync(id, fields, splitTitleOnColon, primarySeriesName, replaceExisting);
+                outcome = new SingleBookOperationComplete(
+                    id, SingleBookOperations.PendingRefreshApply,
+                    applied ? SingleBookOperationStatus.Completed : SingleBookOperationStatus.NothingToApply, null);
+            }
+            catch (TargetPathExistsException ex)
+            {
+                // Another file already sits where the refreshed metadata would file this book. The
+                // client normally asks first (check-target); this is the answer when it raced or was
+                // skipped, and the user can resolve it by applying again with replaceExisting.
+                outcome = new SingleBookOperationComplete(id, SingleBookOperations.PendingRefreshApply, SingleBookOperationStatus.TargetExists, ex.Message);
+            }
+            catch (Exception ex)
+            {
+                outcome = new SingleBookOperationComplete(
+                    id, SingleBookOperations.PendingRefreshApply, SingleBookOperationStatus.Failed,
+                    SingleBookOperationFailures.Describe(ex, _logger, id, "applying a pending metadata refresh"));
+            }
+            finally
+            {
+                lease.Dispose();
+            }
+
+            await _organizeHub.NotifyAsync(outcome, _logger);
+        });
+
+        return Accepted();
     }
 
     /// <summary>

@@ -406,6 +406,23 @@ The gate is **non-reentrant**, so nothing below an entry point may take it again
 loops reach it while already holding it. A busy book fails just its own item: the bulk callers'
 per-item try/catch counts it and the batch carries on.
 
+**Single-book background operations answer 202 and report over SignalR.** Selecting a candidate of a
+pending online match (`POST pending-online-match/{id}/select`) and the metadata-refresh page's per-row
+quick apply (`POST metadata-refresh/{id}/apply`) both scrape and/or rewrite an m4b (tags, relocation,
+sidecars, consistency recheck), which is far too slow to hold a request open for. Each validates
+cheaply, takes its slot in `ISingleBookOperationTracker` (a singleton set keyed by operation + book,
+so a double click is a `409`, not a second scrape), checks `IAudiobookSaveGate.IsBusy` (**checked, not
+held** - `ApplyOneAsync` takes the non-reentrant gate itself), returns `202`, and runs the work in a
+`Task.Run` with a scope from `_serviceScopeFactory`. The outcome is one shared event,
+`SingleBookOperationComplete(AudiobookId, Operation, Status, Message)` (`SingleBookOperations` /
+`SingleBookOperationStatus` in `Api/Async/SingleBookOperationEvents.cs`); the slot is released
+*before* the event is sent. Failure `Message`s go through `SingleBookOperationFailures.Describe`: only
+exceptions whose text is written for the user are relayed, anything else is logged and replaced by a
+fixed sentence, because the event is broadcast and exception text contains container paths. On the
+client the row collapses as soon as the request is accepted, and the **page** (not the row panel,
+which has unmounted) listens through `useSingleBookOperation`, which tracks the busy ids and, after a
+SignalR reconnect, clears them and refetches - an event sent while disconnected is gone for good.
+
 Resolve DI services for background work from `_serviceScopeFactory.CreateScope()`, never from the
 controller's own request-scoped instances. At startup, use `app.Services.CreateScope()` — never
 `builder.Services.BuildServiceProvider()`, which builds a second, never-disposed container whose

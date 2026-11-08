@@ -25,7 +25,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import type { PageSizeOption } from "@/constants/paging";
-import { OperationKeys, SignalREvents } from "@/constants/signalrEvents";
+import { OperationKeys, SignalREvents, SingleBookOperations } from "@/constants/signalrEvents";
 import { LinkButton } from "./link-button";
 import { OperationProgressBar } from "./OperationProgressBar";
 import { SeriesRefreshPendingList } from "./library/SeriesRefreshPendingList";
@@ -38,6 +38,10 @@ import { metadataRefreshApi, metadataSearchApi, seriesApi } from "@/services/api
 import { queryKeys } from "@/lib/queryKeys";
 import { useSignalREvent } from "@/hooks/useSignalR";
 import { useOperationResync } from "@/hooks/useOperationResync";
+import {
+  useSingleBookOperation,
+  type SingleBookOperationCompletePayload,
+} from "@/hooks/useSingleBookOperation";
 import { usePageSize } from "@/hooks/usePageSize";
 import { cutoffDateToUtcIso } from "@/helpers/metadataRefresh";
 import { formatDateTime } from "@/helpers/formatHelpers";
@@ -147,6 +151,28 @@ export function MetadataRefresh() {
     void queryClient.invalidateQueries({ queryKey: queryKeys.metadataRefresh.all() });
     void queryClient.invalidateQueries({ queryKey: queryKeys.books.all() });
   };
+
+  // A single row's quick apply runs in the background: the row collapses as soon as the server
+  // accepts it, and the outcome arrives here (not in the row panel, which has unmounted by then).
+  const { busyIds: applyingIds, start: startApply } = useSingleBookOperation(
+    SingleBookOperations.pendingRefreshApply,
+    (event: SingleBookOperationCompletePayload) => {
+      if (event.status === "completed") {
+        notifications.success("Metadata changes applied");
+      } else if (event.status === "nothingToApply") {
+        notifications.info("Nothing to apply — this book had no pending changes left");
+      } else if (event.status === "targetExists") {
+        notifications.error(event.message ?? "A file already exists at the new location", {
+          description: "Open the row and apply again to be asked whether to replace it.",
+        });
+      } else {
+        notifications.error(event.message ?? "Applying the pending changes failed");
+      }
+      invalidateRefreshViews();
+      void queryClient.invalidateQueries({ queryKey: queryKeys.bookDetail(event.audiobookId) });
+    },
+    invalidateRefreshViews,
+  );
 
   // Recover an in-flight bulk apply (selected books, or every book matching a filter) the same
   // way the bulk refresh above recovers.
@@ -677,6 +703,7 @@ export function MetadataRefresh() {
             </div>
 
             {pendingItems.map((item) => {
+              const isApplying = applyingIds.has(item.audiobookId);
               const isExpanded = expandedId === item.audiobookId;
               return (
                 <div
@@ -686,11 +713,13 @@ export function MetadataRefresh() {
                   <div className="flex items-center gap-3 p-3">
                     <Checkbox
                       checked={selectedIds.has(item.audiobookId)}
+                      disabled={isApplying}
                       onCheckedChange={() => toggleSelected(item.audiobookId)}
                     />
                     <button
                       type="button"
                       className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                      disabled={isApplying}
                       onClick={() => setExpandedId(isExpanded ? null : item.audiobookId)}
                     >
                       {isExpanded ? (
@@ -715,6 +744,12 @@ export function MetadataRefresh() {
                         </div>
                       </div>
                     </button>
+                    {isApplying && (
+                      <Badge variant="outline" className="shrink-0">
+                        <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                        Applying…
+                      </Badge>
+                    )}
                     <Badge variant="secondary" className="shrink-0">
                       {item.sourceName}
                     </Badge>
@@ -735,7 +770,10 @@ export function MetadataRefresh() {
                     <div className="border-border bg-muted/20 border-t p-3">
                       <PendingRefreshRowPanel
                         audiobookId={item.audiobookId}
-                        onApplied={() => setExpandedId(null)}
+                        start={async (request) => {
+                          await startApply(item.audiobookId, request);
+                          setExpandedId(null);
+                        }}
                       />
                     </div>
                   )}

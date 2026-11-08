@@ -621,7 +621,10 @@ export const metadataRefreshApi = {
   refreshSelected: (audiobookIds: number[]) =>
     api.post<void>("/metadata-refresh/bulk-selected", { audiobookIds }),
 
-  // Synchronous single-book apply, for the pending list's per-row quick apply. Omitted/empty
+  // Fire-and-forget single-book apply, for the pending list's per-row quick apply: resolves (202)
+  // once the server has accepted it, and the outcome arrives as a SingleBookOperationComplete
+  // SignalR event (see useSingleBookOperation). A 409 means this book is already being applied or
+  // another operation is rewriting its file. Omitted/empty
   // fields applies every field the snapshot recorded as changed. `splitTitleOnColon` (default
   // off) opts into recovering a "Title: Subtitle" pair from a raw scraped title at its first
   // colon-space - see helpers/titleSplitter.ts.
@@ -629,7 +632,7 @@ export const metadataRefreshApi = {
   // the Series field is applied; left out, the server keeps the book's current primary if the
   // source still lists it (the same choice a bulk apply makes).
   // `replaceExisting` is the user's answer to the duplicate-target dialog: without it, an apply
-  // whose new library path is already occupied is refused with a 409.
+  // whose new library path is already occupied is reported as a `targetExists` outcome.
   applyPending: (
     id: number,
     fields?: readonly string[],
@@ -699,8 +702,11 @@ export const pendingOnlineMatchApi = {
   getFailedPage: (page: number, pageSize: number) =>
     api.get<PendingOnlineMatchPage>("/pending-online-match/failed", { query: { page, pageSize } }),
 
-  // Synchronous single-book action: fetches full details for the chosen candidate and hands them
-  // to the normal pending metadata-refresh review/apply flow; the book's row here is resolved.
+  // Fire-and-forget single-book action: resolves (202) once the server has accepted the pick, then
+  // fetches full details for the chosen candidate and hands them to the normal pending
+  // metadata-refresh review/apply flow, resolving the book's row here. The outcome arrives as a
+  // SingleBookOperationComplete SignalR event (see useSingleBookOperation); a 409 means this book
+  // is already being selected or another operation is rewriting its file.
   selectResult: (id: number, resultIndex: number) =>
     api.post<void>(`/pending-online-match/${id}/select`, { resultIndex }),
 

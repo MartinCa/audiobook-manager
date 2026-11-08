@@ -230,4 +230,10 @@ public class Client : IOrganize
         Console.WriteLine($"Pending online match search complete: {result.TotalProcessed} processed, {result.TotalSucceeded} succeeded, {result.TotalFailed} failed");
         return Task.CompletedTask;
     }
+
+    public Task SingleBookOperationComplete(SingleBookOperationComplete result)
+    {
+        Console.WriteLine($"Single-book operation {result.Operation} for audiobook {result.AudiobookId}: {result.Status}{(result.Message is null ? "" : $" ({result.Message})")}");
+        return Task.CompletedTask;
+    }
 }

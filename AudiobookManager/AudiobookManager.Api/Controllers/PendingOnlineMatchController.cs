@@ -17,6 +17,8 @@ public class PendingOnlineMatchController : ControllerBase
     private static readonly SemaphoreSlim _searchLock = new(1, 1);
 
     private readonly IPendingOnlineMatchService _service;
+    private readonly ISingleBookOperationTracker _operationTracker;
+    private readonly IAudiobookSaveGate _saveGate;
     private readonly ISettingsService _settingsService;
     private readonly IHubContext<OrganizeHub, IOrganize> _organizeHub;
     private readonly IServiceScopeFactory _serviceScopeFactory;
@@ -26,6 +28,8 @@ public class PendingOnlineMatchController : ControllerBase
 
     public PendingOnlineMatchController(
         IPendingOnlineMatchService service,
+        ISingleBookOperationTracker operationTracker,
+        IAudiobookSaveGate saveGate,
         ISettingsService settingsService,
         IHubContext<OrganizeHub, IOrganize> organizeHub,
         IServiceScopeFactory serviceScopeFactory,
@@ -34,6 +38,8 @@ public class PendingOnlineMatchController : ControllerBase
         ILogger<PendingOnlineMatchController> logger)
     {
         _service = service;
+        _operationTracker = operationTracker;
+        _saveGate = saveGate;
         _settingsService = settingsService;
         _organizeHub = organizeHub;
         _serviceScopeFactory = serviceScopeFactory;
@@ -134,10 +140,14 @@ public class PendingOnlineMatchController : ControllerBase
     }
 
     /// <summary>
-    /// Fetches full details for the chosen candidate and hands them to the normal pending
+    /// Starts fetching the chosen candidate's full details and handing them to the normal pending
     /// metadata-refresh review/apply flow - the book's row here is then resolved (deleted).
-    /// Synchronous: one book, one extra HTTP fetch, the same latency profile
-    /// metadata-search/details already has.
+    /// Fire-and-forget: the scrape plus, when the automated apply rules accept the changes, a tag
+    /// rewrite, file move and consistency recheck is far more than "one extra HTTP fetch", so this
+    /// returns 202 as soon as the request is validated and the outcome arrives as a
+    /// <see cref="SingleBookOperationComplete"/> event. A bad id or index is still refused up front,
+    /// and a second select for a book already being selected (or whose file another operation is
+    /// rewriting) is a 409.
     /// </summary>
     [HttpPost("{id:long}/select")]
     public async Task<IActionResult> SelectResult(long id, [FromBody] SelectOnlineMatchResultDto? dto)
@@ -149,8 +159,7 @@ public class PendingOnlineMatchController : ControllerBase
 
         try
         {
-            await _service.SelectResultAsync(id, dto.ResultIndex);
-            return Ok();
+            await _service.ValidateSelectionAsync(id, dto.ResultIndex);
         }
         catch (KeyNotFoundException ex)
         {
@@ -160,10 +169,47 @@ public class PendingOnlineMatchController : ControllerBase
         {
             return this.InvalidRequest(ex.Message);
         }
-        catch (Scraping.RateLimiting.HardcoverDailyLimitExceededException ex)
+
+        // Taken before the task starts, so the 409 is exact from the moment this action returns and
+        // a double click cannot start the scrape twice. The save gate is only checked, not held:
+        // the apply takes it itself further down and it is not reentrant.
+        if (!_operationTracker.TryBegin(SingleBookOperations.PendingMatchSelect, id, out var lease))
         {
-            return this.InvalidRequest(ex.Message);
+            return this.ConflictingState($"A match for audiobook {id} is already being selected.", "Selection in progress");
         }
+
+        if (_saveGate.IsBusy(id))
+        {
+            lease.Dispose();
+            return this.ConflictingState($"Another operation is already modifying audiobook {id}.", "Audiobook busy");
+        }
+
+        var resultIndex = dto.ResultIndex;
+        _ = Task.Run(async () =>
+        {
+            SingleBookOperationComplete outcome;
+            try
+            {
+                using var scope = _serviceScopeFactory.CreateScope();
+                var service = scope.ServiceProvider.GetRequiredService<IPendingOnlineMatchService>();
+                await service.SelectResultAsync(id, resultIndex);
+                outcome = new SingleBookOperationComplete(id, SingleBookOperations.PendingMatchSelect, SingleBookOperationStatus.Completed, null);
+            }
+            catch (Exception ex)
+            {
+                outcome = new SingleBookOperationComplete(
+                    id, SingleBookOperations.PendingMatchSelect, SingleBookOperationStatus.Failed,
+                    SingleBookOperationFailures.Describe(ex, _logger, id, "selecting an online match"));
+            }
+            finally
+            {
+                lease.Dispose();
+            }
+
+            await _organizeHub.NotifyAsync(outcome, _logger);
+        });
+
+        return Accepted();
     }
 
     [HttpPost("{id:long}/reject")]

@@ -284,6 +284,33 @@ public class PendingOnlineMatchServiceTests
             () => CreateService().SelectResultAsync(71, -1));
     }
 
+    [TestMethod]
+    public async Task ValidateSelectionAsync_ValidPick_ThrowsNothingAndTouchesNothing()
+    {
+        _repository.Setup(r => r.GetByAudiobookIdAsync(90)).ReturnsAsync(RowWithOneCandidate(90));
+
+        await CreateService().ValidateSelectionAsync(90, 0);
+
+        _scrapingService.Verify(s => s.GetBookDetails(It.IsAny<string>()), Times.Never);
+        _repository.Verify(r => r.DeleteByAudiobookIdAsync(It.IsAny<long>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task ValidateSelectionAsync_NoRow_ThrowsKeyNotFoundException()
+    {
+        _repository.Setup(r => r.GetByAudiobookIdAsync(91)).ReturnsAsync((PendingOnlineMatch?)null);
+
+        await Assert.ThrowsExactlyAsync<KeyNotFoundException>(() => CreateService().ValidateSelectionAsync(91, 0));
+    }
+
+    [TestMethod]
+    public async Task ValidateSelectionAsync_IndexBeyondStoredCandidates_ThrowsArgumentOutOfRangeException()
+    {
+        _repository.Setup(r => r.GetByAudiobookIdAsync(92)).ReturnsAsync(RowWithOneCandidate(92));
+
+        await Assert.ThrowsExactlyAsync<ArgumentOutOfRangeException>(() => CreateService().ValidateSelectionAsync(92, 3));
+    }
+
     #endregion
 
     #region RejectAsync / DismissAsync

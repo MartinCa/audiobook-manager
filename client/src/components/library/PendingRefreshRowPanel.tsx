@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { CheckCircle2, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -34,8 +34,14 @@ const APPLYING_AUTOMATED_RULES: ReadonlySet<string> = new Set([
 
 interface PendingRefreshRowPanelProps {
   audiobookId: number;
-  /** Called once the apply (or a dismiss elsewhere) has gone through, so the row can collapse and its row-level data can be dropped from the list. */
-  onApplied: () => void;
+  /**
+   * Sends the request that starts the apply and resolves once the server has accepted it, at which
+   * point the page collapses the row so the user can move on to the next one (it rejects if the
+   * server refuses). The rewrite itself continues in the background; the page reports its outcome
+   * when SingleBookOperationComplete arrives. The page tracks the book as busy from before the
+   * request goes out, which is why the request is handed over rather than sent here.
+   */
+  start: (request: () => Promise<void>) => Promise<void>;
 }
 
 /**
@@ -48,8 +54,7 @@ interface PendingRefreshRowPanelProps {
  * previewed first, and a file already at the new library path opens the duplicate-target dialog
  * instead of failing.
  */
-export function PendingRefreshRowPanel({ audiobookId, onApplied }: PendingRefreshRowPanelProps) {
-  const queryClient = useQueryClient();
+export function PendingRefreshRowPanel({ audiobookId, start }: PendingRefreshRowPanelProps) {
   const [applying, setApplying] = useState(false);
   // Opt-in toggle to split a scraped "Title: Subtitle" title at its first colon-space. Defaults
   // off (see helpers/titleSplitter.ts); no need to persist across anything since this component
@@ -222,18 +227,15 @@ export function PendingRefreshRowPanel({ audiobookId, onApplied }: PendingRefres
           return;
         }
       }
-      await metadataRefreshApi.applyPending(
-        audiobookId,
-        fields,
-        splitTitleOnColonEnabled,
-        chosenPrimarySeries,
-        replaceExisting,
+      await start(() =>
+        metadataRefreshApi.applyPending(
+          audiobookId,
+          fields,
+          splitTitleOnColonEnabled,
+          chosenPrimarySeries,
+          replaceExisting,
+        ),
       );
-      notifications.success("Metadata changes applied");
-      void queryClient.invalidateQueries({ queryKey: queryKeys.metadataRefresh.all() });
-      void queryClient.invalidateQueries({ queryKey: queryKeys.bookDetail(audiobookId) });
-      void queryClient.invalidateQueries({ queryKey: queryKeys.books.all() });
-      onApplied();
     } catch (err: unknown) {
       notifications.error(handleApiError(err).message);
     } finally {

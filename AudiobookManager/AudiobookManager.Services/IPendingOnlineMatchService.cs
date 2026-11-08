@@ -21,6 +21,13 @@ public interface IPendingOnlineMatchService
         Func<int, int, int, int, Task> progressAction);
 
     /// <summary>
+    /// The cheap, database-only half of <see cref="SelectResultAsync"/>'s argument checks, so a
+    /// caller that runs the selection in the background can still refuse a bad request up front.
+    /// Throws the same <see cref="KeyNotFoundException"/> / <see cref="ArgumentOutOfRangeException"/>.
+    /// </summary>
+    Task ValidateSelectionAsync(long audiobookId, int resultIndex);
+
+    /// <summary>
     /// Fetches full details for the chosen candidate (by its position in the stored results) and
     /// records them as a pending metadata-refresh snapshot via
     /// <see cref="IMetadataRefreshService.ApplyFetchedResultAsSnapshotAsync"/> - the same review/

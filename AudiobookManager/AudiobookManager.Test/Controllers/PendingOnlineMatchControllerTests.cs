@@ -23,6 +23,8 @@ public class PendingOnlineMatchControllerTests
     private Mock<IPendingOnlineMatchService> _service = null!;
     private Mock<ISettingsService> _settingsService = null!;
     private Mock<ILogger<PendingOnlineMatchController>> _logger = null!;
+    private SingleBookOperationTracker _tracker = null!;
+    private AudiobookSaveGate _saveGate = null!;
     private PendingOnlineMatchController _controller = null!;
 
     [TestInitialize]
@@ -49,8 +51,13 @@ public class PendingOnlineMatchControllerTests
         _settingsService = new Mock<ISettingsService>();
         _settingsService.Setup(s => s.GetMetadataSourceOrder()).ReturnsAsync(Array.Empty<string>());
 
+        _tracker = new SingleBookOperationTracker();
+        _saveGate = new AudiobookSaveGate();
+
         _controller = new PendingOnlineMatchController(
             _service.Object,
+            _tracker,
+            _saveGate,
             _settingsService.Object,
             _hubContext.Object,
             _serviceScopeFactory.Object,
@@ -180,32 +187,49 @@ public class PendingOnlineMatchControllerTests
         _service.Verify(s => s.SelectResultAsync(It.IsAny<long>(), It.IsAny<int>()), Times.Never);
     }
 
-    [TestMethod]
-    public async Task SelectResult_Valid_CallsServiceAndReturnsOk()
+    // Selecting is fire-and-forget: the scrape plus the automated apply (tag rewrite, relocation,
+    // consistency recheck) is far too slow to hold a request open for, so the controller answers 202
+    // and reports the outcome as a SingleBookOperationComplete event.
+    private Task<SingleBookOperationComplete> NextCompletion()
     {
+        var tcs = new TaskCompletionSource<SingleBookOperationComplete>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _clientProxy.Setup(c => c.SingleBookOperationComplete(It.IsAny<SingleBookOperationComplete>()))
+            .Callback<SingleBookOperationComplete>(e => tcs.TrySetResult(e))
+            .Returns(Task.CompletedTask);
+        return tcs.Task;
+    }
+
+    [TestMethod]
+    public async Task SelectResult_Valid_Returns202AndReportsCompletedOverSignalR()
+    {
+        var completion = NextCompletion();
         _service.Setup(s => s.SelectResultAsync(5, 0)).Returns(Task.CompletedTask);
 
         var result = await _controller.SelectResult(5, new SelectOnlineMatchResultDto(0));
 
-        Assert.IsInstanceOfType<OkResult>(result);
+        Assert.IsInstanceOfType<AcceptedResult>(result);
+        var outcome = await completion.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.AreEqual(new SingleBookOperationComplete(5, SingleBookOperations.PendingMatchSelect, SingleBookOperationStatus.Completed, null), outcome);
         _service.Verify(s => s.SelectResultAsync(5, 0), Times.Once);
     }
 
     [TestMethod]
-    public async Task SelectResult_NoRowForThisBook_Returns400()
+    public async Task SelectResult_NoRowForThisBook_Returns400AndStartsNothing()
     {
-        _service.Setup(s => s.SelectResultAsync(6, 0))
+        _service.Setup(s => s.ValidateSelectionAsync(6, 0))
             .ThrowsAsync(new KeyNotFoundException("Audiobook 6 has no pending online match."));
 
         var result = await _controller.SelectResult(6, new SelectOnlineMatchResultDto(0));
 
         ProblemAssert.HasDetail(result, StatusCodes.Status400BadRequest, "Audiobook 6 has no pending online match.");
+        _service.Verify(s => s.SelectResultAsync(It.IsAny<long>(), It.IsAny<int>()), Times.Never);
+        Assert.IsFalse(_tracker.IsRunning(SingleBookOperations.PendingMatchSelect, 6));
     }
 
     [TestMethod]
-    public async Task SelectResult_IndexOutOfRange_Returns400()
+    public async Task SelectResult_IndexOutOfRange_Returns400AndStartsNothing()
     {
-        _service.Setup(s => s.SelectResultAsync(7, 5))
+        _service.Setup(s => s.ValidateSelectionAsync(7, 5))
             .ThrowsAsync(new ArgumentOutOfRangeException("resultIndex", 5, "Audiobook 7 has 1 candidate result(s)."));
 
         var result = await _controller.SelectResult(7, new SelectOnlineMatchResultDto(5));
@@ -213,19 +237,76 @@ public class PendingOnlineMatchControllerTests
         var problem = result as ObjectResult;
         Assert.IsNotNull(problem);
         Assert.AreEqual(StatusCodes.Status400BadRequest, problem.StatusCode);
+        _service.Verify(s => s.SelectResultAsync(It.IsAny<long>(), It.IsAny<int>()), Times.Never);
     }
 
     [TestMethod]
-    public async Task SelectResult_HardcoverDailyLimitExceeded_Returns400()
+    public async Task SelectResult_HardcoverDailyLimitExceeded_ReportsFailedWithTheMessage()
     {
-        _service.Setup(s => s.SelectResultAsync(8, 0))
-            .ThrowsAsync(new AudiobookManager.Scraping.RateLimiting.HardcoverDailyLimitExceededException(5000));
+        var completion = NextCompletion();
+        var exception = new AudiobookManager.Scraping.RateLimiting.HardcoverDailyLimitExceededException(5000);
+        _service.Setup(s => s.SelectResultAsync(8, 0)).ThrowsAsync(exception);
 
-        var result = await _controller.SelectResult(8, new SelectOnlineMatchResultDto(0));
+        await _controller.SelectResult(8, new SelectOnlineMatchResultDto(0));
 
-        var problem = result as ObjectResult;
-        Assert.IsNotNull(problem);
-        Assert.AreEqual(StatusCodes.Status400BadRequest, problem.StatusCode);
+        var outcome = await completion.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.AreEqual(SingleBookOperationStatus.Failed, outcome.Status);
+        Assert.AreEqual(exception.Message, outcome.Message);
+    }
+
+    // An unexpected exception's text routinely contains absolute container paths and the event is
+    // broadcast to every client, so it is logged and replaced by a fixed sentence.
+    [TestMethod]
+    public async Task SelectResult_UnexpectedException_ReportsFixedSentenceNotTheExceptionText()
+    {
+        var completion = NextCompletion();
+        _service.Setup(s => s.SelectResultAsync(9, 0)).ThrowsAsync(new IOException("Could not open /data/library/Secret/Book.m4b"));
+
+        await _controller.SelectResult(9, new SelectOnlineMatchResultDto(0));
+
+        var outcome = await completion.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.AreEqual(SingleBookOperationStatus.Failed, outcome.Status);
+        Assert.IsFalse(outcome.Message!.Contains("/data/library"), outcome.Message);
+    }
+
+    [TestMethod]
+    public async Task SelectResult_SecondSelectForTheSameBookWhileFirstRuns_Returns409AndRunsOnce()
+    {
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var completion = NextCompletion();
+        _service.Setup(s => s.SelectResultAsync(10, 0))
+            .Returns(async () =>
+            {
+                started.TrySetResult();
+                await release.Task;
+            });
+
+        Assert.IsInstanceOfType<AcceptedResult>(await _controller.SelectResult(10, new SelectOnlineMatchResultDto(0)));
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        var second = await _controller.SelectResult(10, new SelectOnlineMatchResultDto(1));
+
+        ProblemAssert.HasDetail(second, StatusCodes.Status409Conflict, "A match for audiobook 10 is already being selected.");
+        release.SetResult();
+        await completion.WaitAsync(TimeSpan.FromSeconds(5));
+        _service.Verify(s => s.SelectResultAsync(10, It.IsAny<int>()), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task SelectResult_BookBeingRewrittenByAnotherOperation_Returns409AndStartsNothing()
+    {
+        Assert.IsTrue(_saveGate.TryAcquire(11, out var heldByAnotherOperation));
+        using (heldByAnotherOperation)
+        {
+            var result = await _controller.SelectResult(11, new SelectOnlineMatchResultDto(0));
+
+            ProblemAssert.HasDetail(result, StatusCodes.Status409Conflict,
+                "Another operation is already modifying audiobook 11.");
+        }
+
+        _service.Verify(s => s.SelectResultAsync(It.IsAny<long>(), It.IsAny<int>()), Times.Never);
+        Assert.IsFalse(_tracker.IsRunning(SingleBookOperations.PendingMatchSelect, 11), "A refused request must not leave its slot taken.");
     }
 
     #endregion
