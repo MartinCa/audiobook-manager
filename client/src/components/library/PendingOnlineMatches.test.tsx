@@ -504,6 +504,10 @@ describe("PendingOnlineMatches", () => {
         hub.emit(SignalREvents.SingleBookOperationComplete, completion({ audiobookId: 1 })),
       );
       await screen.findByText("Match selected");
+      // "Match selected" comes from the completion event itself, so it does not show the refetched
+      // list has reached the expanded row. The pending count dropping from 2 to 1 does: it is read
+      // from the same response that rebuilds the row's arrays.
+      await waitFor(() => expect(screen.getByText("Pending (1)")).toBeInTheDocument());
 
       expect(screen.getByText(/Words of Radiance \(Goodreads\)/)).toBeInTheDocument();
     });
