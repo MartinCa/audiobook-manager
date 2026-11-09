@@ -46,13 +46,19 @@ export function SourceTabbedResults({
   }, [results, sources]);
 
   const [chosen, setChosen] = useState<string | null>(null);
-  // A new result set (or source list) opens on the first source with results again, rather than remembering the
-  // tab picked for the previous search (set during render, like BookSearchDialog's seed).
-  const [prevResults, setPrevResults] = useState(results);
-  const [prevSources, setPrevSources] = useState(sources);
-  if (results !== prevResults || sources !== prevSources) {
-    setPrevResults(results);
-    setPrevSources(sources);
+  // A new result set (or source list) opens on the first source with results again, rather than
+  // remembering the tab picked for the previous search (set during render, like
+  // BookSearchDialog's seed). "New" is a change in *what* is listed, not in the arrays' identity:
+  // a list that refetches around the user (another row finishing and leaving it) hands this row
+  // equal-but-fresh arrays, because structural sharing compares array items by position, and that
+  // must not throw away the tab they are working in.
+  const contentKey = JSON.stringify([
+    sources ?? null,
+    results.map((r) => [r.source, r.url, r.bookName]),
+  ]);
+  const [prevContentKey, setPrevContentKey] = useState(contentKey);
+  if (contentKey !== prevContentKey) {
+    setPrevContentKey(contentKey);
     setChosen(null);
   }
   const firstWithResults = groups.find((g) => g.items.length > 0)?.name ?? null;
