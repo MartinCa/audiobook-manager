@@ -108,7 +108,11 @@ describe("SourceTabbedResults", () => {
     expect(screen.getByText("Audible One")).toBeInTheDocument();
   });
 
-  it("opens on the first source with results again when a new result set arrives", async () => {
+  // Regression: a list that refetches around the user (another row finishing and leaving it) hands
+  // an expanded row equal-but-fresh arrays - structural sharing compares array items by position, so
+  // a row that slid up a place is rebuilt - and that used to send the tab being worked in back to
+  // the first source.
+  it("keeps the chosen tab when an equal result set arrives in fresh arrays", async () => {
     const user = userEvent.setup();
     const actions = () => null;
     const { rerender } = render(
@@ -121,12 +125,36 @@ describe("SourceTabbedResults", () => {
     await user.click(screen.getByRole("tab", { name: "Hardcover (1)" }));
     rerender(
       <SourceTabbedResults
-        results={[...results]}
+        results={results.map((r) => ({ ...r }))}
         sources={["Audible", "Hardcover"]}
         renderActions={actions}
       />,
     );
-    expect(screen.getByRole("tab", { name: "Audible (2)" })).toHaveAttribute(
+    expect(screen.getByRole("tab", { name: "Hardcover (1)" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+  });
+
+  it("opens on the first source with results again when a different result set arrives", async () => {
+    const user = userEvent.setup();
+    const actions = () => null;
+    const { rerender } = render(
+      <SourceTabbedResults
+        results={results}
+        sources={["Audible", "Hardcover"]}
+        renderActions={actions}
+      />,
+    );
+    await user.click(screen.getByRole("tab", { name: "Hardcover (1)" }));
+    rerender(
+      <SourceTabbedResults
+        results={[...results, make("Audible", "A Third Audible Result")]}
+        sources={["Audible", "Hardcover"]}
+        renderActions={actions}
+      />,
+    );
+    expect(screen.getByRole("tab", { name: "Audible (3)" })).toHaveAttribute(
       "aria-selected",
       "true",
     );

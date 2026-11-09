@@ -1,3 +1,4 @@
+import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { act, render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -448,6 +449,63 @@ describe("PendingOnlineMatches", () => {
       expect(screen.getByText("Source unavailable")).toBeInTheDocument();
       fireEvent.click(screen.getByText(/The Way of Kings/));
       expect(await screen.findByRole("button", { name: /select this match/i })).toBeInTheDocument();
+    });
+
+    // Repro: the user is working on a different, expanded row and has picked another source tab
+    // when an earlier selection finishes.
+    it("keeps the source tab chosen on another expanded row when a selection finishes", async () => {
+      const multiSource = (audiobookId: number, bookName: string) =>
+        pendingItem({
+          audiobookId,
+          bookName,
+          sourceNames: ["Audible", "Goodreads"],
+          results: [
+            {
+              url: `https://www.audible.com/pd/${audiobookId}`,
+              source: "Audible",
+              authors: ["Brandon Sanderson"],
+              narrators: [],
+              bookName,
+              genres: [],
+            },
+            {
+              url: `https://www.goodreads.com/book/${audiobookId}`,
+              source: "Goodreads",
+              authors: ["Brandon Sanderson"],
+              narrators: [],
+              bookName: `${bookName} (Goodreads)`,
+              genres: [],
+            },
+          ],
+        });
+      const list = () => ({
+        items: [multiSource(1, "The Way of Kings"), multiSource(2, "Words of Radiance")],
+        total: 2,
+      });
+      vi.mocked(pendingOnlineMatchApi.getPendingPage).mockImplementation(() =>
+        Promise.resolve(list()),
+      );
+      vi.mocked(pendingOnlineMatchApi.selectResult).mockResolvedValue(undefined);
+      const { hub } = renderPage();
+      fireEvent.click(await screen.findByText(/The Way of Kings/));
+      fireEvent.click(await screen.findByRole("button", { name: /select this match/i }));
+      await waitFor(() => expect(pendingOnlineMatchApi.selectResult).toHaveBeenCalledWith(1, 0));
+
+      // Now working on the second row, on its Goodreads tab.
+      fireEvent.click(screen.getByText(/Words of Radiance/));
+      await userEvent.click(await screen.findByRole("tab", { name: "Goodreads (1)" }));
+      expect(screen.getByText(/Words of Radiance \(Goodreads\)/)).toBeInTheDocument();
+
+      // The first selection settles: the server drops its row and the list refetches.
+      vi.mocked(pendingOnlineMatchApi.getPendingPage).mockImplementation(() =>
+        Promise.resolve({ items: [multiSource(2, "Words of Radiance")], total: 1 }),
+      );
+      act(() =>
+        hub.emit(SignalREvents.SingleBookOperationComplete, completion({ audiobookId: 1 })),
+      );
+      await screen.findByText("Match selected");
+
+      expect(screen.getByText(/Words of Radiance \(Goodreads\)/)).toBeInTheDocument();
     });
 
     // Regression: with exactly one row on the last page, settling it shrinks the page count. The
