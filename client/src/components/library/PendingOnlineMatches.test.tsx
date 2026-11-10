@@ -95,6 +95,36 @@ describe("PendingOnlineMatches", () => {
     expect(screen.getByText("Pending (1)")).toBeInTheDocument();
   });
 
+  it("keeps View and Reject together in one actions wrapper that collapses from sm: up", async () => {
+    vi.mocked(pendingOnlineMatchApi.getPendingPage).mockResolvedValue({
+      items: [pendingItem()],
+      total: 1,
+    });
+
+    renderPage();
+
+    const reject = await screen.findByRole("button", { name: "Reject" });
+    const actions = reject.parentElement;
+    expect(actions).toHaveClass("sm:contents");
+    expect(actions).toContainElement(screen.getByRole("link", { name: "View" }));
+  });
+
+  it("keeps Dismiss and View together in one actions wrapper on a failed row", async () => {
+    vi.mocked(pendingOnlineMatchApi.getFailedPage).mockResolvedValue({
+      items: [pendingItem({ audiobookId: 2 })],
+      total: 1,
+    });
+
+    renderPage();
+
+    const dismiss = await screen.findByRole("button", { name: "Dismiss" });
+    const actions = dismiss.parentElement;
+    expect(actions).toHaveClass("sm:contents");
+    expect(actions).toContainElement(screen.getByRole("link", { name: "View" }));
+    // The search timestamp is dropped on phones, as in the pending list.
+    expect(screen.getByText(/^Searched /)).toHaveClass("max-sm:hidden");
+  });
+
   it("expands a pending row to show its candidates via the row panel", async () => {
     vi.mocked(pendingOnlineMatchApi.getPendingPage).mockResolvedValue({
       items: [pendingItem()],

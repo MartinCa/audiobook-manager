@@ -269,12 +269,12 @@ export function PendingOnlineMatches() {
                           {item.results.length} {item.results.length === 1 ? "result" : "results"}
                         </div>
                         {/* Pills from sm: up; on phones the same badges read as one plain line. */}
-                        <div className="mt-1.5 flex flex-wrap gap-1 max-sm:gap-0 max-sm:text-xs">
+                        <div className="mt-1.5 flex flex-wrap gap-1 max-sm:gap-0">
                           {item.sourceNames.map((source) => (
                             <Badge
                               key={source}
                               variant="outline"
-                              className="text-[10px] max-sm:h-auto max-sm:border-0 max-sm:bg-transparent max-sm:p-0 max-sm:text-xs max-sm:font-normal max-sm:not-last:after:mx-1 max-sm:not-last:after:content-['·']"
+                              className="text-[10px] max-sm:h-auto max-sm:border-0 max-sm:bg-transparent max-sm:p-0 max-sm:text-xs max-sm:font-normal max-sm:not-last:after:mr-1 max-sm:not-last:after:content-['·']"
                             >
                               {source}
                             </Badge>
@@ -384,7 +384,7 @@ export function PendingOnlineMatches() {
                     {item.authors.join(", ")} &mdash; {item.bookName}
                     <BookQualifierBadges qualifiers={item.qualifiers} className="ml-2" />
                   </div>
-                  <div className="text-muted-foreground mt-0.5 text-xs">
+                  <div className="text-muted-foreground mt-0.5 text-xs max-sm:hidden">
                     Searched {formatDateTime(item.searchedAt)}
                   </div>
                 </div>
