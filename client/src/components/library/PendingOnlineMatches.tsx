@@ -243,7 +243,7 @@ export function PendingOnlineMatches() {
                   key={item.audiobookId}
                   className="border-border bg-card overflow-hidden rounded-lg border"
                 >
-                  <div className="flex items-center gap-3 p-3">
+                  <div className="flex flex-col gap-2 p-3 sm:flex-row sm:items-center sm:gap-3">
                     <button
                       type="button"
                       className="flex min-w-0 flex-1 items-center gap-2 text-left"
@@ -262,49 +262,65 @@ export function PendingOnlineMatches() {
                         </div>
                         <OperationOutcomeMessage outcome={outcome} />
                         <div className="text-muted-foreground mt-0.5 text-xs">
-                          Searched {formatDateTime(item.searchedAt)} · {item.results.length}{" "}
-                          {item.results.length === 1 ? "result" : "results"}
+                          {/* The timestamp is dropped on phones: it wraps the title column away. */}
+                          <span className="max-sm:hidden">
+                            Searched {formatDateTime(item.searchedAt)} ·{" "}
+                          </span>
+                          {item.results.length} {item.results.length === 1 ? "result" : "results"}
                         </div>
-                        <div className="mt-1.5 flex flex-wrap gap-1">
+                        {/* Pills from sm: up; on phones the same badges read as one plain line. */}
+                        <div className="mt-1.5 flex flex-wrap gap-1 max-sm:gap-0">
                           {item.sourceNames.map((source) => (
-                            <Badge key={source} variant="outline" className="text-[10px]">
+                            <Badge
+                              key={source}
+                              variant="outline"
+                              className="text-[10px] max-sm:h-auto max-sm:border-0 max-sm:bg-transparent max-sm:p-0 max-sm:text-xs max-sm:font-normal max-sm:not-last:after:mr-1 max-sm:not-last:after:content-['·']"
+                            >
                               {source}
                             </Badge>
                           ))}
                         </div>
                       </div>
                     </button>
-                    <OperationOutcomeBadge
-                      busy={isSelecting}
-                      busyLabel="Selecting…"
-                      outcome={outcome}
-                      labels={SELECT_OUTCOME_LABELS}
-                    />
-                    <LinkButton
-                      variant="ghost"
-                      render={
-                        <Link
-                          to="/library/book/$bookId"
-                          params={{ bookId: String(item.audiobookId) }}
+                    {/* Phones: the actions get their own full-width row under the title.
+                        From sm: up the wrapper vanishes and they sit beside it as before. */}
+                    <div className="flex flex-wrap items-center gap-2 sm:contents">
+                      <div className="basis-full empty:hidden sm:basis-auto">
+                        <OperationOutcomeBadge
+                          busy={isSelecting}
+                          busyLabel="Selecting…"
+                          outcome={outcome}
+                          labels={SELECT_OUTCOME_LABELS}
                         />
-                      }
-                    >
-                      View
-                    </LinkButton>
-                    <Button
-                      variant="outline"
-                      disabled={rejectingId === item.audiobookId || isInert}
-                      onClick={() => {
-                        void handleReject(item.audiobookId);
-                      }}
-                    >
-                      {rejectingId === item.audiobookId ? (
-                        <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <X className="mr-1.5 h-3.5 w-3.5" />
-                      )}
-                      Reject
-                    </Button>
+                      </div>
+                      <LinkButton
+                        className="flex-1 sm:flex-none"
+                        variant="ghost"
+                        render={
+                          <Link
+                            to="/library/book/$bookId"
+                            params={{ bookId: String(item.audiobookId) }}
+                          />
+                        }
+                      >
+                        View
+                      </LinkButton>
+                      <Button
+                        className="flex-1 sm:flex-none"
+                        variant="outline"
+                        disabled={rejectingId === item.audiobookId || isInert}
+                        onClick={() => {
+                          void handleReject(item.audiobookId);
+                        }}
+                      >
+                        {rejectingId === item.audiobookId ? (
+                          <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <X className="mr-1.5 h-3.5 w-3.5" />
+                        )}
+                        Reject
+                      </Button>
+                    </div>
                   </div>
 
                   {isExpanded && (
@@ -361,40 +377,44 @@ export function PendingOnlineMatches() {
             {failedItems.map((item) => (
               <div
                 key={item.audiobookId}
-                className="border-border bg-card flex items-center gap-3 rounded-lg border p-3"
+                className="border-border bg-card flex flex-col gap-2 rounded-lg border p-3 sm:flex-row sm:items-center sm:gap-3"
               >
                 <div className="min-w-0 flex-1">
                   <div className="text-foreground font-semibold break-words">
                     {item.authors.join(", ")} &mdash; {item.bookName}
                     <BookQualifierBadges qualifiers={item.qualifiers} className="ml-2" />
                   </div>
-                  <div className="text-muted-foreground mt-0.5 text-xs">
+                  <div className="text-muted-foreground mt-0.5 text-xs max-sm:hidden">
                     Searched {formatDateTime(item.searchedAt)}
                   </div>
                 </div>
-                <LinkButton
-                  variant="ghost"
-                  render={
-                    <Link
-                      to="/library/book/$bookId"
-                      params={{ bookId: String(item.audiobookId) }}
-                    />
-                  }
-                >
-                  View
-                </LinkButton>
-                <Button
-                  variant="outline"
-                  disabled={dismissingId === item.audiobookId}
-                  onClick={() => {
-                    void handleDismiss(item.audiobookId);
-                  }}
-                >
-                  {dismissingId === item.audiobookId ? (
-                    <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                  ) : null}
-                  Dismiss
-                </Button>
+                <div className="flex items-center gap-2 sm:contents">
+                  <LinkButton
+                    className="flex-1 sm:flex-none"
+                    variant="ghost"
+                    render={
+                      <Link
+                        to="/library/book/$bookId"
+                        params={{ bookId: String(item.audiobookId) }}
+                      />
+                    }
+                  >
+                    View
+                  </LinkButton>
+                  <Button
+                    className="flex-1 sm:flex-none"
+                    variant="outline"
+                    disabled={dismissingId === item.audiobookId}
+                    onClick={() => {
+                      void handleDismiss(item.audiobookId);
+                    }}
+                  >
+                    {dismissingId === item.audiobookId ? (
+                      <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                    ) : null}
+                    Dismiss
+                  </Button>
+                </div>
               </div>
             ))}
 

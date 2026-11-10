@@ -2,3 +2,6 @@
 trustLockfile: true
 minimumReleaseAgeExclude:
   - "@martinrun/*"
+# GHSA-g3hv-75wg-m249 (minimatch DoS): eslint and ts-morph pull in 10.x, patched in 11.0.1.
+overrides:
+  "minimatch@>=7.0.0 <11.0.1": "^11.0.5"
