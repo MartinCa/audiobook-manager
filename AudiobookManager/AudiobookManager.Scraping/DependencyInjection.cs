@@ -10,6 +10,7 @@ public static class DependencyInjection
     public static IServiceCollection SetupScraping(this IServiceCollection services)
     {
         services.AddHttpClient();
+        services.AddGoodreadsResilience();
         services.AddHttpClient("goodreads", client =>
         {
             client.DefaultRequestHeaders.UserAgent.ParseAdd(
@@ -18,7 +19,6 @@ public static class DependencyInjection
         // The token bucket is shared process-wide; the handlers themselves are pooled by
         // IHttpClientFactory and must not hold rate-limiter state of their own.
         services.AddSingleton<HardcoverRateLimiter>();
-        services.AddTransient<HardcoverRetryHandler>();
         services.AddTransient<HardcoverRateLimitingHandler>();
 
         // The proxy-image endpoint is open forwarding by design (the cover editor fetches any
@@ -54,10 +54,10 @@ public static class DependencyInjection
                 }
                 client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
             })
-            // Order matters: the retry handler is the outer handler, the rate limiter the
+            // Order matters: the retry pipeline is the outer handler, the rate limiter the
             // inner one, so every retry attempt re-acquires a rate-limit token and is
             // counted against the daily budget instead of bypassing both.
-            .AddHttpMessageHandler<HardcoverRetryHandler>()
+            .AddHardcoverRetry()
             .AddHttpMessageHandler<HardcoverRateLimitingHandler>();
         services.AddScoped<IBookSeriesMapper, BookSeriesMapper>();
 

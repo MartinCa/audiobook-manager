@@ -1,7 +1,9 @@
 using AudiobookManager.Scraping;
 using AudiobookManager.Scraping.Models;
 using AudiobookManager.Scraping.Scrapers;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Polly.Registry;
 using System.Net;
 using Moq;
 
@@ -20,8 +22,13 @@ public class GoodreadsScraperTests
         var bookSeriesMapper = new Mock<IBookSeriesMapper>();
         bookSeriesMapper.Setup(x => x.MapBookSeries(It.IsAny<IList<MetadataSeriesSearchResult>>())).Returns<IList<MetadataSeriesSearchResult>>(x => Task.FromResult(x));
         var logger = new Mock<ILogger<GoodreadsScraper>>();
+        var pipelineProvider = new ServiceCollection()
+            .AddLogging()
+            .AddGoodreadsResilience(TimeSpan.Zero)
+            .BuildServiceProvider()
+            .GetRequiredService<ResiliencePipelineProvider<string>>();
 
-        return new GoodreadsScraper(httpClientFactory.Object, bookSeriesMapper.Object, logger.Object, retryDelay: TimeSpan.Zero);
+        return new GoodreadsScraper(httpClientFactory.Object, bookSeriesMapper.Object, logger.Object, pipelineProvider);
     }
 
     // Shapes taken from live auto_complete responses: `description: { html, truncated, ... }` for a

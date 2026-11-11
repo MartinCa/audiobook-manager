@@ -242,10 +242,24 @@ public class HardcoverRateLimitingTests
         Assert.AreEqual(1, counts[yesterday], "yesterday's counter must not have been touched by today's request");
     }
 
+    /// <summary>
+    /// A client built through the production registration (<c>AddHardcoverRetry</c>), with
+    /// <paramref name="inner"/> as the handler the retry pipeline wraps.
+    /// </summary>
+    private static HttpClient MakeRetryingClient(HttpMessageHandler inner)
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddHttpClient("hardcover-test")
+            .ConfigurePrimaryHttpMessageHandler(() => inner)
+            .AddHardcoverRetry();
+        return services.BuildServiceProvider().GetRequiredService<IHttpClientFactory>().CreateClient("hardcover-test");
+    }
+
     [TestMethod]
     public async Task RetryHandler_ReacquiresARateLimitTokenOnEachRetryAttempt()
     {
-        // HardcoverRetryHandler sits outside HardcoverRateLimitingHandler, so every retry
+        // The retry pipeline (AddHardcoverRetry) sits outside HardcoverRateLimitingHandler, so every retry
         // attempt - not just the first send - must travel back through the rate limiter (and
         // therefore re-consume the daily budget too). Chain: retry -> rate limit -> stub.
         var settings = Settings(daily: 5000, burst: 5, perMinute: 55);
@@ -266,12 +280,7 @@ public class HardcoverRateLimitingTests
             InnerHandler = inner,
         };
 
-        var retryHandler = new HardcoverRetryHandler(new Mock<ILogger<HardcoverRetryHandler>>().Object)
-        {
-            InnerHandler = rateLimitingHandler,
-        };
-
-        using var client = new HttpClient(retryHandler);
+        using var client = MakeRetryingClient(inner: rateLimitingHandler);
 
         await client.GetAsync("https://api.hardcover.app/v1/graphql");
 
@@ -285,20 +294,15 @@ public class HardcoverRateLimitingTests
 
     // An abandoned request must not be retried: each attempt re-acquires a rate-limit token and
     // spends a unit of the persisted daily budget on work nobody will read. This passes on the
-    // unmodified handler too - the pipeline stops on the signalled token before ShouldHandle's
+    // unmodified handler too - the pipeline stops on the signalled token before the predicate's
     // answer matters - which is exactly why it is worth pinning: nothing else states it, and
-    // IsTransient reads as though it says the opposite.
+    // the transient predicate reads as though it says the opposite.
     [TestMethod]
     public async Task RetryHandler_TheCallerCancels_DoesNotRetry()
     {
         using var callerCancellation = new CancellationTokenSource();
         var inner = new CancellingStubHandler(callerCancellation);
-        var retryHandler = new HardcoverRetryHandler(new Mock<ILogger<HardcoverRetryHandler>>().Object)
-        {
-            InnerHandler = inner,
-        };
-
-        using var client = new HttpClient(retryHandler);
+        using var client = MakeRetryingClient(inner);
 
         await Assert.ThrowsExactlyAsync<TaskCanceledException>(
             () => client.GetAsync("https://api.hardcover.app/v1/graphql", callerCancellation.Token));

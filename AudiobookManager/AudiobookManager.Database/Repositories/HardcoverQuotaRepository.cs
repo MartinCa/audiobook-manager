@@ -17,7 +17,7 @@ public class HardcoverQuotaRepository : IHardcoverQuotaRepository
     ///
     /// The compare-and-increment has to happen inside a single SQL statement. Hardcover requests
     /// are issued concurrently (ScrapingService.SearchMultiple fans out across sources, and
-    /// HardcoverRetryHandler re-enters on a retry), so a read-modify-write in C# lets two callers
+    /// the Hardcover retry pipeline re-enters on a retry), so a read-modify-write in C# lets two callers
     /// both read the same count and write count+1 - a lost update that quietly overruns the
     /// daily limit. The insert path races the same way and is resolved by letting the unique
     /// index on utc_date reject the loser, which then retries against the winner's row.

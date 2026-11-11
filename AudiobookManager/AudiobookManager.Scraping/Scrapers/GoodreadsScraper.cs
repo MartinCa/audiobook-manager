@@ -10,7 +10,7 @@ using AudiobookManager.Scraping.Models;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.Logging;
 using Polly;
-using Polly.Retry;
+using Polly.Registry;
 using AudiobookManager.Scraping.Utils;
 
 namespace AudiobookManager.Scraping.Scrapers;
@@ -45,26 +45,12 @@ public partial class GoodreadsScraper : IScraper
     private readonly IBookSeriesMapper _bookSeriesMapper;
     private readonly ILogger<GoodreadsScraper> _logger;
 
-    public GoodreadsScraper(IHttpClientFactory httpClientFactory, IBookSeriesMapper bookSeriesMapper, ILogger<GoodreadsScraper> logger, TimeSpan? retryDelay = null)
+    public GoodreadsScraper(IHttpClientFactory httpClientFactory, IBookSeriesMapper bookSeriesMapper, ILogger<GoodreadsScraper> logger, ResiliencePipelineProvider<string> pipelineProvider)
     {
         _httpClientFactory = httpClientFactory;
         _bookSeriesMapper = bookSeriesMapper;
         _logger = logger;
-
-        int maxRetries = 5;
-
-        _resiliencePipeline = new ResiliencePipelineBuilder()
-        .AddRetry(new RetryStrategyOptions {
-            MaxRetryAttempts = maxRetries,
-            Delay = retryDelay ?? TimeSpan.FromSeconds(3),
-            BackoffType = DelayBackoffType.Constant,
-            OnRetry = (args) =>
-            {
-                _logger.LogWarning("Exception: {exceptionMessage}, Retrying in {sleepDuration}. {attemptNumber}/{maxRetries}", args.Outcome.Exception?.Message, args.RetryDelay, args.AttemptNumber, maxRetries);
-                return ValueTask.CompletedTask;
-            }
-        })
-        .Build();
+        _resiliencePipeline = pipelineProvider.GetPipeline(GoodreadsResilience.PipelineName);
     }
 
     /// <summary>

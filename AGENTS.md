@@ -1156,7 +1156,7 @@ shell.
 - Swagger UI available in development at `/swagger/index.html`
 - Vite dev server on port 3000, API on port 5271
 - Audio metadata handled via `z440.atl.core` library (ATL)
-- HTTP resilience via Polly
+- HTTP resilience via Microsoft.Extensions.Http.Resilience (`AddHardcoverRetry`, `AddGoodreadsResilience`; Polly v8 underneath)
 - `client`'s build (`pnpm run build`) runs `tsc --noEmit` directly before `vite build`.
 
 ## Testing Policy
