@@ -81,19 +81,37 @@ public class AudiobookController : ControllerBase
     }
 
     [HttpPost("generate_path")]
-    public async Task<string> GeneratePath([FromBody] OrganizeAudiobookDto dto)
+    public async Task<ActionResult<string>> GeneratePath([FromBody] OrganizeAudiobookDto dto)
     {
         var book = MapToDomain(dto);
-        return await _audiobookService.GenerateLibraryPathAsync(book);
+        try
+        {
+            return await _audiobookService.GenerateLibraryPathAsync(book);
+        }
+        catch (PathSegmentTooLongException ex)
+        {
+            return this.InvalidRequest(ex.Message, PathTooLongTitle);
+        }
     }
 
     [HttpPost("check_target_path")]
-    public async Task<TargetPathCheckDto> CheckTargetPath([FromBody] OrganizeAudiobookDto dto)
+    public async Task<ActionResult<TargetPathCheckDto>> CheckTargetPath([FromBody] OrganizeAudiobookDto dto)
     {
         var book = MapToDomain(dto);
-        var result = await _audiobookService.CheckTargetPathCollision(book);
-        return new TargetPathCheckDto(result);
+        try
+        {
+            var result = await _audiobookService.CheckTargetPathCollision(book);
+            return new TargetPathCheckDto(result);
+        }
+        catch (PathSegmentTooLongException ex)
+        {
+            return this.InvalidRequest(ex.Message, PathTooLongTitle);
+        }
     }
+
+    // Both previews run while the user is typing, so a name too long for the file system is an
+    // expected answer ("shorten this"), not a server error.
+    private const string PathTooLongTitle = "Name too long";
 
     /// <summary>
     /// The selected books' current field values, so the client can show exactly what a bulk edit

@@ -227,6 +227,27 @@ Each DB entity gets an `IRepository` + `Repository` pair in `Database/Repositori
 
 **The narrator in the folder name is a library setting, and the flag is a required argument.** With `LibrarySettings.IncludeNarratorInPath` on (default off), the book folder gains Audiobookshelf's `{Narrator}` suffix - `Year - BookName {Narrator A}` - so two narrations of one book get distinct folders (Audiobookshelf has no native multi-version support; each folder is its own library item). The folder only, never the file name, and after any qualifier suffix. `GenerateRelativeAudiobookPath(audiobook, maxNarratorsInPath)` takes that number **without a default** so a caller cannot forget it and compute a different path from the rest of the app. Async entry points read it through `IAudiobookService.GenerateLibraryPathAsync` / `IAudiobookIssueDetectionService.DetectIssuesAsync`; a loop that already holds the setting (the full consistency check, the discovered-books page) passes it to the synchronous overloads instead of re-reading it per book. Flipping the setting is intentionally not a migration: every book with a narrator becomes a `WrongFilePath` issue and a bulk resolve moves the files through `UpdateAudiobook`. The brace group has to be the last thing in the folder name, preceded by a space - Audiobookshelf matches `^(.*) \{(.*)\}$` against it. How many narrators are listed is a second library setting, `MaxNarratorsInPath` (1-10, default 1; the first ones in tag order, counted after blank names and duplicates are dropped); the path code takes one number, `LibrarySettings.NarratorsInPath`, which is 0 when the toggle is off, so `0` means "narrator not in the path" everywhere. A lower limit can make two casts that share their first narrators share a folder - that is the trade-off the setting exposes. The narrator text is brace-stripped, sanitized like any other segment, and capped at 100 UTF-8 _bytes_ (file systems limit bytes, not characters) by skipping names that do not fit, so a name is never cut mid-name - the one exception is a first name that alone exceeds the budget, which is cut on a character boundary. Several narrators are joined with `, ` as in the narrator tag; that join is best-effort, since the scanner takes the group as one string and how it later splits it into narrators is unconfirmed. Anything that previews or checks a path from the client (`toPathPreviewDto`) must send `narrators`, or the preview and the target-collision check build the path of a narrator-less book.
 
+**The author folder is bounded, and no path segment may exceed the file system's name limit.** An
+anthology can credit dozens of authors; joined into one folder name they exceeded 255 bytes, so
+`Directory.CreateDirectory` threw `PathTooLongException` *after* the tags were written, leaving the
+m4b retagged in its old folder with a stale database row. `GetAuthorFolderName` uses the AlbumArtist
+text unchanged while it fits `MaxAuthorFolderBytes` (150 UTF-8 bytes), so a book whose authors fit
+that keeps its folder; over that it keeps as many *whole* names as fit, in tag order (same rule as
+the narrator suffix, shared via `JoinWholeNamesWithinBytes`). Only the folder is shortened - tags
+and database keep every author. **This is not a no-op for an existing library:** an author list
+of 151-255 bytes was a valid folder before and is now shortened, so those books become
+`WrongFilePath` issues and a bulk resolve moves them through `UpdateAudiobook` (same trade-off as
+flipping the narrator setting; there is deliberately no migration).
+
+`JoinLibraryPath` additionally refuses any segment over `MaxPathSegmentBytes` (255) with a
+`PathSegmentTooLongException` (an `InvalidOperationException`, so single-book operation failures
+and the metadata-refresh target check still relay its message; it names no path). It runs before
+the tag write, so a book whose title or series is too long fails cleanly instead of half-saving.
+Every caller that reaches it for something other than a save has to answer it rather than let it
+escape: the two path-preview actions return a 400 problem, and `PathMismatchDetector` reports a
+`WrongFilePath` with the message (a readable file must never become `UnreadableFile`, which would
+also discard the book's other consistency results).
+
 **Invariant: a generated library path always resolves inside the library root.** Every segment of
 that relative path comes from a tag value a user or a scrape controls, and nothing between the
 generation and the `File.Move` that acts on it re-checks the destination — so the guarantee has to
