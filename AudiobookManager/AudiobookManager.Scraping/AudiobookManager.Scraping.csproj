@@ -8,7 +8,7 @@
 
   <ItemGroup>
     <PackageReference Include="AngleSharp" Version="1.10.0" />
-    <PackageReference Include="Microsoft.AspNetCore.WebUtilities" Version="10.0.14" />
+    <PackageReference Include="Microsoft.AspNetCore.WebUtilities" Version="10.0.15" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.14" />
     <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.14" />
     <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.14" />
