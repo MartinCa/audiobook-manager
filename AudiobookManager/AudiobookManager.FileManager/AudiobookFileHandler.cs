@@ -393,25 +393,65 @@ public class AudiobookFileHandler : IAudiobookFileHandler
             return "";
         }
 
-        // Keep every name that still fits, in order: one over-long name is skipped rather than
-        // ending the list, so shorter narrators after it are not lost with it. Only when the first
-        // name alone exceeds the budget is it cut (that cut uses the whole budget, so nothing
-        // after it could fit anyway).
+        return $" {{{JoinWholeNamesWithinBytes(names, MaxNarratorFolderBytes)}}}";
+    }
+
+    /// <summary>
+    /// Longest author list put in a folder name, in UTF-8 bytes. Well under the 255-byte limit of a
+    /// single path segment (ext4 and most file systems), so the folder stays readable and a long
+    /// list can never make the directory impossible to create. A list that fits is used exactly as
+    /// it always was; only one over this budget is shortened (see <see cref="GetAuthorFolderName"/>).
+    /// </summary>
+    public const int MaxAuthorFolderBytes = 150;
+
+    /// <summary>
+    /// The longest a single directory or file name may be, in UTF-8 bytes. Beyond this
+    /// <c>Directory.CreateDirectory</c> throws <see cref="PathTooLongException"/>.
+    /// </summary>
+    public const int MaxPathSegmentBytes = 255;
+
+    /// <summary>
+    /// The author folder name: every author joined with ", " (the same text as the AlbumArtist
+    /// tag) while that fits in <see cref="MaxAuthorFolderBytes"/>; otherwise as many whole names as
+    /// fit, in tag order. An anthology can credit dozens of authors, and one folder name holding
+    /// all of them used to exceed the file system's limit, failing the save after the tags had
+    /// already been written. Only the folder is shortened: the m4b tags and the database keep
+    /// every author. Audiobookshelf accepts a folder naming one or several authors.
+    /// </summary>
+    public static string GetAuthorFolderName(IEnumerable<Person> authors)
+    {
+        var full = AudiobookTagHandler.GetStringFromListOfPersons(authors);
+        if (Encoding.UTF8.GetByteCount(full) <= MaxAuthorFolderBytes)
+        {
+            return full;
+        }
+
+        return JoinWholeNamesWithinBytes(authors.Select(a => a.Name).Distinct().ToList(), MaxAuthorFolderBytes);
+    }
+
+    /// <summary>
+    /// Joins names with ", ", keeping every name that still fits <paramref name="maxBytes"/>, in
+    /// order: one over-long name is skipped rather than ending the list, so shorter names after it
+    /// are not lost with it. Only when the first name alone exceeds the budget is it cut (that cut
+    /// uses the whole budget, so nothing after it could fit anyway).
+    /// </summary>
+    private static string JoinWholeNamesWithinBytes(IReadOnlyList<string> names, int maxBytes)
+    {
         var kept = new List<string>();
         foreach (var name in names)
         {
             var candidate = string.Join(", ", kept.Append(name));
-            if (Encoding.UTF8.GetByteCount(candidate) <= MaxNarratorFolderBytes)
+            if (Encoding.UTF8.GetByteCount(candidate) <= maxBytes)
             {
                 kept.Add(name);
             }
             else if (kept.Count == 0)
             {
-                kept.Add(TruncateToUtf8Bytes(name, MaxNarratorFolderBytes));
+                kept.Add(TruncateToUtf8Bytes(name, maxBytes));
             }
         }
 
-        return $" {{{string.Join(", ", kept)}}}";
+        return string.Join(", ", kept);
     }
 
     private static string TruncateToUtf8Bytes(string value, int maxBytes)
@@ -456,7 +496,7 @@ public class AudiobookFileHandler : IAudiobookFileHandler
         var fileName = $"{audiobook.Year} - {bookName}";
 
         var pathParts = new List<string>();
-        pathParts.Add(AudiobookTagHandler.GetStringFromListOfPersons(audiobook.Authors));
+        pathParts.Add(GetAuthorFolderName(audiobook.Authors));
         if (!string.IsNullOrEmpty(series))
         {
             pathParts.Add(series);
@@ -490,6 +530,22 @@ public class AudiobookFileHandler : IAudiobookFileHandler
     /// </summary>
     public static string JoinLibraryPath(string libraryRoot, string relativePath)
     {
+        // A segment over the file system's name limit cannot be created. Refusing it here, before
+        // the tags are written (see AudiobookService), beats a PathTooLongException from
+        // Directory.CreateDirectory after the m4b already carries the new tags. The message names
+        // no path: it is relayed to the client and absolute container paths do not belong there.
+        foreach (var segment in relativePath.Split(AudiobookPathExtensions.GetDirectorySeparator()))
+        {
+            var bytes = Encoding.UTF8.GetByteCount(segment);
+            if (bytes > MaxPathSegmentBytes)
+            {
+                throw new InvalidOperationException(
+                    $"A folder or file name generated from this book's metadata is {bytes} bytes long, over the " +
+                    $"{MaxPathSegmentBytes}-byte limit of the file system, starting \"{segment[..Math.Min(40, segment.Length)]}...\". " +
+                    "Shorten the book name or series; the file was not changed.");
+            }
+        }
+
         var joined = JoinPaths(libraryRoot, relativePath);
 
         if (!PathStartsWith(joined, libraryRoot))
