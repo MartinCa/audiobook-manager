@@ -112,6 +112,18 @@ describe("MetadataRefresh", () => {
     expect(screen.getAllByText("Goodreads")).toHaveLength(2);
   });
 
+  it("keeps the source badge and View in one actions wrapper that collapses from sm: up", async () => {
+    renderWithRouter();
+
+    await screen.findByText("Books with Pending Metadata Changes (2)");
+
+    const actions = screen.getAllByText("Goodreads")[0]!.parentElement;
+    expect(actions).toHaveClass("sm:contents");
+    expect(actions).toContainElement(screen.getAllByRole("link", { name: "View" })[0]!);
+    // The "Pending since" timestamp is dropped on phones: it only wraps the title column away.
+    expect(screen.getAllByText(/^Pending since /)[0]).toHaveClass("max-sm:hidden");
+  });
+
   it("shows the empty state when nothing is pending", async () => {
     vi.mocked(metadataRefreshApi.getPendingPage).mockResolvedValue({
       items: [],
