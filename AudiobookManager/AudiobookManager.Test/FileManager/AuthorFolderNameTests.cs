@@ -94,7 +94,7 @@ public class AuthorFolderNameTests
     {
         var relative = $"Author{Sep}{new string('a', 300)}{Sep}file.m4b";
 
-        var ex = Assert.ThrowsExactly<InvalidOperationException>(
+        var ex = Assert.ThrowsExactly<PathSegmentTooLongException>(
             () => AudiobookFileHandler.JoinLibraryPath("/library", relative));
 
         StringAssert.Contains(ex.Message, "300 bytes");
@@ -107,7 +107,7 @@ public class AuthorFolderNameTests
         // 130 two-byte characters: 130 chars but 260 bytes.
         var relative = $"Author{Sep}{new string('é', 130)}{Sep}file.m4b";
 
-        Assert.ThrowsExactly<InvalidOperationException>(() => AudiobookFileHandler.JoinLibraryPath("/library", relative));
+        Assert.ThrowsExactly<PathSegmentTooLongException>(() => AudiobookFileHandler.JoinLibraryPath("/library", relative));
     }
 
     [TestMethod]
@@ -118,5 +118,16 @@ public class AuthorFolderNameTests
         var joined = AudiobookFileHandler.JoinLibraryPath("/library", relative);
 
         Assert.IsTrue(joined.StartsWith("/library"));
+    }
+
+    [TestMethod]
+    public void JoinLibraryPath_EscapingTheRoot_IsStillAPlainInvalidOperation_NotATooLongName()
+    {
+        // The two refusals share a base type but mean different things to a caller: only the
+        // too-long one is a verdict about the book's metadata.
+        var ex = Assert.ThrowsExactly<InvalidOperationException>(
+            () => AudiobookFileHandler.JoinLibraryPath("/library", "../../escaped.m4b"));
+
+        Assert.IsNotInstanceOfType<PathSegmentTooLongException>(ex);
     }
 }

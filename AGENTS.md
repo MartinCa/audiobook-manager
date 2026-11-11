@@ -231,12 +231,22 @@ Each DB entity gets an `IRepository` + `Repository` pair in `Database/Repositori
 anthology can credit dozens of authors; joined into one folder name they exceeded 255 bytes, so
 `Directory.CreateDirectory` threw `PathTooLongException` *after* the tags were written, leaving the
 m4b retagged in its old folder with a stale database row. `GetAuthorFolderName` uses the AlbumArtist
-text unchanged while it fits `MaxAuthorFolderBytes` (150 UTF-8 bytes), so existing folders never
-move; over that it keeps as many *whole* names as fit, in tag order (same rule as the narrator
-suffix, shared via `JoinWholeNamesWithinBytes`). Only the folder is shortened - tags and database
-keep every author. `JoinLibraryPath` additionally refuses any segment over `MaxPathSegmentBytes`
-(255) with an `InvalidOperationException` (message relayed, names no path); it runs before the tag
-write, so a book whose title or series is too long fails cleanly instead of half-saving.
+text unchanged while it fits `MaxAuthorFolderBytes` (150 UTF-8 bytes), so a book whose authors fit
+that keeps its folder; over that it keeps as many *whole* names as fit, in tag order (same rule as
+the narrator suffix, shared via `JoinWholeNamesWithinBytes`). Only the folder is shortened - tags
+and database keep every author. **This is not a no-op for an existing library:** an author list
+of 151-255 bytes was a valid folder before and is now shortened, so those books become
+`WrongFilePath` issues and a bulk resolve moves them through `UpdateAudiobook` (same trade-off as
+flipping the narrator setting; there is deliberately no migration).
+
+`JoinLibraryPath` additionally refuses any segment over `MaxPathSegmentBytes` (255) with a
+`PathSegmentTooLongException` (an `InvalidOperationException`, so single-book operation failures
+and the metadata-refresh target check still relay its message; it names no path). It runs before
+the tag write, so a book whose title or series is too long fails cleanly instead of half-saving.
+Every caller that reaches it for something other than a save has to answer it rather than let it
+escape: the two path-preview actions return a 400 problem, and `PathMismatchDetector` reports a
+`WrongFilePath` with the message (a readable file must never become `UnreadableFile`, which would
+also discard the book's other consistency results).
 
 **Invariant: a generated library path always resolves inside the library root.** Every segment of
 that relative path comes from a tag value a user or a scrape controls, and nothing between the

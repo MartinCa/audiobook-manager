@@ -3,6 +3,7 @@ using AudiobookManager.Api.Async;
 using AudiobookManager.Api.Controllers;
 using AudiobookManager.Api.Dtos;
 using AudiobookManager.Domain;
+using AudiobookManager.FileManager;
 using AudiobookManager.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
@@ -193,8 +194,41 @@ public class AudiobookControllerTests
 
         var result = await _controller.GeneratePath(dto);
 
-        Assert.AreEqual("/library/Test Author/2024 - Test Book/test.m4b", result);
+        Assert.AreEqual("/library/Test Author/2024 - Test Book/test.m4b", result.Value);
         _audiobookService.Verify(s => s.GenerateLibraryPathAsync(It.Is<Audiobook>(a => a.BookName == "Test Book")), Times.Once);
+    }
+
+    // Regression: a name over the file system limit made the preview throw through the global
+    // handler, so the user typing a long title got a generic 500 instead of the actionable message.
+    [TestMethod]
+    public async Task GeneratePath_ANameTooLongForTheFileSystem_IsA400WithTheMessage()
+    {
+        _audiobookService.Setup(s => s.GenerateLibraryPathAsync(It.IsAny<Audiobook>()))
+            .ThrowsAsync(new PathSegmentTooLongException("The folder name is 300 bytes long."));
+
+        var result = await _controller.GeneratePath(MakeDto());
+
+        ProblemAssert.HasDetail(result.Result, StatusCodes.Status400BadRequest, "The folder name is 300 bytes long.");
+    }
+
+    [TestMethod]
+    public async Task CheckTargetPath_ANameTooLongForTheFileSystem_IsA400WithTheMessage()
+    {
+        _audiobookService.Setup(s => s.CheckTargetPathCollision(It.IsAny<Audiobook>()))
+            .ThrowsAsync(new PathSegmentTooLongException("The folder name is 300 bytes long."));
+
+        var result = await _controller.CheckTargetPath(MakeDto());
+
+        ProblemAssert.HasDetail(result.Result, StatusCodes.Status400BadRequest, "The folder name is 300 bytes long.");
+    }
+
+    [TestMethod]
+    public async Task GeneratePath_OtherFailures_AreNotSwallowed()
+    {
+        _audiobookService.Setup(s => s.GenerateLibraryPathAsync(It.IsAny<Audiobook>()))
+            .ThrowsAsync(new InvalidOperationException("escaped the library root"));
+
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => _controller.GeneratePath(MakeDto()));
     }
 
     [TestMethod]
@@ -205,7 +239,7 @@ public class AudiobookControllerTests
         _audiobookService.Setup(s => s.CheckTargetPathCollision(It.IsAny<Audiobook>()))
             .ReturnsAsync(new TargetPathCollisionResult { TargetPath = "/library/Test Author/2024 - Test Book/test.m4b", Exists = false });
 
-        var result = await _controller.CheckTargetPath(dto);
+        var result = (await _controller.CheckTargetPath(dto)).Value!;
 
         Assert.AreEqual("/library/Test Author/2024 - Test Book/test.m4b", result.TargetPath);
         Assert.IsFalse(result.Exists);
@@ -227,7 +261,7 @@ public class AudiobookControllerTests
                 ExistingDurationInSeconds = 39600
             });
 
-        var result = await _controller.CheckTargetPath(dto);
+        var result = (await _controller.CheckTargetPath(dto)).Value!;
 
         Assert.IsTrue(result.Exists);
         Assert.IsNotNull(result.Existing);

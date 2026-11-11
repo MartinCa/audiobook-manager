@@ -539,7 +539,7 @@ public class AudiobookFileHandler : IAudiobookFileHandler
             var bytes = Encoding.UTF8.GetByteCount(segment);
             if (bytes > MaxPathSegmentBytes)
             {
-                throw new InvalidOperationException(
+                throw new PathSegmentTooLongException(
                     $"A folder or file name generated from this book's metadata is {bytes} bytes long, over the " +
                     $"{MaxPathSegmentBytes}-byte limit of the file system, starting \"{segment[..Math.Min(40, segment.Length)]}...\". " +
                     "Shorten the book name or series; the file was not changed.");
