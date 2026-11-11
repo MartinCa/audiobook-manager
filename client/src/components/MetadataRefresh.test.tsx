@@ -112,6 +112,29 @@ describe("MetadataRefresh", () => {
     expect(screen.getAllByText("Goodreads")).toHaveLength(2);
   });
 
+  it("stacks the row on phones: title wrapper and actions wrapper collapse from sm: up", async () => {
+    renderWithRouter();
+
+    await screen.findByText("Books with Pending Metadata Changes (2)");
+
+    // Scoped to the first row, found through its source badge.
+    const actions = screen.getAllByText("Goodreads")[0]!.parentElement!;
+    const row = actions.parentElement!;
+    const titleWrapper = row.firstElementChild!;
+
+    // The row stacks below sm: and is one line from sm: up.
+    expect(row).toHaveClass("flex-col", "sm:flex-row");
+    // Checkbox + title on top, the source badge and View in a second row; both wrappers vanish
+    // from sm: up so their children are the row's own flex items again.
+    expect(titleWrapper).toHaveClass("sm:contents");
+    expect(titleWrapper).toContainElement(screen.getAllByRole("checkbox")[1]!);
+    expect(titleWrapper).toContainElement(screen.getAllByText(/Brandon Sanderson/)[0]!);
+    expect(actions).toHaveClass("sm:contents");
+    expect(actions).toContainElement(screen.getAllByRole("link", { name: "View" })[0]!);
+    // The "Pending since" timestamp is dropped on phones: it only wraps the title column away.
+    expect(screen.getAllByText(/^Pending since /)[0]).toHaveClass("max-sm:hidden");
+  });
+
   it("shows the empty state when nothing is pending", async () => {
     vi.mocked(metadataRefreshApi.getPendingPage).mockResolvedValue({
       items: [],

@@ -762,61 +762,73 @@ export function MetadataRefresh() {
                   key={item.audiobookId}
                   className="border-border bg-card overflow-hidden rounded-lg border"
                 >
-                  <div className="flex items-center gap-3 p-3">
-                    <Checkbox
-                      checked={selectedIds.has(item.audiobookId)}
-                      disabled={isInert}
-                      onCheckedChange={() => toggleSelected(item.audiobookId)}
-                    />
-                    <button
-                      type="button"
-                      className="flex min-w-0 flex-1 items-center gap-2 text-left"
-                      disabled={isInert}
-                      onClick={() => setExpandedId(isExpanded ? null : item.audiobookId)}
-                    >
-                      {isExpanded ? (
-                        <ChevronDown className="text-muted-foreground h-4 w-4 shrink-0" />
-                      ) : (
-                        <ChevronRight className="text-muted-foreground h-4 w-4 shrink-0" />
-                      )}
-                      <div className="min-w-0 flex-1">
-                        <div className="text-foreground font-semibold break-words">
-                          {item.authors.join(", ")} &mdash; {item.bookName}
-                          <BookQualifierBadges qualifiers={item.qualifiers} className="ml-2" />
+                  <div className="flex flex-col gap-2 p-3 sm:flex-row sm:items-center sm:gap-3">
+                    {/* Phones: checkbox + title on top, the badges and View in a row below. From
+                        sm: up both wrappers vanish and everything sits in one row as before. */}
+                    <div className="flex min-w-0 flex-1 items-center gap-3 sm:contents">
+                      <Checkbox
+                        checked={selectedIds.has(item.audiobookId)}
+                        disabled={isInert}
+                        onCheckedChange={() => toggleSelected(item.audiobookId)}
+                      />
+                      <button
+                        type="button"
+                        className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                        disabled={isInert}
+                        onClick={() => setExpandedId(isExpanded ? null : item.audiobookId)}
+                      >
+                        {isExpanded ? (
+                          <ChevronDown className="text-muted-foreground h-4 w-4 shrink-0" />
+                        ) : (
+                          <ChevronRight className="text-muted-foreground h-4 w-4 shrink-0" />
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <div className="text-foreground font-semibold break-words">
+                            {item.authors.join(", ")} &mdash; {item.bookName}
+                            <BookQualifierBadges qualifiers={item.qualifiers} className="ml-2" />
+                          </div>
+                          <OperationOutcomeMessage outcome={outcome} />
+                          <div className="text-muted-foreground mt-0.5 text-xs max-sm:hidden">
+                            Pending since {formatDateTime(item.fetchedAt)}
+                          </div>
+                          {/* Pills from sm: up; on phones the same badges read as one plain line. */}
+                          <div className="mt-1.5 flex flex-wrap gap-1 max-sm:gap-0">
+                            {item.changedFields.map((field) => (
+                              <Badge
+                                key={field}
+                                variant="outline"
+                                className="text-[10px] max-sm:h-auto max-sm:border-0 max-sm:bg-transparent max-sm:p-0 max-sm:text-xs max-sm:font-normal max-sm:not-last:after:mr-1 max-sm:not-last:after:content-['·']"
+                              >
+                                {METADATA_REFRESH_FIELD_LABELS[field] ?? field}
+                              </Badge>
+                            ))}
+                          </div>
                         </div>
-                        <OperationOutcomeMessage outcome={outcome} />
-                        <div className="text-muted-foreground mt-0.5 text-xs">
-                          Pending since {formatDateTime(item.fetchedAt)}
-                        </div>
-                        <div className="mt-1.5 flex flex-wrap gap-1">
-                          {item.changedFields.map((field) => (
-                            <Badge key={field} variant="outline" className="text-[10px]">
-                              {METADATA_REFRESH_FIELD_LABELS[field] ?? field}
-                            </Badge>
-                          ))}
-                        </div>
-                      </div>
-                    </button>
-                    <OperationOutcomeBadge
-                      busy={isApplying}
-                      busyLabel="Applying…"
-                      outcome={outcome}
-                      labels={APPLY_OUTCOME_LABELS}
-                    />
-                    <Badge variant="secondary" className="shrink-0">
-                      {item.sourceName}
-                    </Badge>
-                    <LinkButton
-                      variant="ghost"
-                      render={
-                        <Link
-                          to="/library/book/$bookId"
-                          params={{ bookId: String(item.audiobookId) }}
-                        />
-                      }
-                    >
-                      View
-                    </LinkButton>
+                      </button>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2 sm:contents">
+                      <OperationOutcomeBadge
+                        busy={isApplying}
+                        busyLabel="Applying…"
+                        outcome={outcome}
+                        labels={APPLY_OUTCOME_LABELS}
+                      />
+                      <Badge variant="secondary" className="shrink-0">
+                        {item.sourceName}
+                      </Badge>
+                      <LinkButton
+                        className="max-sm:ml-auto"
+                        variant="ghost"
+                        render={
+                          <Link
+                            to="/library/book/$bookId"
+                            params={{ bookId: String(item.audiobookId) }}
+                          />
+                        }
+                      >
+                        View
+                      </LinkButton>
+                    </div>
                   </div>
 
                   {isExpanded && (
