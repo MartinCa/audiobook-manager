@@ -557,6 +557,27 @@ describe("BookDetail", () => {
     });
   });
 
+  // Regression: applying pending metadata on the book page invalidated only this book's
+  // ["metadataRefresh", "pending", id] entry, so the metadata-refresh page's paged list (keyed by
+  // page/size/filters) stayed cached and still showed the book as pending on navigating back.
+  it("invalidates the whole metadata-refresh family after a save completes", async () => {
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+
+    renderWithProviders("/library/book/42/edit");
+    await screen.findByDisplayValue("The Way of Kings");
+
+    const call = mockSignalRValue.on.mock.calls.find(
+      ([name]) => name === SignalREvents.AudiobookSaveComplete,
+    );
+    expect(call).toBeDefined();
+    (call![1] as (data: never) => void)({ audiobookId: 42 } as never);
+
+    await waitFor(() => {
+      const keys = invalidateSpy.mock.calls.map(([arg]) => arg?.queryKey);
+      expect(keys).toContainEqual(["metadataRefresh"]);
+    });
+  });
+
   it("invalidates consistency and books queries after resolving an issue", async () => {
     vi.mocked(consistencyApi.getIssuesByAudiobook).mockResolvedValue([
       {

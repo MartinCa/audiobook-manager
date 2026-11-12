@@ -176,10 +176,9 @@ export function BookDetail({ mode }: BookDetailProps) {
       setSaveMessage(null);
       notifications.success("Audiobook saved successfully");
       void queryClient.invalidateQueries({ queryKey: queryKeys.bookDetail(id) });
-      void queryClient.invalidateQueries({
-        queryKey: queryKeys.metadataRefresh.pendingForBook(id),
-      });
-      void queryClient.invalidateQueries({ queryKey: queryKeys.metadataRefresh.pendingSummary() });
+      // The whole family, not just this book's entry: the metadata-refresh page's paged list is
+      // keyed by page/filters, so a narrower key left it showing the book as pending on return.
+      void queryClient.invalidateQueries({ queryKey: queryKeys.metadataRefresh.all() });
       // A saved book may have changed Series/SeriesPart (directly, or a series-part edit); the
       // series detail page's owned-books roster is a separate query family and would otherwise
       // stay stale for its 30s staleTime - same reasoning as the bulk-edit completion handler in
@@ -190,7 +189,15 @@ export function BookDetail({ mode }: BookDetailProps) {
       void queryClient.invalidateQueries({ queryKey: queryKeys.missingTagsAudiobooks.all() });
       if (pendingApplied) {
         setPendingApplied(false);
-        void metadataRefreshApi.dismissPending(id).catch(() => {});
+        // The pending row is only gone once the dismiss lands, so invalidate after it (the
+        // invalidation above can refetch before the server has dropped the row).
+        void metadataRefreshApi
+          .dismissPending(id)
+          .catch(() => {})
+          .finally(() => {
+            void queryClient.invalidateQueries({ queryKey: queryKeys.metadataRefresh.all() });
+            void queryClient.invalidateQueries({ queryKey: queryKeys.books.all() });
+          });
       }
       if (returnToViewAfterSaveRef.current) {
         returnToViewAfterSaveRef.current = false;
@@ -329,8 +336,7 @@ export function BookDetail({ mode }: BookDetailProps) {
   // retrying.
   const invalidateRefreshViews = () => {
     void queryClient.invalidateQueries({ queryKey: queryKeys.bookDetail(id) });
-    void queryClient.invalidateQueries({ queryKey: queryKeys.metadataRefresh.pendingForBook(id) });
-    void queryClient.invalidateQueries({ queryKey: queryKeys.metadataRefresh.pendingSummary() });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.metadataRefresh.all() });
     // The library-list query folds the pending-summary into its badge computation, so a refresh
     // here must also invalidate it — the same reason handleDismissPending invalidates it below.
     void queryClient.invalidateQueries({ queryKey: queryKeys.books.all() });
@@ -363,10 +369,7 @@ export function BookDetail({ mode }: BookDetailProps) {
     try {
       await metadataRefreshApi.dismissPending(id);
       notifications.success("Pending metadata changes discarded");
-      void queryClient.invalidateQueries({
-        queryKey: queryKeys.metadataRefresh.pendingForBook(id),
-      });
-      void queryClient.invalidateQueries({ queryKey: queryKeys.metadataRefresh.pendingSummary() });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.metadataRefresh.all() });
       void queryClient.invalidateQueries({ queryKey: queryKeys.books.all() });
       setPendingOpen(false);
     } catch (err: unknown) {
