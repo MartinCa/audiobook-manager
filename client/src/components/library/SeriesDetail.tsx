@@ -1498,7 +1498,7 @@ export function SeriesDetail() {
               </li>
             </ul>
             {ownedBooks.length > 0 && (
-              <div className="border-border bg-muted/30 max-h-40 overflow-y-auto rounded-md border p-2">
+              <div className="border-border bg-muted/30 rounded-md border p-2">
                 <ul className="text-muted-foreground space-y-0.5 text-xs">
                   {ownedBooks.map((b) => (
                     <li key={b.id} className="truncate">

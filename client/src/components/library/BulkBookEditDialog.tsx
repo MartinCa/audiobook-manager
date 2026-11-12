@@ -384,7 +384,7 @@ function BulkEditForm({
           <p className="text-muted-foreground mb-1.5 text-[11px] font-semibold uppercase">
             Affected books
           </p>
-          <div className="border-border bg-muted/20 max-h-24 space-y-1 overflow-y-auto rounded-md border p-2 pr-1">
+          <div className="border-border bg-muted/20 space-y-1 rounded-md border p-2">
             {selectedBooks.map((bookInfo) => (
               <div key={bookInfo.id} className="text-muted-foreground truncate text-xs">
                 {bookInfo.authors.length > 0 ? `${bookInfo.authors.join(", ")} — ` : ""}
