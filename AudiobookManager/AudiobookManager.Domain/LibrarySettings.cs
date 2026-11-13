@@ -63,6 +63,14 @@ public class LibrarySettings
     public int MaxNarratorsInPath { get; set; } = DefaultMaxNarratorsInPath;
 
     /// <summary>
+    /// Whether an unattended online-metadata apply (bulk/scheduled refresh, picking a pending
+    /// online match, the consistency retry) may split the source's "Title: Subtitle" at the first
+    /// colon when - and only when - that is what lets the apply rules settle the changeset. A split
+    /// that settles it is applied and recorded on the book (<c>SplitTitleOnColon</c>). Off by default.
+    /// </summary>
+    public bool AutoSplitTitleOnColon { get; set; }
+
+    /// <summary>
     /// The one number the path code takes: how many narrators the folder names, 0 when the
     /// narrator is not part of the path.
     /// </summary>

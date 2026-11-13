@@ -33,7 +33,8 @@ public class SettingsService : ISettingsService
             settings.DefaultPageSize,
             settings.SearchInitialsHandling.ToDb(),
             settings.IncludeNarratorInPath,
-            settings.MaxNarratorsInPath);
+            settings.MaxNarratorsInPath,
+            settings.AutoSplitTitleOnColon);
         return dbSettings.ToDomain();
     }
 

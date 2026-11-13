@@ -214,15 +214,25 @@ public class MetadataRefreshService : IMetadataRefreshService
 
         var rules = await GetApplyRuleSetAsync();
         var decision = rules.Decide(differences);
+        var applyWithSplit = false;
+        List<string> fieldsToApply = decision.FieldsToApply.ToList();
+
         if (decision.RequiresReview)
         {
-            _logger.LogInformation(
-                "Metadata refresh for audiobook {AudiobookId} ('{Title}') needs review: {Fields} set to Ask me differ",
-                book.Id, book.BookName, string.Join(", ", decision.ReviewFields));
-            return false;
+            var splitOutcome = await TrySplitToSettleAsync(book, fetched, rules);
+            if (splitOutcome is null)
+            {
+                _logger.LogInformation(
+                    "Metadata refresh for audiobook {AudiobookId} ('{Title}') needs review: {Fields} set to Ask me differ",
+                    book.Id, book.BookName, string.Join(", ", decision.ReviewFields));
+                return false;
+            }
+
+            applyWithSplit = true;
+            fieldsToApply = splitOutcome;
         }
 
-        if (decision.FieldsToApply.Count == 0)
+        if (fieldsToApply.Count == 0)
         {
             // Every difference is on a rule that declines it: nothing to apply and nothing to
             // review, so the book is simply up to date as far as these rules are concerned.
@@ -239,7 +249,9 @@ public class MetadataRefreshService : IMetadataRefreshService
             var row = await _pendingRepository.GetByAudiobookIdAsync(book.Id);
             if (row is not null)
             {
-                await ApplyOneAsync(row, decision.FieldsToApply.ToList());
+                // A split that settled the changeset is applied as a request to split, so the choice is
+                // recorded on the book and later refreshes keep splitting the source's title.
+                await ApplyOneAsync(row, fieldsToApply, splitTitleOnColon: applyWithSplit);
             }
         }
         catch (Exception ex)
@@ -251,6 +263,64 @@ public class MetadataRefreshService : IMetadataRefreshService
 
         // Recorded above, so the caller must not record it a second time.
         return true;
+    }
+
+    /// <summary>
+    /// The "Try splitting the title at the colon" half of the automatic apply. Only for a changeset
+    /// the rules would otherwise leave for review, and only when the library setting is on, the book is
+    /// not already recorded as split (its diff already used the split) and the source's title actually
+    /// splits. The changeset is re-diffed as though the book were split; when the rules then settle it
+    /// the fields to apply are returned (possibly empty = nothing left to review), otherwise null and
+    /// the caller carries on as if no split had been tried - the book is never touched.
+    ///
+    /// The returned fields include BookName whenever the split left it not differing (and the rules
+    /// do not keep a differing Subtitle): the book already carries the split title, so writing it changes
+    /// nothing, but it is what makes the applier record the choice on the book - without it a later
+    /// refresh would propose undoing the split again.
+    /// </summary>
+    private async Task<List<string>?> TrySplitToSettleAsync(
+        Database.Models.Audiobook book, Scraping.Models.MetadataSearchResult fetched, MetadataApplyRuleSet rules)
+    {
+        if (book.SplitTitleOnColon)
+        {
+            return null;
+        }
+
+        var settings = (await _librarySettingsRepository.GetOrCreateAsync()).ToDomain();
+        if (!settings.AutoSplitTitleOnColon)
+        {
+            return null;
+        }
+
+        var unsplit = TitleSplitter.Apply(fetched.BookName, fetched.Subtitle, false);
+        var split = TitleSplitter.Apply(fetched.BookName, fetched.Subtitle, true);
+        if (unsplit == split)
+        {
+            return null;
+        }
+
+        var (spacing, punctuation) = await GetInitialsSettingsAsync();
+        var splitDifferences = MetadataRefreshDiffer.Diff(book, fetched, spacing, punctuation, assumeTitleSplit: true).ToList();
+        var splitDecision = rules.Decide(splitDifferences);
+        if (splitDecision.RequiresReview)
+        {
+            return null;
+        }
+
+        var fields = splitDecision.FieldsToApply.ToList();
+        var bookNameDiffers = splitDifferences.Any(d => d.Field == MetadataRefreshFields.BookName);
+        var subtitleDiffers = splitDifferences.Any(d => d.Field == MetadataRefreshFields.Subtitle);
+        // Never when the Subtitle differs and its rule declines it: the applier writes the recovered
+        // subtitle along with BookName, which would overwrite a value the rules chose to keep.
+        if (!bookNameDiffers && (!subtitleDiffers || fields.Contains(MetadataRefreshFields.Subtitle)))
+        {
+            fields.Add(MetadataRefreshFields.BookName);
+        }
+
+        _logger.LogInformation(
+            "Splitting the title of audiobook {AudiobookId} ('{Title}') at the colon let the apply rules settle its metadata refresh",
+            book.Id, book.BookName);
+        return fields;
     }
 
     public async Task<MetadataRefreshBatchResult> RefreshStaleAudiobooksAsync(

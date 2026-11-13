@@ -6457,6 +6457,7 @@ export interface components {
             includeNarratorInPath?: boolean;
             /** Format: int32 */
             maxNarratorsInPath?: number;
+            autoSplitTitleOnColon?: boolean;
         };
         MatchAuthorDto: {
             sourceId?: string | null;
@@ -7054,6 +7055,7 @@ export interface components {
             includeNarratorInPath?: boolean | null;
             /** Format: int32 */
             maxNarratorsInPath?: number | null;
+            autoSplitTitleOnColon?: boolean | null;
         };
         UpdateMetadataApplyRulesDto: {
             rules?: components["schemas"]["MetadataApplyRuleInputDto"][] | null;

@@ -181,6 +181,7 @@ public class SettingsController : ControllerBase
             SearchInitialsHandling = searchInitialsHandling,
             IncludeNarratorInPath = dto.IncludeNarratorInPath ?? current.IncludeNarratorInPath,
             MaxNarratorsInPath = maxNarratorsInPath,
+            AutoSplitTitleOnColon = dto.AutoSplitTitleOnColon ?? current.AutoSplitTitleOnColon,
         });
         return Ok(ToDto(updated));
     }
@@ -334,5 +335,6 @@ public class SettingsController : ControllerBase
             settings.DefaultPageSize,
             settings.SearchInitialsHandling.ToString(),
             settings.IncludeNarratorInPath,
-            settings.MaxNarratorsInPath);
+            settings.MaxNarratorsInPath,
+            settings.AutoSplitTitleOnColon);
 }

@@ -361,6 +361,162 @@ public class MetadataRefreshServiceTests
         _pendingRepository.Verify(r => r.DeleteByAudiobookIdAsync(42), Times.AtLeastOnce);
     }
 
+    #region Automatic split of "Title: Subtitle" when it lets the rules settle a changeset
+
+    /// <summary>
+    /// A book already filed as "A Book" with subtitle "A Subtitle" (not recorded as split) against a
+    /// source that reports the single title "A Book: A Subtitle". Everything else already agrees, so
+    /// the title is the only thing in the way of the automated rules (which default to Ask me).
+    /// </summary>
+    private Database.Models.Audiobook SetUpSplittableTitle(string? rulesJson, bool autoSplit, out List<Domain.Audiobook> saved)
+    {
+        SetUpBulkRefreshWithOneDifference(rulesJson, out saved);
+        var book = _audiobookRepository.Object.GetByIdWithIncludesAsync(42).Result!;
+        book.Description = "A new description";
+        book.Subtitle = "A Subtitle";
+        _librarySettingsRepository.Setup(r => r.GetOrCreateAsync())
+            .ReturnsAsync(new Database.Models.LibrarySettings
+            {
+                MetadataRefreshDelayMs = 0,
+                MetadataApplyRulesJson = rulesJson,
+                AutoSplitTitleOnColon = autoSplit,
+            });
+        return book;
+    }
+
+    private static MetadataSearchResult CandidateWithColonTitle(string title = "A Book: A Subtitle") =>
+        new("https://www.audible.com/pd/whatever", title)
+        {
+            Source = "Audible",
+            Year = 2024,
+            Description = "A new description",
+            Authors = new List<AudiobookManager.Domain.Person> { new("Author A") },
+            Narrators = new List<AudiobookManager.Domain.Person>(),
+            Genres = new List<string>(),
+        };
+
+    [TestMethod]
+    public async Task ApplyFetchedResult_SplitSettlesTheChangeset_AppliesItAndRecordsTheSplitOnTheBook()
+    {
+        SetUpSplittableTitle(rulesJson: null, autoSplit: true, out var saved);
+
+        await CreateService(_scrapers).ApplyFetchedResultAsSnapshotAsync(42, CandidateWithColonTitle());
+
+        Assert.AreEqual(1, saved.Count, "the split made every difference disappear, so it was applied, not left pending");
+        Assert.IsTrue(saved[0].SplitTitleOnColon);
+        Assert.AreEqual("A Book", saved[0].BookName);
+        Assert.AreEqual("A Subtitle", saved[0].Subtitle);
+        _pendingRepository.Verify(r => r.DeleteByAudiobookIdAsync(42), Times.AtLeastOnce);
+    }
+
+    [TestMethod]
+    public async Task ApplyFetchedResult_SplitSettingOff_LeavesTheTitleDifferenceForReview()
+    {
+        SetUpSplittableTitle(rulesJson: null, autoSplit: false, out var saved);
+
+        await CreateService(_scrapers).ApplyFetchedResultAsSnapshotAsync(42, CandidateWithColonTitle());
+
+        Assert.AreEqual(0, saved.Count);
+        _pendingRepository.Verify(
+            r => r.UpsertAsync(It.Is<PendingMetadataRefresh>(p => p.ChangedFieldsJson!.Contains("BookName"))),
+            Times.Once);
+    }
+
+    [TestMethod]
+    public async Task ApplyFetchedResult_SplitWouldNotSettleIt_StaysPendingAndTheBookIsNotFlagged()
+    {
+        // The year differs too and is Ask me, so splitting the title cannot settle the changeset.
+        var book = SetUpSplittableTitle(rulesJson: null, autoSplit: true, out var saved);
+        book.Year = 1999;
+
+        await CreateService(_scrapers).ApplyFetchedResultAsSnapshotAsync(42, CandidateWithColonTitle());
+
+        Assert.AreEqual(0, saved.Count);
+        Assert.IsFalse(book.SplitTitleOnColon, "a split that did not settle anything is not recorded");
+        _pendingRepository.Verify(
+            r => r.UpsertAsync(It.Is<PendingMetadataRefresh>(p => p.ChangedFieldsJson!.Contains("Year")
+                && p.ChangedFieldsJson.Contains("BookName"))),
+            Times.Once);
+    }
+
+    [TestMethod]
+    public async Task ApplyFetchedResult_SourceTitleHasNoColon_IsNotSplit()
+    {
+        // The title genuinely differs ("Another Book"), and there is nothing to split at.
+        SetUpSplittableTitle(rulesJson: null, autoSplit: true, out var saved);
+
+        await CreateService(_scrapers).ApplyFetchedResultAsSnapshotAsync(42, CandidateWithColonTitle("Another Book"));
+
+        Assert.AreEqual(0, saved.Count);
+        _pendingRepository.Verify(r => r.UpsertAsync(It.IsAny<PendingMetadataRefresh>()), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task ApplyFetchedResult_SplitLeavesOnlyASubtitleTheRulesApply_WritesItAndRecordsTheSplit()
+    {
+        // The book has the bare title and no subtitle; the split turns the source's title into a
+        // BookName that already matches plus a Subtitle that Fill blanks only is happy to write.
+        var book = SetUpSplittableTitle(
+            RulesJson((MetadataRefreshFields.Subtitle, InteractiveApplyRule.AlwaysSelect, AutomatedApplyRule.FillBlanksOnly)),
+            autoSplit: true, out var saved);
+        book.Subtitle = null;
+
+        await CreateService(_scrapers).ApplyFetchedResultAsSnapshotAsync(42, CandidateWithColonTitle());
+
+        Assert.AreEqual(1, saved.Count);
+        Assert.AreEqual("A Book", saved[0].BookName);
+        Assert.AreEqual("A Subtitle", saved[0].Subtitle);
+        Assert.IsTrue(saved[0].SplitTitleOnColon, "the choice is recorded so a later refresh splits again");
+    }
+
+    [TestMethod]
+    public async Task ApplyFetchedResult_SplitLeavesASubtitleTheRulesKeep_DoesNotOverwriteItOrFlagTheBook()
+    {
+        // Subtitle is Keep current, so the rules settle the split changeset by declining it. Writing
+        // BookName to record the split would drag the recovered subtitle along, overwriting the kept
+        // value - so the split is not recorded and the stored subtitle is untouched.
+        var book = SetUpSplittableTitle(
+            RulesJson((MetadataRefreshFields.Subtitle, InteractiveApplyRule.AlwaysSelect, AutomatedApplyRule.KeepCurrent)),
+            autoSplit: true, out var saved);
+        book.Subtitle = "A different subtitle";
+
+        await CreateService(_scrapers).ApplyFetchedResultAsSnapshotAsync(42, CandidateWithColonTitle());
+
+        Assert.AreEqual(0, saved.Count, "nothing is written: every remaining difference is Keep current");
+        Assert.IsFalse(book.SplitTitleOnColon);
+    }
+
+    [TestMethod]
+    public async Task BulkRefresh_SplitSettlesTheChangeset_AppliesItAndRecordsTheSplit()
+    {
+        // The scheduled/bulk refresh shares the automatic path with picking a pending online match.
+        SetUpSplittableTitle(rulesJson: null, autoSplit: true, out var saved);
+        _scrapingService.Setup(s => s.GetBookDetails("https://www.audible.com/pd/whatever"))
+            .ReturnsAsync(CandidateWithColonTitle());
+
+        await CreateService(_scrapers).RefreshSelectedAudiobooksAsync(new List<long> { 42 }, NoProgress);
+
+        Assert.AreEqual(1, saved.Count);
+        Assert.IsTrue(saved[0].SplitTitleOnColon);
+        Assert.AreEqual("A Book", saved[0].BookName);
+    }
+
+    [TestMethod]
+    public async Task SingleBookRefresh_NeverSplitsAutomatically_EvenWithTheSettingOn()
+    {
+        // The Refresh button always opens a review; the person decides about the split there.
+        SetUpSplittableTitle(rulesJson: null, autoSplit: true, out var saved);
+        _scrapingService.Setup(s => s.GetBookDetails("https://www.audible.com/pd/whatever"))
+            .ReturnsAsync(CandidateWithColonTitle());
+
+        await CreateService(_scrapers).RefreshAudiobookAsync(42);
+
+        Assert.AreEqual(0, saved.Count);
+        _pendingRepository.Verify(r => r.UpsertAsync(It.IsAny<PendingMetadataRefresh>()), Times.Once);
+    }
+
+    #endregion
+
     private PendingMetadataRefresh SeedPendingRowFromCandidate()
     {
         var row = new PendingMetadataRefresh

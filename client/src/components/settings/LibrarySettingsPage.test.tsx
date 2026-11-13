@@ -57,6 +57,7 @@ function makeSettings(overrides: Partial<LibrarySettings> = {}): LibrarySettings
     searchInitialsHandling: "AsStored",
     includeNarratorInPath: false,
     maxNarratorsInPath: 3,
+    autoSplitTitleOnColon: false,
     ...overrides,
   };
 }
@@ -133,6 +134,40 @@ describe("LibrarySettingsPage", () => {
     await waitFor(() => {
       expect(settingsApi.updateLibrarySettings).toHaveBeenCalledWith(
         expect.objectContaining({ includeNarratorInPath: true }),
+      );
+    });
+  });
+
+  it("shows the stored automatic title split setting", async () => {
+    vi.mocked(settingsApi.getLibrarySettings).mockResolvedValue(
+      makeSettings({ autoSplitTitleOnColon: true }),
+    );
+    renderPage();
+
+    expect(
+      await screen.findByRole("checkbox", { name: /try splitting the title at the colon/i }),
+    ).toBeChecked();
+  });
+
+  it("defaults the automatic title split to off and sends it on save once ticked", async () => {
+    const user = userEvent.setup();
+    vi.mocked(settingsApi.getLibrarySettings).mockResolvedValue(makeSettings());
+    vi.mocked(settingsApi.updateLibrarySettings).mockResolvedValue(
+      makeSettings({ autoSplitTitleOnColon: true }),
+    );
+
+    renderPage();
+
+    const checkbox = await screen.findByRole("checkbox", {
+      name: /try splitting the title at the colon/i,
+    });
+    expect(checkbox).not.toBeChecked();
+    await user.click(checkbox);
+    await user.click(screen.getByRole("button", { name: /^Save$/ }));
+
+    await waitFor(() => {
+      expect(settingsApi.updateLibrarySettings).toHaveBeenCalledWith(
+        expect.objectContaining({ autoSplitTitleOnColon: true }),
       );
     });
   });
@@ -248,6 +283,7 @@ describe("LibrarySettingsPage", () => {
         searchInitialsHandling: "Compact",
         includeNarratorInPath: false,
         maxNarratorsInPath: 3,
+        autoSplitTitleOnColon: false,
       });
     });
   });
@@ -303,6 +339,7 @@ describe("LibrarySettingsPage", () => {
         searchInitialsHandling: "AsStored",
         includeNarratorInPath: false,
         maxNarratorsInPath: 3,
+        autoSplitTitleOnColon: false,
       });
     });
     expect(notifications.success).toHaveBeenCalledWith("Library settings saved");
@@ -337,6 +374,7 @@ describe("LibrarySettingsPage", () => {
         searchInitialsHandling: "AsStored",
         includeNarratorInPath: false,
         maxNarratorsInPath: 3,
+        autoSplitTitleOnColon: false,
       });
     });
     expect(notifications.success).toHaveBeenCalledWith("Library settings saved");
@@ -366,6 +404,7 @@ describe("LibrarySettingsPage", () => {
         searchInitialsHandling: "AsStored",
         includeNarratorInPath: false,
         maxNarratorsInPath: 3,
+        autoSplitTitleOnColon: false,
       });
     });
   });

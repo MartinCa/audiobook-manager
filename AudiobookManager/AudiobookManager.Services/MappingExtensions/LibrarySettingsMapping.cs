@@ -16,6 +16,7 @@ public static class LibrarySettingsMapping
             SearchInitialsHandling = ToDomain(dbModel.SearchInitialsHandling),
             IncludeNarratorInPath = dbModel.IncludeNarratorInPath,
             MaxNarratorsInPath = dbModel.MaxNarratorsInPath,
+            AutoSplitTitleOnColon = dbModel.AutoSplitTitleOnColon,
             MetadataApplyRules = MetadataApplyRuleSet.Deserialize(dbModel.MetadataApplyRulesJson),
         };
 

@@ -15,12 +15,13 @@ public record LibrarySettingsDto(
     int DefaultPageSize,
     string SearchInitialsHandling,
     bool IncludeNarratorInPath,
-    int MaxNarratorsInPath);
+    int MaxNarratorsInPath,
+    bool AutoSplitTitleOnColon);
 
 /// <summary>
 /// The body of PUT api/settings/library. <see cref="InitialsPunctuation"/>,
 /// <see cref="UpcomingReleasesEnabled"/>, <see cref="UpcomingReleasesCronSchedule"/> and
-/// <see cref="DefaultPageSize"/>, <see cref="SearchInitialsHandling"/> and <see cref="IncludeNarratorInPath"/> and <see cref="MaxNarratorsInPath"/> are optional like <see cref="MetadataRefreshDelayMs"/>: an
+/// <see cref="DefaultPageSize"/>, <see cref="SearchInitialsHandling"/> and <see cref="IncludeNarratorInPath"/> and <see cref="MaxNarratorsInPath"/> and <see cref="AutoSplitTitleOnColon"/> are optional like <see cref="MetadataRefreshDelayMs"/>: an
 /// omitted field keeps the stored value rather than resetting it.
 /// </summary>
 public record UpdateLibrarySettingsDto(
@@ -32,7 +33,8 @@ public record UpdateLibrarySettingsDto(
     int? DefaultPageSize,
     string? SearchInitialsHandling = null,
     bool? IncludeNarratorInPath = null,
-    int? MaxNarratorsInPath = null);
+    int? MaxNarratorsInPath = null,
+    bool? AutoSplitTitleOnColon = null);
 
 /// <summary>One selectable apply rule with the text the settings page explains it with.</summary>
 public record MetadataApplyOptionDto(string Key, string Label, string Description);

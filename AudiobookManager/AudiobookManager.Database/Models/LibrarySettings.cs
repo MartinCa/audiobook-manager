@@ -68,6 +68,13 @@ public class LibrarySettings
     [Column("max_narrators_in_path")]
     public int MaxNarratorsInPath { get; set; } = 1;
 
+    /// <summary>
+    /// Whether an unattended online-metadata apply may try splitting the source's "Title: Subtitle"
+    /// at the first colon when that is what lets the apply rules settle the changeset.
+    /// </summary>
+    [Column("auto_split_title_on_colon")]
+    public bool AutoSplitTitleOnColon { get; set; }
+
     /// <summary>How many narrators the folder name lists, 0 when the narrator is not part of the path.</summary>
     [NotMapped]
     public int NarratorsInPath => IncludeNarratorInPath ? MaxNarratorsInPath : 0;
@@ -99,7 +106,8 @@ public class LibrarySettings
         int defaultPageSize = 20,
         SearchInitialsHandling searchInitialsHandling = SearchInitialsHandling.AsStored,
         bool includeNarratorInPath = false,
-        int maxNarratorsInPath = 1)
+        int maxNarratorsInPath = 1,
+        bool autoSplitTitleOnColon = false)
     {
         Id = id;
         InitialsSpacing = initialsSpacing;
@@ -111,5 +119,6 @@ public class LibrarySettings
         SearchInitialsHandling = searchInitialsHandling;
         IncludeNarratorInPath = includeNarratorInPath;
         MaxNarratorsInPath = maxNarratorsInPath;
+        AutoSplitTitleOnColon = autoSplitTitleOnColon;
     }
 }

@@ -27,6 +27,7 @@ function settingsWith(handling: SearchInitialsHandling): LibrarySettings {
     searchInitialsHandling: handling,
     includeNarratorInPath: false,
     maxNarratorsInPath: 3,
+    autoSplitTitleOnColon: false,
   };
 }
 

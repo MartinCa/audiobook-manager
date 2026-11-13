@@ -17,7 +17,8 @@ public interface ILibrarySettingsRepository
         int defaultPageSize,
         SearchInitialsHandling searchInitialsHandling,
         bool includeNarratorInPath,
-        int maxNarratorsInPath);
+        int maxNarratorsInPath,
+        bool autoSplitTitleOnColon);
 
     /// <summary>
     /// Replaces only the online-metadata apply rules JSON (null = all defaults), leaving every other

@@ -66,6 +66,7 @@ export function LibrarySettingsPage() {
   const [searchInitialsHandling, setSearchInitialsHandling] =
     useState<SearchInitialsHandling | null>(null);
   const [includeNarratorInPath, setIncludeNarratorInPath] = useState<boolean | null>(null);
+  const [autoSplitTitleOnColon, setAutoSplitTitleOnColon] = useState<boolean | null>(null);
   // Held as the typed text so a half-edited field ("", "1") is not snapped back under the cursor.
   const [maxNarratorsInPath, setMaxNarratorsInPath] = useState<string | null>(null);
 
@@ -84,6 +85,7 @@ export function LibrarySettingsPage() {
       searchInitialsHandling: SearchInitialsHandling;
       includeNarratorInPath: boolean;
       maxNarratorsInPath: number;
+      autoSplitTitleOnColon: boolean;
     }) => settingsApi.updateLibrarySettings(settings),
     onSuccess: () => {
       notifications.success("Library settings saved");
@@ -109,6 +111,8 @@ export function LibrarySettingsPage() {
     searchInitialsHandling ?? data?.searchInitialsHandling ?? null;
   const currentIncludeNarratorInPath =
     includeNarratorInPath ?? data?.includeNarratorInPath ?? false;
+  const currentAutoSplitTitleOnColon =
+    autoSplitTitleOnColon ?? data?.autoSplitTitleOnColon ?? false;
   const currentMaxNarratorsInPathText =
     maxNarratorsInPath ?? (data ? String(data.maxNarratorsInPath) : "");
   const currentMaxNarratorsInPath = Number(currentMaxNarratorsInPathText);
@@ -143,6 +147,7 @@ export function LibrarySettingsPage() {
       maxNarratorsInPath: currentIncludeNarratorInPath
         ? currentMaxNarratorsInPath
         : (data?.maxNarratorsInPath ?? currentMaxNarratorsInPath),
+      autoSplitTitleOnColon: currentAutoSplitTitleOnColon,
     });
   };
 
@@ -306,6 +311,27 @@ export function LibrarySettingsPage() {
                   {MAX_NARRATORS_IN_PATH}); the first ones in the book&apos;s narrator order. Casts
                   longer than that are cut, so two books that share their first narrators get the
                   same folder name. Changing it moves the books it affects the same way.
+                </p>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="flex items-center gap-2 text-sm">
+                  <Checkbox
+                    checked={currentAutoSplitTitleOnColon}
+                    onCheckedChange={(checked) => setAutoSplitTitleOnColon(Boolean(checked))}
+                    disabled={mutation.isPending}
+                  />
+                  Try splitting the title at the colon when applying online metadata automatically
+                </label>
+                <p className="text-muted-foreground text-xs">
+                  Sources often report a book as a single &ldquo;Title: Subtitle&rdquo;, which makes
+                  the title differ from a book you have already filed with a separate subtitle. When
+                  an automatic apply (bulk or scheduled refresh, picking a pending online match, the
+                  consistency retry) would otherwise leave a book for review, it first checks
+                  whether splitting the source&apos;s title at the first colon lets your apply rules
+                  settle it. If so, it applies the changes and remembers the split for that book;
+                  otherwise nothing changes and the book is left for review as usual. The Refresh
+                  button always opens a review.
                 </p>
               </div>
 
