@@ -18,9 +18,15 @@ public static class MetadataRefreshDiffer
 {
     private const string ListSeparator = " / ";
 
+    /// <param name="assumeTitleSplit">
+    /// Diffs as though the book were recorded as split at the colon even though it is not (see
+    /// <see cref="Database.Models.Audiobook.SplitTitleOnColon"/>) - what an automatic apply asks to
+    /// learn whether splitting would let the apply rules settle the changeset. Nothing is written.
+    /// </param>
     public static IEnumerable<MetadataRefreshDiff> Diff(
         Database.Models.Audiobook book, MetadataSearchResult fetched,
-        Domain.InitialsSpacing spacing, Domain.InitialsPunctuation punctuation)
+        Domain.InitialsSpacing spacing, Domain.InitialsPunctuation punctuation,
+        bool assumeTitleSplit = false)
     {
         var diffs = new List<MetadataRefreshDiff>();
         var add = MakeAdd(diffs);
@@ -33,7 +39,7 @@ public static class MetadataRefreshDiffer
             JoinNames(SplitCombinedNames(fetched.Narrators.Select(n => n.Name)), spacing, punctuation));
         // A book recorded as split compares against the source's title split the same way, or
         // every refresh would propose undoing the split.
-        var (sourceBookName, sourceSubtitle) = TitleSplitter.Apply(fetched.BookName, fetched.Subtitle, book.SplitTitleOnColon);
+        var (sourceBookName, sourceSubtitle) = TitleSplitter.Apply(fetched.BookName, fetched.Subtitle, book.SplitTitleOnColon || assumeTitleSplit);
         add(MetadataRefreshFields.BookName, book.BookName, sourceBookName);
         add(MetadataRefreshFields.Subtitle, book.Subtitle, sourceSubtitle);
         AddSeries(diffs, book, (fetched.Series ?? new List<MetadataSeriesSearchResult>())

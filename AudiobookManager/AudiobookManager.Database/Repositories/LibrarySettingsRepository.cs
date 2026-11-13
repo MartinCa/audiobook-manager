@@ -52,7 +52,8 @@ public class LibrarySettingsRepository : ILibrarySettingsRepository
         int defaultPageSize,
         SearchInitialsHandling searchInitialsHandling,
         bool includeNarratorInPath,
-        int maxNarratorsInPath)
+        int maxNarratorsInPath,
+        bool autoSplitTitleOnColon)
     {
         var settings = await _db.LibrarySettings.SingleOrDefaultAsync();
         if (settings == null)
@@ -67,7 +68,8 @@ public class LibrarySettingsRepository : ILibrarySettingsRepository
                 defaultPageSize,
                 searchInitialsHandling,
                 includeNarratorInPath,
-                maxNarratorsInPath);
+                maxNarratorsInPath,
+                autoSplitTitleOnColon);
             _db.LibrarySettings.Add(settings);
         }
         else
@@ -81,6 +83,7 @@ public class LibrarySettingsRepository : ILibrarySettingsRepository
             settings.SearchInitialsHandling = searchInitialsHandling;
             settings.IncludeNarratorInPath = includeNarratorInPath;
             settings.MaxNarratorsInPath = maxNarratorsInPath;
+            settings.AutoSplitTitleOnColon = autoSplitTitleOnColon;
         }
 
         try
@@ -104,6 +107,7 @@ public class LibrarySettingsRepository : ILibrarySettingsRepository
             winner.SearchInitialsHandling = searchInitialsHandling;
             winner.IncludeNarratorInPath = includeNarratorInPath;
             winner.MaxNarratorsInPath = maxNarratorsInPath;
+            winner.AutoSplitTitleOnColon = autoSplitTitleOnColon;
             await _db.SaveChangesAsync();
             return winner;
         }

@@ -37,6 +37,7 @@ describe("usePageSize", () => {
       searchInitialsHandling: "AsStored",
       includeNarratorInPath: false,
       maxNarratorsInPath: 3,
+      autoSplitTitleOnColon: false,
     });
 
     const { result } = renderHook(() => usePageSize(), { wrapper });
@@ -55,6 +56,7 @@ describe("usePageSize", () => {
       searchInitialsHandling: "AsStored",
       includeNarratorInPath: false,
       maxNarratorsInPath: 3,
+      autoSplitTitleOnColon: false,
     });
 
     const { result } = renderHook(() => usePageSize(), { wrapper });

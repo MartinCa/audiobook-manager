@@ -807,6 +807,21 @@ only to a field that actually differs. "Empty" is no text (a year of 0 included)
   decline are dropped, not left pending. If that apply fails (path taken, book busy) the full
   changeset stays pending for review rather than being lost. Bulk _online search_ itself only
   collects candidates; the rules come into play when one is picked.
+- **Automatic title split** (`library_settings.auto_split_title_on_colon`, off by default, a plain
+  toggle on the Library Settings page): a source often reports "Title: Subtitle" as one title, which
+  differs from a book filed with a separate subtitle and so parks it for review on the title alone.
+  When the toggle is on and `Decide` says "review", `TryApplyAutomaticallyAsync` calls
+  `TrySplitToSettleAsync`: if the book is not already recorded as split and the source's title
+  actually splits, the changeset is re-diffed with `MetadataRefreshDiffer.Diff(..., assumeTitleSplit:
+  true)` and re-decided. Only when the rules then settle it (no differing Ask me field) is it applied,
+  through `ApplyOneAsync` with the split requested, so the choice is recorded on the book
+  (`SplitTitleOnColon`) like any other apply. Otherwise nothing changed: the unsplit changeset is
+  stored pending as before and the book is never flagged speculatively. It is tried only for a
+  changeset that would otherwise need review, so it never alters one the rules already settled, and
+  never for the single-book Refresh button (always a review). BookName is added to the applied
+  fields when the split left it not differing, because that is what makes the applier record the
+  flag - except when a differing Subtitle is declined by its rule, since the applier would then
+  write the recovered subtitle over the value the rules chose to keep.
 - **Guard rails:** `Always overwrite` is the only rule that can replace a value with an empty one,
   so it is refused (`Validate` -> 400; `From` coerces a stored one back to Ask me) on the fields a
   book cannot be without - Authors, Book name, Year - and allowed with a warning on Series (an empty

@@ -63,7 +63,7 @@ public class LibrarySettingsRepositoryTests
     [TestMethod]
     public async Task GetOrCreateAsync_RowExists_ReturnsItWithoutInserting()
     {
-        await _repository.UpdateAsync(DbInitialsSpacing.Spaced, DbInitialsPunctuation.Dotted, 1000, true, "0 3 * * *", 20, AudiobookManager.Database.Models.SearchInitialsHandling.AsStored, false, 3);
+        await _repository.UpdateAsync(DbInitialsSpacing.Spaced, DbInitialsPunctuation.Dotted, 1000, true, "0 3 * * *", 20, AudiobookManager.Database.Models.SearchInitialsHandling.AsStored, false, 3, false);
 
         var settings = await _repository.GetOrCreateAsync();
 
@@ -74,7 +74,7 @@ public class LibrarySettingsRepositoryTests
     [TestMethod]
     public async Task UpdateAsync_NoRowYet_CreatesRowWithTheRequestedValue()
     {
-        var settings = await _repository.UpdateAsync(DbInitialsSpacing.Spaced, DbInitialsPunctuation.Dotted, 1000, true, "0 3 * * *", 20, AudiobookManager.Database.Models.SearchInitialsHandling.AsStored, false, 3);
+        var settings = await _repository.UpdateAsync(DbInitialsSpacing.Spaced, DbInitialsPunctuation.Dotted, 1000, true, "0 3 * * *", 20, AudiobookManager.Database.Models.SearchInitialsHandling.AsStored, false, 3, false);
 
         Assert.AreEqual(DbInitialsSpacing.Spaced, settings.InitialsSpacing);
         using var freshContext = OpenNewContext();
@@ -84,8 +84,8 @@ public class LibrarySettingsRepositoryTests
     [TestMethod]
     public async Task UpdateAsync_RowExists_UpdatesItInPlace()
     {
-        await _repository.UpdateAsync(DbInitialsSpacing.Spaced, DbInitialsPunctuation.Dotted, 1000, true, "0 3 * * *", 20, AudiobookManager.Database.Models.SearchInitialsHandling.AsStored, false, 3);
-        await _repository.UpdateAsync(DbInitialsSpacing.Unspaced, DbInitialsPunctuation.Dotted, 1000, true, "0 3 * * *", 20, AudiobookManager.Database.Models.SearchInitialsHandling.AsStored, false, 3);
+        await _repository.UpdateAsync(DbInitialsSpacing.Spaced, DbInitialsPunctuation.Dotted, 1000, true, "0 3 * * *", 20, AudiobookManager.Database.Models.SearchInitialsHandling.AsStored, false, 3, false);
+        await _repository.UpdateAsync(DbInitialsSpacing.Unspaced, DbInitialsPunctuation.Dotted, 1000, true, "0 3 * * *", 20, AudiobookManager.Database.Models.SearchInitialsHandling.AsStored, false, 3, false);
 
         Assert.AreEqual(1, await _db.LibrarySettings.CountAsync());
         Assert.AreEqual(DbInitialsSpacing.Unspaced, (await _repository.GetOrCreateAsync()).InitialsSpacing);
@@ -129,7 +129,7 @@ public class LibrarySettingsRepositoryTests
             var repository = new LibrarySettingsRepository(context);
             return await repository.UpdateAsync(
                 i % 2 == 0 ? DbInitialsSpacing.Spaced : DbInitialsSpacing.Unspaced,
-                DbInitialsPunctuation.Dotted, 1000, true, "0 3 * * *", 20, AudiobookManager.Database.Models.SearchInitialsHandling.AsStored, false, 3);
+                DbInitialsPunctuation.Dotted, 1000, true, "0 3 * * *", 20, AudiobookManager.Database.Models.SearchInitialsHandling.AsStored, false, 3, false);
         }));
 
         await Task.WhenAll(tasks);
@@ -153,7 +153,7 @@ public class LibrarySettingsRepositoryTests
 
         await _repository.UpdateAsync(
             DbInitialsSpacing.Spaced, DbInitialsPunctuation.Dotted, 1000, true, "0 3 * * *", 20,
-            AudiobookManager.Database.Models.SearchInitialsHandling.AsStored, true, 3);
+            AudiobookManager.Database.Models.SearchInitialsHandling.AsStored, true, 3, false);
 
         using var freshContext = OpenNewContext();
         Assert.IsTrue((await freshContext.LibrarySettings.SingleAsync()).IncludeNarratorInPath);
@@ -166,10 +166,23 @@ public class LibrarySettingsRepositoryTests
 
         await _repository.UpdateAsync(
             DbInitialsSpacing.Spaced, DbInitialsPunctuation.Dotted, 1000, true, "0 3 * * *", 20,
-            AudiobookManager.Database.Models.SearchInitialsHandling.AsStored, true, 6);
+            AudiobookManager.Database.Models.SearchInitialsHandling.AsStored, true, 6, false);
 
         using var freshContext = OpenNewContext();
         Assert.AreEqual(6, (await freshContext.LibrarySettings.SingleAsync()).MaxNarratorsInPath);
+    }
+
+    [TestMethod]
+    public async Task UpdateAsync_PersistsAutoSplitTitleOnColon_AndDefaultsToOff()
+    {
+        Assert.IsFalse((await _repository.GetOrCreateAsync()).AutoSplitTitleOnColon);
+
+        await _repository.UpdateAsync(
+            DbInitialsSpacing.Spaced, DbInitialsPunctuation.Dotted, 1000, true, "0 3 * * *", 20,
+            AudiobookManager.Database.Models.SearchInitialsHandling.AsStored, false, 3, true);
+
+        using var freshContext = OpenNewContext();
+        Assert.IsTrue((await freshContext.LibrarySettings.SingleAsync()).AutoSplitTitleOnColon);
     }
 
     [TestMethod]
@@ -177,7 +190,7 @@ public class LibrarySettingsRepositoryTests
     {
         await _repository.UpdateAsync(
             DbInitialsSpacing.Spaced, DbInitialsPunctuation.Dotted, 1000, true, "0 3 * * *", 20,
-            AudiobookManager.Database.Models.SearchInitialsHandling.Compact, false, 3);
+            AudiobookManager.Database.Models.SearchInitialsHandling.Compact, false, 3, false);
 
         using var freshContext = OpenNewContext();
         Assert.AreEqual(
@@ -190,7 +203,7 @@ public class LibrarySettingsRepositoryTests
     {
         await _repository.UpdateAsync(
             DbInitialsSpacing.Spaced, DbInitialsPunctuation.Undotted, 2500, false, "0 5 * * *", 50,
-            AudiobookManager.Database.Models.SearchInitialsHandling.Compact, false, 3);
+            AudiobookManager.Database.Models.SearchInitialsHandling.Compact, false, 3, false);
 
         await _repository.SetMetadataApplyRulesJsonAsync("{\"Description\":{}}");
 
@@ -209,7 +222,7 @@ public class LibrarySettingsRepositoryTests
 
         await _repository.UpdateAsync(
             DbInitialsSpacing.Unspaced, DbInitialsPunctuation.Dotted, 1000, true, "0 3 * * *", 20,
-            AudiobookManager.Database.Models.SearchInitialsHandling.AsStored, false, 3);
+            AudiobookManager.Database.Models.SearchInitialsHandling.AsStored, false, 3, false);
 
         _db.ChangeTracker.Clear();
         Assert.AreEqual("{\"Description\":{}}", (await _repository.GetOrCreateAsync()).MetadataApplyRulesJson);
@@ -220,7 +233,7 @@ public class LibrarySettingsRepositoryTests
     {
         await _repository.UpdateAsync(
             DbInitialsSpacing.Spaced, DbInitialsPunctuation.Undotted, 2500, false, "0 5 * * *", 50,
-            AudiobookManager.Database.Models.SearchInitialsHandling.Compact, false, 3);
+            AudiobookManager.Database.Models.SearchInitialsHandling.Compact, false, 3, false);
         await _repository.SetMetadataApplyRulesJsonAsync("{\"Description\":{}}");
 
         await _repository.SetMetadataSourceOrderJsonAsync("[\"Hardcover\",\"Audible\"]");
@@ -240,7 +253,7 @@ public class LibrarySettingsRepositoryTests
 
         await _repository.UpdateAsync(
             DbInitialsSpacing.Unspaced, DbInitialsPunctuation.Dotted, 1000, true, "0 3 * * *", 20,
-            AudiobookManager.Database.Models.SearchInitialsHandling.AsStored, false, 3);
+            AudiobookManager.Database.Models.SearchInitialsHandling.AsStored, false, 3, false);
 
         _db.ChangeTracker.Clear();
         Assert.AreEqual("[\"Hardcover\"]", (await _repository.GetOrCreateAsync()).MetadataSourceOrderJson);

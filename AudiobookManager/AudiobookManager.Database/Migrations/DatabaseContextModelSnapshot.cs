@@ -15,7 +15,7 @@ namespace AudiobookManager.Database.Migrations
         protected override void BuildModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
-            modelBuilder.HasAnnotation("ProductVersion", "10.0.13");
+            modelBuilder.HasAnnotation("ProductVersion", "10.0.15");
 
             modelBuilder.Entity("AudiobookGenre", b =>
                 {
@@ -652,6 +652,10 @@ namespace AudiobookManager.Database.Migrations
                     b.Property<long>("Id")
                         .HasColumnType("INTEGER")
                         .HasColumnName("id");
+
+                    b.Property<bool>("AutoSplitTitleOnColon")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("auto_split_title_on_colon");
 
                     b.Property<int>("DefaultPageSize")
                         .HasColumnType("INTEGER")
