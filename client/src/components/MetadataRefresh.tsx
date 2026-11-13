@@ -532,53 +532,6 @@ export function MetadataRefresh() {
         )}
       </Card>
 
-      <Card className="space-y-3 p-4">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-          <div className="space-y-1.5">
-            <label className="text-muted-foreground text-xs font-semibold uppercase">
-              Refresh matched series from their online source
-            </label>
-            <p className="text-muted-foreground text-xs">
-              Re-fetches every matched series' roster. Series whose source now differs from the
-              library get a reviewable pending snapshot below; no-change series have nothing
-              pending.
-            </p>
-          </div>
-
-          <Button
-            onClick={() => {
-              void startBulkSeriesRefresh();
-            }}
-            disabled={refreshingSeries}
-            className="w-full sm:w-auto"
-          >
-            {refreshingSeries ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <RefreshCw className="mr-2 h-4 w-4" />
-            )}
-            {refreshingSeries ? "Refreshing series..." : "Refresh Series"}
-          </Button>
-        </div>
-
-        {refreshingSeries && seriesProgress && (
-          <OperationProgressBar
-            processed={seriesProgress.processed}
-            total={seriesProgress.total}
-            label="Refreshing series..."
-            subText={`${seriesProgress.succeeded} refreshed, ${seriesProgress.failed} failed`}
-          />
-        )}
-      </Card>
-
-      <SeriesRefreshPendingList />
-
-      <AuthorRefreshPendingList />
-
-      <SeriesConsistencyIssueList />
-
-      <AuthorConsistencyIssueList />
-
       <div className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-foreground text-lg font-bold">
@@ -876,6 +829,53 @@ export function MetadataRefresh() {
           </div>
         )}
       </div>
+
+      <Card className="space-y-3 p-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <div className="space-y-1.5">
+            <label className="text-muted-foreground text-xs font-semibold uppercase">
+              Refresh matched series from their online source
+            </label>
+            <p className="text-muted-foreground text-xs">
+              Re-fetches every matched series' roster. Series whose source now differs from the
+              library get a reviewable pending snapshot below; no-change series have nothing
+              pending.
+            </p>
+          </div>
+
+          <Button
+            onClick={() => {
+              void startBulkSeriesRefresh();
+            }}
+            disabled={refreshingSeries}
+            className="w-full sm:w-auto"
+          >
+            {refreshingSeries ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <RefreshCw className="mr-2 h-4 w-4" />
+            )}
+            {refreshingSeries ? "Refreshing series..." : "Refresh Series"}
+          </Button>
+        </div>
+
+        {refreshingSeries && seriesProgress && (
+          <OperationProgressBar
+            processed={seriesProgress.processed}
+            total={seriesProgress.total}
+            label="Refreshing series..."
+            subText={`${seriesProgress.succeeded} refreshed, ${seriesProgress.failed} failed`}
+          />
+        )}
+      </Card>
+
+      <SeriesRefreshPendingList />
+
+      <AuthorRefreshPendingList />
+
+      <SeriesConsistencyIssueList />
+
+      <AuthorConsistencyIssueList />
     </div>
   );
 }
