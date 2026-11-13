@@ -9,11 +9,11 @@
   <ItemGroup>
     <PackageReference Include="AngleSharp" Version="1.10.1" />
     <PackageReference Include="Microsoft.AspNetCore.WebUtilities" Version="10.0.15" />
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.14" />
-    <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.14" />
-    <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.14" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.15" />
+    <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.15" />
+    <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.15" />
     <PackageReference Include="Microsoft.Extensions.Http.Resilience" Version="10.11.0" />
-    <PackageReference Include="System.Threading.RateLimiting" Version="10.0.14" />
+    <PackageReference Include="System.Threading.RateLimiting" Version="10.0.15" />
   </ItemGroup>
 
   <ItemGroup>
