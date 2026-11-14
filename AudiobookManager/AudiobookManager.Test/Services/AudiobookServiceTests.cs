@@ -1184,6 +1184,97 @@ public class AudiobookServiceTests
         CollectionAssert.AreEqual(new[] { "Yuji Oniki", "Koushun Takami" }, writtenAuthors);
     }
 
+    private async Task<(DbAudiobook Inserted, Audiobook Result)> OrganizeTwoAuthorBookAsync(string? mainAuthor)
+    {
+        SetupUpdateAudiobookTest();
+
+        var importPath = Path.Combine(_testRoot, "import", "book.m4b");
+        Directory.CreateDirectory(Path.GetDirectoryName(importPath)!);
+        File.WriteAllText(importPath, "original m4b content");
+
+        var audiobook = new Audiobook(
+            new List<Person> { new Person("A One"), new Person("B Two") }, "New Book", 2024,
+            new AudiobookFileInfo(importPath, Path.GetFileName(importPath), 1000))
+        { MainAuthor = mainAuthor };
+
+        _tagHandler.Setup(t => t.SaveAudiobookTagsToFile(It.IsAny<Audiobook>(), It.IsAny<Action<float>?>()));
+        // The re-parse of the file knows nothing about the main author: it is not in any tag.
+        _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>()))
+            .Returns((FileInfo fi, bool _) => new Audiobook(
+                new List<Person> { new Person("A One"), new Person("B Two") }, "New Book", 2024,
+                new AudiobookFileInfo(fi.FullName, fi.Name, 1000)));
+        _personRepository.Setup(r => r.GetOrCreatePersons(It.IsAny<IEnumerable<string>>()))
+            .ReturnsAsync((IEnumerable<string> names) => DistinctPersons(names));
+        _genreRepository.Setup(r => r.GetOrCreateGenres(It.IsAny<IEnumerable<string>>()))
+            .ReturnsAsync(new Dictionary<string, DbGenre>());
+        DbAudiobook? inserted = null;
+        _audiobookRepository.Setup(r => r.InsertAudiobook(It.IsAny<DbAudiobook>()))
+            .ReturnsAsync((DbAudiobook db) =>
+            {
+                db.Id = 5;
+                inserted = db;
+                return db;
+            });
+
+        var result = await _service.OrganizeAudiobook(audiobook, (_, _) => Task.CompletedTask);
+        return (inserted!, result);
+    }
+
+    // The main author is database-only, and OrganizeAudiobook inserts the object re-parsed from the
+    // relocated file - which can never carry it - so it has to be carried across that re-parse.
+    [TestMethod]
+    public async Task OrganizeAudiobook_MainAuthor_SurvivesTheReparseIntoTheInsertedRow()
+    {
+        var (inserted, result) = await OrganizeTwoAuthorBookAsync("B Two");
+
+        Assert.AreEqual(2, inserted.MainAuthorId);
+        Assert.AreEqual("B Two", result.MainAuthor);
+    }
+
+    [TestMethod]
+    public async Task OrganizeAudiobook_NoMainAuthor_InsertsNone()
+    {
+        var (inserted, result) = await OrganizeTwoAuthorBookAsync(null);
+
+        Assert.IsNull(inserted.MainAuthorId);
+        Assert.IsNull(result.MainAuthor);
+    }
+
+    [TestMethod]
+    public async Task OrganizeAudiobook_MainAuthorOnlySettingOn_FilesUnderTheMainAuthorAndStoresIt()
+    {
+        // Same flow as above, but with the library setting on, so the file itself is filed under the
+        // main author - the case where losing the main author at insert makes the check disagree.
+        SetupUpdateAudiobookTest();
+        UseLibrarySettings(new AudiobookManager.Domain.LibrarySettings { MainAuthorOnlyInPath = true });
+        var importPath = Path.Combine(_testRoot, "import", "book.m4b");
+        Directory.CreateDirectory(Path.GetDirectoryName(importPath)!);
+        File.WriteAllText(importPath, "original m4b content");
+        _tagHandler.Setup(t => t.SaveAudiobookTagsToFile(It.IsAny<Audiobook>(), It.IsAny<Action<float>?>()));
+        _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>()))
+            .Returns((FileInfo fi, bool _) => new Audiobook(
+                new List<Person> { new Person("A One"), new Person("B Two") }, "New Book", 2024,
+                new AudiobookFileInfo(fi.FullName, fi.Name, 1000)));
+        _personRepository.Setup(r => r.GetOrCreatePersons(It.IsAny<IEnumerable<string>>()))
+            .ReturnsAsync((IEnumerable<string> names) => DistinctPersons(names));
+        _genreRepository.Setup(r => r.GetOrCreateGenres(It.IsAny<IEnumerable<string>>()))
+            .ReturnsAsync(new Dictionary<string, DbGenre>());
+        DbAudiobook? inserted = null;
+        _audiobookRepository.Setup(r => r.InsertAudiobook(It.IsAny<DbAudiobook>()))
+            .ReturnsAsync((DbAudiobook db) => { db.Id = 5; inserted = db; return db; });
+
+        var result = await _service.OrganizeAudiobook(
+            new Audiobook(
+                new List<Person> { new Person("A One"), new Person("B Two") }, "New Book", 2024,
+                new AudiobookFileInfo(importPath, "book.m4b", 1000))
+            { MainAuthor = "A One" },
+            (_, _) => Task.CompletedTask);
+
+        var relative = Path.GetRelativePath(_libraryPath, result.FileInfo.FullPath);
+        Assert.AreEqual("A One", relative.Split(Path.DirectorySeparatorChar)[0]);
+        Assert.AreEqual(1, inserted!.MainAuthorId);
+    }
+
     [TestMethod]
     public async Task OrganizeAudiobook_TagsDoNotRoundTripAfterSave_ThrowsAndDoesNotInsertOrRelocate()
     {

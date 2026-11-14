@@ -27,13 +27,29 @@ public class SettingsService : ISettingsService
         // The per-source overrides are validated and written first: a bad source name must fail the
         // whole save before any other setting changes, and the row UpdateAsync returns must already
         // carry them (the JSON is written set-based, bypassing the tracker).
+        //
+        // A name that is not a registered source is an error only when it is newly supplied. One
+        // that is already stored belongs to a scraper that has since been removed or renamed: the
+        // settings page echoes it back (it has no control for it) and the controller keeps it when the
+        // field is omitted, so refusing it would block every unrelated settings save with no way to fix
+        // it. It is pruned instead - it can no longer match any source, so dropping it changes nothing.
         var registered = _scrapers.Select(s => s.SourceName).ToList();
-        var bySource = MetadataSourceSearchSettings.Normalize(settings.SearchInitialsHandlingBySource)
-            .ToDictionary(
-                e => registered.FirstOrDefault(r => string.Equals(r, e.Key, StringComparison.OrdinalIgnoreCase))
-                    ?? throw new ArgumentException($"'{e.Key}' is not a known metadata source."),
-                e => e.Value,
-                StringComparer.OrdinalIgnoreCase);
+        var stored = MetadataSourceSearchSettings.Deserialize(
+            (await _librarySettingsRepository.GetOrCreateAsync()).MetadataSourceSearchJson);
+        var bySource = new Dictionary<string, SearchInitialsHandling>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (name, handling) in MetadataSourceSearchSettings.Normalize(settings.SearchInitialsHandlingBySource))
+        {
+            var known = registered.FirstOrDefault(r => string.Equals(r, name, StringComparison.OrdinalIgnoreCase));
+            if (known is not null)
+            {
+                bySource[known] = handling;
+            }
+            else if (!stored.ContainsKey(name))
+            {
+                throw new ArgumentException($"'{name}' is not a known metadata source.");
+            }
+        }
+
         MetadataSourceSearchSettings.Validate(bySource);
         await _librarySettingsRepository.SetMetadataSourceSearchJsonAsync(MetadataSourceSearchSettings.Serialize(bySource));
 

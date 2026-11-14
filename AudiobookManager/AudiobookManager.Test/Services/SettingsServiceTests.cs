@@ -26,6 +26,8 @@ public class SettingsServiceTests
     public void Setup()
     {
         _librarySettingsRepository = new Mock<ILibrarySettingsRepository>();
+        // Saving settings reads the stored row (to tell a stale per-source override from a new one).
+        _librarySettingsRepository.Setup(r => r.GetOrCreateAsync()).ReturnsAsync(new DbLibrarySettings());
         _service = new SettingsService(_librarySettingsRepository.Object, new[]
         {
             Scraper("Audible"), Scraper("Goodreads"), Scraper("Hardcover"),
@@ -312,6 +314,67 @@ public class SettingsServiceTests
         _librarySettingsRepository.Verify(r => r.SetMetadataSourceSearchJsonAsync(It.IsAny<string?>()), Times.Never);
         _librarySettingsRepository.Verify(r => r.UpdateAsync(
             It.IsAny<DbInitialsSpacing>(), It.IsAny<DbInitialsPunctuation>(), It.IsAny<int>(), It.IsAny<bool>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<AudiobookManager.Database.Models.SearchInitialsHandling>(), It.IsAny<bool>(), It.IsAny<int>(), It.IsAny<bool>(), It.IsAny<bool>()), Times.Never);
+    }
+
+    // A scraper that was removed or renamed leaves its override stored. The settings page echoes it back
+    // (it has no control for it) and the controller keeps it when the field is omitted, so refusing it
+    // would block every unrelated save with a 400 nobody can fix from the UI.
+    [TestMethod]
+    public async Task UpdateLibrarySettings_StoredOverrideOfAScraperThatNoLongerExists_IsPrunedAndTheSaveSucceeds()
+    {
+        SetupUpdateEcho();
+        _librarySettingsRepository.Setup(r => r.GetOrCreateAsync()).ReturnsAsync(new DbLibrarySettings
+        {
+            MetadataSourceSearchJson = """{"RemovedSource":"Spaced","Hardcover":"Compact"}""",
+        });
+        string? saved = null;
+        _librarySettingsRepository.Setup(r => r.SetMetadataSourceSearchJsonAsync(It.IsAny<string?>()))
+            .Callback<string?>(j => saved = j)
+            .Returns(Task.CompletedTask);
+
+        var settings = new DomainLibrarySettings();
+        settings.SearchInitialsHandlingBySource["RemovedSource"] = AudiobookManager.Domain.SearchInitialsHandling.Spaced;
+        settings.SearchInitialsHandlingBySource["Hardcover"] = AudiobookManager.Domain.SearchInitialsHandling.Compact;
+
+        await _service.UpdateLibrarySettings(settings);
+
+        Assert.AreEqual("""{"Hardcover":"Compact"}""", saved);
+        _librarySettingsRepository.Verify(r => r.UpdateAsync(
+            It.IsAny<DbInitialsSpacing>(), It.IsAny<DbInitialsPunctuation>(), It.IsAny<int>(), It.IsAny<bool>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<AudiobookManager.Database.Models.SearchInitialsHandling>(), It.IsAny<bool>(), It.IsAny<int>(), It.IsAny<bool>(), It.IsAny<bool>()), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task UpdateLibrarySettings_StaleStoredOverride_DoesNotExcuseANewlySuppliedUnknownName()
+    {
+        SetupUpdateEcho();
+        _librarySettingsRepository.Setup(r => r.GetOrCreateAsync()).ReturnsAsync(new DbLibrarySettings
+        {
+            MetadataSourceSearchJson = """{"RemovedSource":"Spaced"}""",
+        });
+        var settings = new DomainLibrarySettings();
+        settings.SearchInitialsHandlingBySource["RemovedSource"] = AudiobookManager.Domain.SearchInitialsHandling.Spaced;
+        settings.SearchInitialsHandlingBySource["TypoSource"] = AudiobookManager.Domain.SearchInitialsHandling.Compact;
+
+        var ex = await Assert.ThrowsExactlyAsync<ArgumentException>(() => _service.UpdateLibrarySettings(settings));
+
+        StringAssert.Contains(ex.Message, "TypoSource");
+        _librarySettingsRepository.Verify(r => r.SetMetadataSourceSearchJsonAsync(It.IsAny<string?>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task UpdateLibrarySettings_StaleNameMatchedIgnoringCase_IsStillPruned()
+    {
+        SetupUpdateEcho();
+        _librarySettingsRepository.Setup(r => r.GetOrCreateAsync()).ReturnsAsync(new DbLibrarySettings
+        {
+            MetadataSourceSearchJson = """{"removedsource":"Spaced"}""",
+        });
+        var settings = new DomainLibrarySettings();
+        settings.SearchInitialsHandlingBySource["RemovedSource"] = AudiobookManager.Domain.SearchInitialsHandling.Spaced;
+
+        await _service.UpdateLibrarySettings(settings);
+
+        _librarySettingsRepository.Verify(r => r.SetMetadataSourceSearchJsonAsync(null), Times.Once);
     }
 
     #endregion

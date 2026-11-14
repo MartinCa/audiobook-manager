@@ -289,6 +289,11 @@ public class AudiobookService : IAudiobookService
         // Sidecars and the DB row are built from this object: it must be clean-name-plus-
         // qualifiers, not the suffixed names the file carries.
         BookQualifiers.ApplyExpected(newParsed, audiobook.Qualifiers);
+        // The main author is database-only, so no re-parse of the file can recover it. OrganizeAudiobook
+        // inserts this object, so without carrying it across the row would be stored with none - and
+        // with the main-author-only path setting on, the file was just filed under the main author
+        // while the consistency check expects the full-author folder.
+        newParsed.MainAuthor = audiobook.EffectiveMainAuthor;
 
         await progressAction("Reparsed", 85);
 
