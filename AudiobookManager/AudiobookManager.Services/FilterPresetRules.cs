@@ -67,6 +67,8 @@ public static class FilterPresetRules
                 ("genres", FilterValueKind.StringList),
                 ("languages", FilterValueKind.StringList),
                 ("qualifiers", FilterValueKind.StringList),
+                ("multipleAuthors", FilterValueKind.Bool),
+                ("hasMainAuthor", FilterValueKind.Bool),
                 ("minDurationInSeconds", FilterValueKind.NonNegativeInt),
                 ("maxDurationInSeconds", FilterValueKind.NonNegativeInt)),
             [FilterPresetScopes.Series] = With(

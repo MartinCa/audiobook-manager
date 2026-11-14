@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BookEditForm } from "./BookEditForm";
 import type { Audiobook } from "@/types/Audiobook";
@@ -2311,6 +2312,157 @@ describe("BookEditForm additional series", () => {
       expect(saved.splitTitleOnColon).toBe(false);
       expect(saved.bookName).toBe("The Hobbit");
       expect(saved.subtitle).toBe("There and Back Again");
+    });
+  });
+
+  describe("main author", () => {
+    const twoAuthors: Audiobook = {
+      ...initialBook,
+      authors: [{ name: "A One" }, { name: "B Two" }],
+    };
+
+    async function savedBook(onSave: ReturnType<typeof vi.fn>) {
+      fireEvent.click(screen.getByText("Save Audiobook"));
+      await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+      return onSave.mock.calls[0]?.[0] as Audiobook;
+    }
+
+    it("is not offered for a book with a single author", () => {
+      renderWithProviders(<BookEditForm initialBook={initialBook} onSave={vi.fn()} />);
+
+      expect(screen.queryByRole("combobox", { name: "Main author" })).not.toBeInTheDocument();
+    });
+
+    it("is offered once the book has several authors, defaulting to none", async () => {
+      renderWithProviders(<BookEditForm initialBook={twoAuthors} onSave={vi.fn()} />);
+
+      expect(await screen.findByRole("combobox", { name: "Main author" })).toHaveTextContent(
+        "No main author",
+      );
+    });
+
+    it("saves the chosen main author", async () => {
+      const user = userEvent.setup();
+      const onSave = vi.fn();
+      renderWithProviders(<BookEditForm initialBook={twoAuthors} onSave={onSave} />);
+
+      await user.click(await screen.findByRole("combobox", { name: "Main author" }));
+      await user.click(await screen.findByRole("option", { name: "B Two" }));
+      const saved = await savedBook(onSave);
+
+      expect(saved.mainAuthor).toBe("B Two");
+      expect(saved.authors).toEqual([{ name: "A One" }, { name: "B Two" }]);
+    });
+
+    it("saves no main author when none was chosen, so a book without one stays without", async () => {
+      const onSave = vi.fn();
+      renderWithProviders(<BookEditForm initialBook={twoAuthors} onSave={onSave} />);
+
+      expect((await savedBook(onSave)).mainAuthor).toBeUndefined();
+    });
+
+    it("carries a stored main author through an unrelated edit", async () => {
+      const onSave = vi.fn();
+      renderWithProviders(
+        <BookEditForm initialBook={{ ...twoAuthors, mainAuthor: "A One" }} onSave={onSave} />,
+      );
+      fireEvent.change(screen.getByDisplayValue("Original Title"), {
+        target: { value: "Retitled" },
+      });
+
+      expect((await savedBook(onSave)).mainAuthor).toBe("A One");
+    });
+
+    it("ignores a stored main author that is not among the authors", async () => {
+      const onSave = vi.fn();
+      renderWithProviders(
+        <BookEditForm initialBook={{ ...twoAuthors, mainAuthor: "Gone Author" }} onSave={onSave} />,
+      );
+
+      expect((await savedBook(onSave)).mainAuthor).toBeUndefined();
+    });
+
+    it("drops the main author when that author is removed from the book", async () => {
+      const onSave = vi.fn();
+      renderWithProviders(
+        <BookEditForm initialBook={{ ...twoAuthors, mainAuthor: "B Two" }} onSave={onSave} />,
+      );
+
+      fireEvent.click(screen.getByLabelText("Remove B Two"));
+      const saved = await savedBook(onSave);
+
+      expect(saved.authors).toEqual([{ name: "A One" }]);
+      expect(saved.mainAuthor).toBeUndefined();
+    });
+
+    // The form value is cleared as soon as the main author stops being an author, not only filtered
+    // out on save: otherwise typing the same name again later would silently make it main again.
+    it("does not make an author main again just because the same name is typed back in", async () => {
+      const onSave = vi.fn();
+      renderWithProviders(
+        <BookEditForm initialBook={{ ...twoAuthors, mainAuthor: "B Two" }} onSave={onSave} />,
+      );
+
+      fireEvent.click(screen.getByLabelText("Remove B Two"));
+      const authorsInput = screen.getByRole("textbox", { name: "Author Name, Second Author" });
+      fireEvent.change(authorsInput, { target: { value: "B Two" } });
+      fireEvent.keyDown(authorsInput, { key: "Enter" });
+      await screen.findByLabelText("Remove B Two");
+      const saved = await savedBook(onSave);
+
+      expect(saved.authors).toEqual([{ name: "A One" }, { name: "B Two" }]);
+      expect(saved.mainAuthor).toBeUndefined();
+    });
+
+    it("keeps the main author when a different author is removed", async () => {
+      const onSave = vi.fn();
+      renderWithProviders(
+        <BookEditForm initialBook={{ ...twoAuthors, mainAuthor: "B Two" }} onSave={onSave} />,
+      );
+
+      fireEvent.click(screen.getByLabelText("Remove A One"));
+      const saved = await savedBook(onSave);
+
+      expect(saved.authors).toEqual([{ name: "B Two" }]);
+      expect(saved.mainAuthor).toBe("B Two");
+    });
+
+    it("sends the main author with the path preview, which the folder setting reads", async () => {
+      const { audiobookApi } = await import("@/services/api");
+      vi.mocked(audiobookApi.generateNewPath).mockClear();
+      renderWithProviders(
+        <BookEditForm initialBook={{ ...twoAuthors, mainAuthor: "B Two" }} onSave={vi.fn()} />,
+      );
+
+      await waitFor(() =>
+        expect(audiobookApi.generateNewPath).toHaveBeenCalledWith(
+          expect.objectContaining({ mainAuthor: "B Two" }),
+        ),
+      );
+    });
+
+    it("seeds the online search with the main author alone", async () => {
+      renderWithProviders(
+        <BookEditForm initialBook={{ ...twoAuthors, mainAuthor: "A One" }} onSave={vi.fn()} />,
+      );
+
+      fireEvent.click(screen.getByText("Search Online Metadata"));
+      const searchInput = await screen.findByPlaceholderText(
+        "Search title, author, or paste URL...",
+      );
+
+      expect(searchInput).toHaveValue("A One - Original Title");
+    });
+
+    it("seeds the online search with every author when there is no main author", async () => {
+      renderWithProviders(<BookEditForm initialBook={twoAuthors} onSave={vi.fn()} />);
+
+      fireEvent.click(screen.getByText("Search Online Metadata"));
+      const searchInput = await screen.findByPlaceholderText(
+        "Search title, author, or paste URL...",
+      );
+
+      expect(searchInput).toHaveValue("A One, B Two - Original Title");
     });
   });
 });

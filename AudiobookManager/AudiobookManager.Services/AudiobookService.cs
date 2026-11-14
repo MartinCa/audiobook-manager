@@ -74,14 +74,14 @@ public class AudiobookService : IAudiobookService
         return parsed;
     }
 
-    public string GenerateLibraryPath(Audiobook audiobook, int maxNarratorsInPath)
+    public string GenerateLibraryPath(Audiobook audiobook, LibraryPathOptions pathOptions)
     {
-        var newRelativePath = AudiobookFileHandler.GenerateRelativeAudiobookPath(audiobook, maxNarratorsInPath);
+        var newRelativePath = AudiobookFileHandler.GenerateRelativeAudiobookPath(audiobook, pathOptions);
         return AudiobookFileHandler.JoinLibraryPath(_settings.AudiobookLibraryPath, newRelativePath);
     }
 
     public async Task<string> GenerateLibraryPathAsync(Audiobook audiobook) =>
-        GenerateLibraryPath(audiobook, (await _settingsService.GetLibrarySettings()).NarratorsInPath);
+        GenerateLibraryPath(audiobook, (await _settingsService.GetLibrarySettings()).PathOptions);
 
     /// <summary>
     /// Checks whether a file already occupies the audiobook's generated library path, so a
@@ -289,6 +289,11 @@ public class AudiobookService : IAudiobookService
         // Sidecars and the DB row are built from this object: it must be clean-name-plus-
         // qualifiers, not the suffixed names the file carries.
         BookQualifiers.ApplyExpected(newParsed, audiobook.Qualifiers);
+        // The main author is database-only, so no re-parse of the file can recover it. OrganizeAudiobook
+        // inserts this object, so without carrying it across the row would be stored with none - and
+        // with the main-author-only path setting on, the file was just filed under the main author
+        // while the consistency check expects the full-author folder.
+        newParsed.MainAuthor = audiobook.EffectiveMainAuthor;
 
         await progressAction("Reparsed", 85);
 
@@ -417,6 +422,17 @@ public class AudiobookService : IAudiobookService
         return (authors, narrators, genres);
     }
 
+    /// <summary>
+    /// The id of the person row the book's main author resolves to, or null when it has none or
+    /// names someone who is no longer an author of the book (an author removed or renamed in the
+    /// same edit): a main author is always one of the authors, never a stale name.
+    /// </summary>
+    private static long? MainAuthorIdOf(Audiobook audiobook, IReadOnlyList<Database.Models.Person> authors)
+    {
+        var main = audiobook.EffectiveMainAuthor;
+        return main is null ? null : authors.FirstOrDefault(p => string.Equals(p.Name, main, StringComparison.Ordinal))?.Id;
+    }
+
     // A person named "A, B" cannot survive the comma-joined tag: the file reads back as two people
     // and the round-trip verification fails on every save. Whatever put the combined name here
     // (a scrape, an old database row), split it before the tags, path and rows are built from it.
@@ -456,7 +472,8 @@ public class AudiobookService : IAudiobookService
             Narrators = narrators,
             Genres = genres,
             Qualifiers = QualifierColumn.Serialize(BookQualifiers.Normalize(audiobook.Qualifiers)),
-            SplitTitleOnColon = audiobook.SplitTitleOnColon
+            SplitTitleOnColon = audiobook.SplitTitleOnColon,
+            MainAuthorId = MainAuthorIdOf(audiobook, authors)
         };
         var seriesTouched = SeriesRelationSync.Apply(dbAudiobook, audiobook);
 
@@ -518,6 +535,7 @@ public class AudiobookService : IAudiobookService
         existing.FileInfoFileName = newParsed.FileInfo.FileName;
         existing.FileInfoSizeInBytes = newParsed.FileInfo.SizeInBytes;
         existing.Authors = authors;
+        existing.MainAuthorId = MainAuthorIdOf(audiobook, authors);
         existing.Narrators = narrators;
         existing.Genres = genres;
 
@@ -613,6 +631,10 @@ public class AudiobookService : IAudiobookService
             new AudiobookFileInfo(audiobookDb.FileInfoFullPath, audiobookDb.FileInfoFileName, audiobookDb.FileInfoSizeInBytes))
         {
             Id = audiobookDb.Id,
+            // Database-only, so it has to ride every FromDb -> UpdateAudiobook round trip
+            // (consistency resolves, alignment, bulk edit): dropping it there would clear it, and
+            // with the main-author-only path setting on, move the book's folder.
+            MainAuthor = audiobookDb.MainAuthorName,
             Narrators = audiobookDb.Narrators.Select(FromDbPerson).ToList(),
             BookName = audiobookDb.BookName,
             Subtitle = audiobookDb.Subtitle,

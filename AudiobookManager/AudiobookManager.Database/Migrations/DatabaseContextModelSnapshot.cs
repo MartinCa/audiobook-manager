@@ -98,6 +98,10 @@ namespace AudiobookManager.Database.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("last_metadata_refreshed_at");
 
+                    b.Property<long?>("MainAuthorId")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("main_author_id");
+
                     b.Property<string>("MatchedSourceName")
                         .HasColumnType("TEXT")
                         .HasColumnName("matched_source_name");
@@ -141,6 +145,9 @@ namespace AudiobookManager.Database.Migrations
 
                     b.HasKey("Id")
                         .HasName("pk_audiobooks");
+
+                    b.HasIndex("MainAuthorId")
+                        .HasDatabaseName("ix_audiobooks_main_author_id");
 
                     b.HasIndex(new[] { "FileInfoFileName" }, "ix_audiobooks_file_info_file_name")
                         .HasDatabaseName("ix_audiobooks_file_info_file_name");
@@ -673,6 +680,10 @@ namespace AudiobookManager.Database.Migrations
                         .HasColumnType("INTEGER")
                         .HasColumnName("initials_spacing");
 
+                    b.Property<bool>("MainAuthorOnlyInPath")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("main_author_only_in_path");
+
                     b.Property<int>("MaxNarratorsInPath")
                         .HasColumnType("INTEGER")
                         .HasColumnName("max_narrators_in_path");
@@ -688,6 +699,10 @@ namespace AudiobookManager.Database.Migrations
                     b.Property<string>("MetadataSourceOrderJson")
                         .HasColumnType("TEXT")
                         .HasColumnName("metadata_source_order_json");
+
+                    b.Property<string>("MetadataSourceSearchJson")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("metadata_source_search_json");
 
                     b.Property<int>("SearchInitialsHandling")
                         .HasColumnType("INTEGER")
@@ -1290,6 +1305,15 @@ namespace AudiobookManager.Database.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_audiobook_genre_genres_genres_id");
+                });
+
+            modelBuilder.Entity("AudiobookManager.Database.Models.Audiobook", b =>
+                {
+                    b.HasOne("AudiobookManager.Database.Models.Person", null)
+                        .WithMany()
+                        .HasForeignKey("MainAuthorId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_audiobooks_persons_main_author_id");
                 });
 
             modelBuilder.Entity("AudiobookManager.Database.Models.AudiobookSeries", b =>

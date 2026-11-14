@@ -13,6 +13,22 @@ public class Audiobook
 
     public List<Person> Authors { get; set; }
 
+    /// <summary>
+    /// The author that stands for the book on its own, or null when it has no single main author.
+    /// Always one of <see cref="Authors"/> (the service only ever sets it to one of them). Written
+    /// only by <c>AudiobookService</c> through the save pipeline, because with the library's
+    /// main-author-only path setting on it drives the book's folder.
+    /// </summary>
+    [Column("main_author_id")]
+    public long? MainAuthorId { get; set; }
+
+    /// <summary>
+    /// The main author's name, or null. Read off <see cref="Authors"/> by id, so it needs no extra
+    /// <c>Include</c> beyond the authors every caller already loads.
+    /// </summary>
+    [NotMapped]
+    public string? MainAuthorName => MainAuthorId is null ? null : Authors?.FirstOrDefault(p => p.Id == MainAuthorId)?.Name;
+
     public List<Person> Narrators { get; set; }
 
     [Required]

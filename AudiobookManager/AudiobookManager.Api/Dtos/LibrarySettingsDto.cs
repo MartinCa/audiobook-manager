@@ -16,13 +16,17 @@ public record LibrarySettingsDto(
     string SearchInitialsHandling,
     bool IncludeNarratorInPath,
     int MaxNarratorsInPath,
-    bool AutoSplitTitleOnColon);
+    bool AutoSplitTitleOnColon,
+    bool MainAuthorOnlyInPath,
+    IReadOnlyDictionary<string, string> SearchInitialsHandlingBySource);
 
 /// <summary>
 /// The body of PUT api/settings/library. <see cref="InitialsPunctuation"/>,
 /// <see cref="UpcomingReleasesEnabled"/>, <see cref="UpcomingReleasesCronSchedule"/> and
-/// <see cref="DefaultPageSize"/>, <see cref="SearchInitialsHandling"/> and <see cref="IncludeNarratorInPath"/> and <see cref="MaxNarratorsInPath"/> and <see cref="AutoSplitTitleOnColon"/> are optional like <see cref="MetadataRefreshDelayMs"/>: an
-/// omitted field keeps the stored value rather than resetting it.
+/// <see cref="DefaultPageSize"/>, <see cref="SearchInitialsHandling"/> and <see cref="IncludeNarratorInPath"/> and <see cref="MaxNarratorsInPath"/> and <see cref="AutoSplitTitleOnColon"/> and <see cref="MainAuthorOnlyInPath"/> are optional like <see cref="MetadataRefreshDelayMs"/>: an
+/// omitted field keeps the stored value rather than resetting it. <see cref="SearchInitialsHandlingBySource"/>
+/// (source name to handling) replaces the whole set of per-source overrides when given; a source left
+/// out follows the library-wide <see cref="SearchInitialsHandling"/>.
 /// </summary>
 public record UpdateLibrarySettingsDto(
     string InitialsSpacing,
@@ -34,7 +38,9 @@ public record UpdateLibrarySettingsDto(
     string? SearchInitialsHandling = null,
     bool? IncludeNarratorInPath = null,
     int? MaxNarratorsInPath = null,
-    bool? AutoSplitTitleOnColon = null);
+    bool? AutoSplitTitleOnColon = null,
+    bool? MainAuthorOnlyInPath = null,
+    Dictionary<string, string>? SearchInitialsHandlingBySource = null);
 
 /// <summary>One selectable apply rule with the text the settings page explains it with.</summary>
 public record MetadataApplyOptionDto(string Key, string Label, string Description);

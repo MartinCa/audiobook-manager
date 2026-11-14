@@ -29,17 +29,26 @@ export type LibrarySettings = Require<
   | "includeNarratorInPath"
   | "maxNarratorsInPath"
   | "autoSplitTitleOnColon"
+  | "mainAuthorOnlyInPath"
+  | "searchInitialsHandlingBySource"
 > & {
   initialsSpacing: InitialsSpacing;
   initialsPunctuation: InitialsPunctuation;
   searchInitialsHandling: SearchInitialsHandling;
+  /**
+   * Per-source overrides of `searchInitialsHandling` for the default and automated search query,
+   * keyed by source name. A source with no entry follows the library-wide setting. The values are
+   * the same wire strings as `searchInitialsHandling`.
+   */
+  searchInitialsHandlingBySource: Record<string, SearchInitialsHandling>;
 };
 
 // Body of PUT api/settings/library. initialsPunctuation/metadataRefreshDelayMs/
 // upcomingReleasesEnabled/upcomingReleasesCronSchedule/defaultPageSize/searchInitialsHandling/
-// includeNarratorInPath/maxNarratorsInPath/autoSplitTitleOnColon are optional on the wire
-// too - an omitted field keeps the stored value rather than resetting it (see
-// SettingsController.UpdateLibrarySettings).
+// includeNarratorInPath/maxNarratorsInPath/autoSplitTitleOnColon/mainAuthorOnlyInPath are optional
+// on the wire too - an omitted field keeps the stored value rather than resetting it (see
+// SettingsController.UpdateLibrarySettings). searchInitialsHandlingBySource, when sent, replaces
+// the whole set of per-source overrides (an empty object clears them).
 export type UpdateLibrarySettings = {
   initialsSpacing: InitialsSpacing;
   initialsPunctuation?: InitialsPunctuation;
@@ -51,4 +60,6 @@ export type UpdateLibrarySettings = {
   includeNarratorInPath?: boolean;
   maxNarratorsInPath?: number;
   autoSplitTitleOnColon?: boolean;
+  mainAuthorOnlyInPath?: boolean;
+  searchInitialsHandlingBySource?: Record<string, SearchInitialsHandling>;
 };

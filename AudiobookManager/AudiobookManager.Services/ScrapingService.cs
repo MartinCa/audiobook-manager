@@ -62,7 +62,19 @@ public class ScrapingService : IScrapingService
         return results;
     }
 
-    public async Task<MetadataMultiSourceSearchResult> SearchMultiple(IEnumerable<string> sourceNames, string searchTerm)
+    public Task<MetadataMultiSourceSearchResult> SearchMultiple(IEnumerable<string> sourceNames, string searchTerm)
+    {
+        var names = sourceNames.ToList();
+        return SearchMultipleCore(names, _ => searchTerm);
+    }
+
+    public Task<MetadataMultiSourceSearchResult> SearchMultiple(IReadOnlyDictionary<string, string> queriesBySource) =>
+        SearchMultipleCore(
+            queriesBySource.Keys.ToList(),
+            scraper => queriesBySource.First(e => scraper.IsSource(e.Key)).Value);
+
+    private async Task<MetadataMultiSourceSearchResult> SearchMultipleCore(
+        IReadOnlyCollection<string> sourceNames, Func<IScraper, string> queryFor)
     {
         var scrapers = _scrapers.Where(s => sourceNames.Any(s.IsSource)).ToList();
         var rules = await _qualifierIndicators.GetRulesAsync();
@@ -71,7 +83,7 @@ public class ScrapingService : IScrapingService
         {
             try
             {
-                var results = await scraper.Search(searchTerm);
+                var results = await scraper.Search(queryFor(scraper));
                 foreach (var result in results)
                 {
                     result.Source = scraper.SourceName;

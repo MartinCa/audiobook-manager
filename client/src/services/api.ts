@@ -81,6 +81,8 @@ import type { ApplyUrlCleanupResult, UrlCleanupPage } from "@/types/UrlCleanup";
 export function toAudiobookDto(data: Audiobook) {
   return {
     authors: data.authors.map((a) => a.name),
+    // The whole state, not a patch: a save without it clears the book's main author.
+    mainAuthor: data.mainAuthor,
     narrators: data.narrators.map((n) => n.name),
     bookName: data.bookName,
     subtitle: data.subtitle,
@@ -110,6 +112,10 @@ export function toAudiobookDto(data: Audiobook) {
 export function toPathPreviewDto(data: Audiobook) {
   return {
     authors: data.authors.map((a) => a.name),
+    // Read by GenerateRelativeAudiobookPath when the library setting puts only the main author in
+    // the folder name; without it the preview and target-collision check build the path of a book
+    // with no main author.
+    mainAuthor: data.mainAuthor,
     // Read by GenerateRelativeAudiobookPath when the library setting puts the narrator in the
     // folder name; without it the check-target-path / generate-path endpoints build the path of
     // a narrator-less book and miss a collision at the real target.
@@ -1010,10 +1016,13 @@ export const metadataSearchApi = {
       query: { q },
     }),
 
-  searchMultiple: (sources: string[], q: string) =>
+  // `queriesBySource` replaces `q` for the sources it names: sent only while the search box still
+  // holds the default query, which is written per source (see getDefaultQuery).
+  searchMultiple: (sources: string[], q: string, queriesBySource?: Record<string, string>) =>
     api.post<MetadataMultiSourceSearchResult>("/metadata-search/multi", {
       sources,
       q,
+      queriesBySource,
     }),
 
   getBookDetails: (path: string) =>
@@ -1021,16 +1030,23 @@ export const metadataSearchApi = {
 
   // The query the search dialog is seeded with, built server-side so the library's
   // search-initials handling is applied by the one implementation the bulk search also uses.
+  // `query` is written with the library-wide initials handling; `queriesBySource` holds the one for
+  // every source, each written with the handling that applies to that source.
   getDefaultQuery: (book: {
     authors: readonly string[] | undefined;
     bookName: string | undefined;
     fileName: string | undefined;
+    mainAuthor?: string | undefined;
   }) =>
-    api.post<{ query: string }>("/metadata-search/default-query", {
-      authors: book.authors,
-      bookName: book.bookName,
-      fileName: book.fileName,
-    }),
+    api.post<{ query: string; queriesBySource?: Record<string, string> | null }>(
+      "/metadata-search/default-query",
+      {
+        authors: book.authors,
+        bookName: book.bookName,
+        fileName: book.fileName,
+        mainAuthor: book.mainAuthor,
+      },
+    ),
 
   getProxyImageUrl: (url: string) =>
     `/api/metadata-search/proxy-image?url=${encodeURIComponent(url)}`,

@@ -94,6 +94,18 @@ public class LibrarySettings
     [Column("metadata_source_order_json")]
     public string? MetadataSourceOrderJson { get; set; }
 
+    /// <summary>Whether the author folder names only the book's main author (when it has one).</summary>
+    [Column("main_author_only_in_path")]
+    public bool MainAuthorOnlyInPath { get; set; }
+
+    /// <summary>
+    /// Per-source overrides of <see cref="SearchInitialsHandling"/> as a JSON object of source name
+    /// to handling, or null for "none". Owned (parsed, validated, applied) by
+    /// <c>MetadataSourceSearchSettings</c>.
+    /// </summary>
+    [Column("metadata_source_search_json")]
+    public string? MetadataSourceSearchJson { get; set; }
+
     public LibrarySettings() { }
 
     public LibrarySettings(
@@ -107,7 +119,8 @@ public class LibrarySettings
         SearchInitialsHandling searchInitialsHandling = SearchInitialsHandling.AsStored,
         bool includeNarratorInPath = false,
         int maxNarratorsInPath = 1,
-        bool autoSplitTitleOnColon = false)
+        bool autoSplitTitleOnColon = false,
+        bool mainAuthorOnlyInPath = false)
     {
         Id = id;
         InitialsSpacing = initialsSpacing;
@@ -120,5 +133,6 @@ public class LibrarySettings
         IncludeNarratorInPath = includeNarratorInPath;
         MaxNarratorsInPath = maxNarratorsInPath;
         AutoSplitTitleOnColon = autoSplitTitleOnColon;
+        MainAuthorOnlyInPath = mainAuthorOnlyInPath;
     }
 }

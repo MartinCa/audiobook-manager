@@ -62,6 +62,22 @@ describe("api service mappings and contracts", () => {
       ]);
     });
 
+    it("sends the main author with a save and with the path preview, which the main-author-only folder setting reads", () => {
+      const book: Audiobook = {
+        ...sampleAudiobook,
+        authors: [{ name: "Brandon Sanderson" }, { name: "Janci Patterson" }],
+        mainAuthor: "Brandon Sanderson",
+      };
+
+      expect(toAudiobookDto(book).mainAuthor).toBe("Brandon Sanderson");
+      expect(toPathPreviewDto(book).mainAuthor).toBe("Brandon Sanderson");
+    });
+
+    it("sends no main author for a book that has none, so a save clears a stale one", () => {
+      expect(toAudiobookDto(sampleAudiobook).mainAuthor).toBeUndefined();
+      expect(toPathPreviewDto(sampleAudiobook).mainAuthor).toBeUndefined();
+    });
+
     it("sends the split-title flag, defaulting to false so a book never silently becomes split", () => {
       expect(toAudiobookDto(sampleAudiobook).splitTitleOnColon).toBe(false);
       expect(

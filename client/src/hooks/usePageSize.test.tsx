@@ -38,6 +38,8 @@ describe("usePageSize", () => {
       includeNarratorInPath: false,
       maxNarratorsInPath: 3,
       autoSplitTitleOnColon: false,
+      mainAuthorOnlyInPath: false,
+      searchInitialsHandlingBySource: {},
     });
 
     const { result } = renderHook(() => usePageSize(), { wrapper });
@@ -57,6 +59,8 @@ describe("usePageSize", () => {
       includeNarratorInPath: false,
       maxNarratorsInPath: 3,
       autoSplitTitleOnColon: false,
+      mainAuthorOnlyInPath: false,
+      searchInitialsHandlingBySource: {},
     });
 
     const { result } = renderHook(() => usePageSize(), { wrapper });

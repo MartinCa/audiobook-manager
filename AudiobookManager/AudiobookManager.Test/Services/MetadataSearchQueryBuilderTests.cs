@@ -151,4 +151,84 @@ public class MetadataSearchQueryBuilderTests
 
         Assert.AreEqual("A B file.m4b", query);
     }
+
+    [TestMethod]
+    public void Build_MainAuthor_ReplacesTheWholeAuthorList()
+    {
+        var query = MetadataSearchQueryBuilder.Build(
+            new[] { "Brandon Sanderson", "Janci Patterson" }, "Steelheart", "file.m4b",
+            SearchInitialsHandling.AsStored, mainAuthor: "Brandon Sanderson");
+
+        Assert.AreEqual("Brandon Sanderson - Steelheart", query);
+    }
+
+    [TestMethod]
+    [DataRow(null)]
+    [DataRow("")]
+    [DataRow("   ")]
+    public void Build_BlankMainAuthor_KeepsEveryAuthor(string? mainAuthor)
+    {
+        var query = MetadataSearchQueryBuilder.Build(
+            new[] { "A One", "B Two" }, "Book", "file.m4b", SearchInitialsHandling.AsStored, mainAuthor);
+
+        Assert.AreEqual("A One, B Two - Book", query);
+    }
+
+    [TestMethod]
+    public void Build_MainAuthor_GetsTheInitialsHandlingToo()
+    {
+        var query = MetadataSearchQueryBuilder.Build(
+            new[] { "George R. R. Martin", "Other Person" }, "A Game of Thrones", "file.m4b",
+            SearchInitialsHandling.Compact, mainAuthor: "George R. R. Martin");
+
+        Assert.AreEqual("George R.R. Martin - A Game of Thrones", query);
+    }
+
+    [TestMethod]
+    public void Build_MainAuthorButNoBookName_FallsBackToTheFileName()
+    {
+        var query = MetadataSearchQueryBuilder.Build(
+            new[] { "A One", "B Two" }, null, "file.m4b", SearchInitialsHandling.AsStored, mainAuthor: "A One");
+
+        Assert.AreEqual("file.m4b", query);
+    }
+
+    [TestMethod]
+    public void BuildPerSource_EachSourceUsesItsOwnHandling_OthersTheLibraryWideOne()
+    {
+        var settings = new LibrarySettings { SearchInitialsHandling = SearchInitialsHandling.AsStored };
+        settings.SearchInitialsHandlingBySource["Hardcover"] = SearchInitialsHandling.Compact;
+        settings.SearchInitialsHandlingBySource["Goodreads"] = SearchInitialsHandling.Spaced;
+
+        var queries = MetadataSearchQueryBuilder.BuildPerSource(
+            new[] { "Audible", "Hardcover", "Goodreads" }, new[] { "George R.R. Martin" }, "A Game of Thrones", "f.m4b", settings);
+
+        Assert.AreEqual("George R.R. Martin - A Game of Thrones", queries["Hardcover"]);
+        Assert.AreEqual("George R. R. Martin - A Game of Thrones", queries["Goodreads"]);
+        Assert.AreEqual("George R.R. Martin - A Game of Thrones", queries["Audible"]);
+        Assert.AreEqual(3, queries.Count);
+    }
+
+    [TestMethod]
+    public void BuildPerSource_AppliesTheMainAuthorToEverySource()
+    {
+        var settings = new LibrarySettings();
+        settings.SearchInitialsHandlingBySource["Hardcover"] = SearchInitialsHandling.Spaced;
+
+        var queries = MetadataSearchQueryBuilder.BuildPerSource(
+            new[] { "Audible", "Hardcover" }, new[] { "J.R.R. Tolkien", "Christopher Tolkien" }, "The Silmarillion", "f.m4b",
+            settings, mainAuthor: "J.R.R. Tolkien");
+
+        Assert.AreEqual("J.R.R. Tolkien - The Silmarillion", queries["Audible"]);
+        Assert.AreEqual("J. R. R. Tolkien - The Silmarillion", queries["Hardcover"]);
+    }
+
+    [TestMethod]
+    public void BuildPerSource_DuplicateSourceNames_AreCollapsed()
+    {
+        var queries = MetadataSearchQueryBuilder.BuildPerSource(
+            new[] { "Audible", "audible" }, null, "Book", "f.m4b", new LibrarySettings());
+
+        Assert.AreEqual(1, queries.Count);
+    }
 }

@@ -13,4 +13,4 @@ public sealed record AudiobookCheckContext(
     DomainAudiobook Parsed,
     string DirectoryPath,
     string LibraryPath,
-    int MaxNarratorsInPath);
+    Domain.LibraryPathOptions PathOptions);

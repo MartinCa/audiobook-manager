@@ -16,6 +16,13 @@ export type AudiobookImage = Require<
 // reproduce the DTO and lose that transform.
 export interface Audiobook {
   authors: AudiobookPerson[];
+  /**
+   * The one author that stands for the book, or missing for none (optional - not every book has a
+   * single main author). Always one of `authors` by name. Database-only (no tag): it is the only
+   * author in the default and automated search query and, with the library setting on, in the
+   * author folder - so it travels on both the save and the path-preview payloads.
+   */
+  mainAuthor?: string;
   narrators: AudiobookPerson[];
   bookName?: string;
   subtitle?: string;

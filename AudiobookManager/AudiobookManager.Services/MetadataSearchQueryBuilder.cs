@@ -16,9 +16,13 @@ namespace AudiobookManager.Services;
 /// 2. Book name
 /// 3. File name
 ///
-/// Author names are first written per the library's <see cref="SearchInitialsHandling"/> setting
-/// (a source may index "George R.R. Martin" and miss "George R. R. Martin"). The book name and
-/// file name are never touched.
+/// A book's main author, when it has one, is the only author in the query: a co-author or an
+/// editor in the "Author - Book name" text is as likely to hide the book as to find it.
+///
+/// Author names are first written per the <see cref="SearchInitialsHandling"/> that applies to the
+/// source the query is for (a source may index "George R.R. Martin" and miss "George R. R. Martin"),
+/// so one book can have a different default query per source - see <see cref="BuildPerSource"/>.
+/// The book name and file name are never touched.
 /// </summary>
 public static class MetadataSearchQueryBuilder
 {
@@ -26,10 +30,17 @@ public static class MetadataSearchQueryBuilder
         IEnumerable<string>? authorNames,
         string? bookName,
         string? fileName,
-        SearchInitialsHandling initialsHandling = SearchInitialsHandling.AsStored)
+        SearchInitialsHandling initialsHandling = SearchInitialsHandling.AsStored,
+        string? mainAuthor = null)
     {
         var trimmedBookName = bookName?.Trim() ?? string.Empty;
-        var trimmedAuthors = (authorNames ?? Enumerable.Empty<string>())
+        // The main author stands in for the whole list. The caller is responsible for it being one
+        // of the book's authors (Audiobook.EffectiveMainAuthor / the DTO mapping guarantee that).
+        var trimmedMain = mainAuthor?.Trim();
+        var effectiveAuthors = string.IsNullOrEmpty(trimmedMain)
+            ? authorNames ?? Enumerable.Empty<string>()
+            : new[] { trimmedMain };
+        var trimmedAuthors = effectiveAuthors
             .Select(a => FormatInitials(a.Trim(), initialsHandling))
             .Where(a => a.Length > 0)
             .ToList();
@@ -45,6 +56,30 @@ public static class MetadataSearchQueryBuilder
         }
 
         return fileName?.Trim() ?? string.Empty;
+    }
+
+    /// <summary>
+    /// The default query for each of <paramref name="sourceNames"/>, each written with the initials
+    /// handling that applies to that source (<see cref="LibrarySettings.SearchInitialsHandlingFor"/>:
+    /// its own override, else the library-wide setting). Keyed ignoring case.
+    /// </summary>
+    public static Dictionary<string, string> BuildPerSource(
+        IEnumerable<string> sourceNames,
+        IEnumerable<string>? authorNames,
+        string? bookName,
+        string? fileName,
+        LibrarySettings settings,
+        string? mainAuthor = null)
+    {
+        var authors = authorNames?.ToList();
+        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var source in sourceNames)
+        {
+            result.TryAdd(source, Build(
+                authors, bookName, fileName, settings.SearchInitialsHandlingFor(source), mainAuthor));
+        }
+
+        return result;
     }
 
     /// <summary>

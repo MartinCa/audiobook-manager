@@ -170,19 +170,49 @@ public class SettingsController : ControllerBase
                 $"MaxNarratorsInPath must be between 1 and {Domain.LibrarySettings.MaxNarratorsInPathLimit}.");
         }
 
-        var updated = await _settingsService.UpdateLibrarySettings(new Domain.LibrarySettings
+        var bySource = current.SearchInitialsHandlingBySource;
+        if (dto.SearchInitialsHandlingBySource is not null)
         {
-            InitialsSpacing = parsed,
-            InitialsPunctuation = parsedPunctuation,
-            MetadataRefreshDelayMs = delayMs,
-            UpcomingReleasesEnabled = upcomingReleasesEnabled,
-            UpcomingReleasesCronSchedule = upcomingReleasesCronSchedule,
-            DefaultPageSize = defaultPageSize,
-            SearchInitialsHandling = searchInitialsHandling,
-            IncludeNarratorInPath = dto.IncludeNarratorInPath ?? current.IncludeNarratorInPath,
-            MaxNarratorsInPath = maxNarratorsInPath,
-            AutoSplitTitleOnColon = dto.AutoSplitTitleOnColon ?? current.AutoSplitTitleOnColon,
-        });
+            bySource = new Dictionary<string, SearchInitialsHandling>(StringComparer.OrdinalIgnoreCase);
+            foreach (var (source, value) in dto.SearchInitialsHandlingBySource)
+            {
+                if (!Enum.GetNames<SearchInitialsHandling>().Contains(value, StringComparer.OrdinalIgnoreCase) ||
+                    !Enum.TryParse<SearchInitialsHandling>(value, ignoreCase: true, out var handling))
+                {
+                    return this.InvalidRequest(
+                        $"'{value}' is not a known search initials handling for source '{source}'. Use one of: " +
+                        $"{string.Join(", ", Enum.GetNames<SearchInitialsHandling>())}.");
+                }
+
+                bySource[source] = handling;
+            }
+        }
+
+        Domain.LibrarySettings updated;
+        try
+        {
+            updated = await _settingsService.UpdateLibrarySettings(new Domain.LibrarySettings
+            {
+                InitialsSpacing = parsed,
+                InitialsPunctuation = parsedPunctuation,
+                MetadataRefreshDelayMs = delayMs,
+                UpcomingReleasesEnabled = upcomingReleasesEnabled,
+                UpcomingReleasesCronSchedule = upcomingReleasesCronSchedule,
+                DefaultPageSize = defaultPageSize,
+                SearchInitialsHandling = searchInitialsHandling,
+                IncludeNarratorInPath = dto.IncludeNarratorInPath ?? current.IncludeNarratorInPath,
+                MaxNarratorsInPath = maxNarratorsInPath,
+                AutoSplitTitleOnColon = dto.AutoSplitTitleOnColon ?? current.AutoSplitTitleOnColon,
+                MainAuthorOnlyInPath = dto.MainAuthorOnlyInPath ?? current.MainAuthorOnlyInPath,
+                SearchInitialsHandlingBySource = bySource,
+            });
+        }
+        catch (ArgumentException ex)
+        {
+            // Raised only with messages written for the caller (an unknown source, too many entries).
+            return this.InvalidRequest(ex.Message);
+        }
+
         return Ok(ToDto(updated));
     }
 
@@ -336,5 +366,7 @@ public class SettingsController : ControllerBase
             settings.SearchInitialsHandling.ToString(),
             settings.IncludeNarratorInPath,
             settings.MaxNarratorsInPath,
-            settings.AutoSplitTitleOnColon);
+            settings.AutoSplitTitleOnColon,
+            settings.MainAuthorOnlyInPath,
+            settings.SearchInitialsHandlingBySource.ToDictionary(e => e.Key, e => e.Value.ToString()));
 }

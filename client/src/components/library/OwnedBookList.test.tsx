@@ -2,6 +2,7 @@ import { formatDateTime } from "@/helpers/formatHelpers";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { ReactNode } from "react";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { SignalRContext } from "@/context/SignalRContext";
 import { OwnedBookList } from "./OwnedBookList";
@@ -317,6 +318,34 @@ describe("OwnedBookList", () => {
     renderList({ filters: { qualifiers: ["abridged", "(none)"] } });
 
     expect(await screen.findByText("Qualifier: Abridged, None")).toBeInTheDocument();
+  });
+
+  it("offers Authors and Main author filters that report true and false through onFiltersChange", async () => {
+    const user = userEvent.setup();
+    const onFiltersChange = vi.fn();
+    renderList({ onFiltersChange });
+
+    fireEvent.click(screen.getByRole("button", { name: /Filters/ }));
+    await user.click(await screen.findByRole("combobox", { name: "Authors" }));
+    await user.click(await screen.findByRole("option", { name: "Multiple authors" }));
+    expect(onFiltersChange).toHaveBeenLastCalledWith({ multipleAuthors: true });
+
+    await user.click(await screen.findByRole("combobox", { name: "Main author" }));
+    await user.click(await screen.findByRole("option", { name: "No main author" }));
+    expect(onFiltersChange).toHaveBeenLastCalledWith({ hasMainAuthor: false });
+  });
+
+  it("labels active authorship filters as removable chips, false included", async () => {
+    renderList({ filters: { multipleAuthors: true, hasMainAuthor: false } });
+
+    expect(await screen.findByText("Authors: Multiple authors")).toBeInTheDocument();
+    expect(await screen.findByText("Main author: No main author")).toBeInTheDocument();
+  });
+
+  it("starts with the filter panel expanded when only an authorship filter is active", () => {
+    renderList({ filters: { hasMainAuthor: false } });
+
+    expect(screen.getByLabelText("Duration (minutes) minimum")).toBeInTheDocument();
   });
 
   it("starts with the filter panel expanded when a filter is already active", () => {

@@ -185,6 +185,34 @@ public class AudiobookControllerTests
         _organizeTaskService.Verify(s => s.QueueOrganizeTask(It.IsAny<Audiobook>(), false), Times.Once);
     }
 
+    // The path preview is built from the same domain mapping as the save, so it has to carry the main
+    // author: with the library's main-author-only setting on, a preview that dropped it would show the
+    // folder of a book with no main author and disagree with where the save puts the file.
+    [TestMethod]
+    public async Task GeneratePath_MapsTheMainAuthorOntoTheDomainBook()
+    {
+        var dto = MakeDto();
+        dto.Authors = new List<string> { "A One", "B Two" };
+        dto.MainAuthor = "  B Two  ";
+        _audiobookService.Setup(s => s.GenerateLibraryPathAsync(It.IsAny<Audiobook>())).ReturnsAsync("/library/x.m4b");
+
+        await _controller.GeneratePath(dto);
+
+        _audiobookService.Verify(s => s.GenerateLibraryPathAsync(It.Is<Audiobook>(a => a.MainAuthor == "B Two")), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task GeneratePath_NoMainAuthor_LeavesItNull()
+    {
+        var dto = MakeDto();
+        dto.MainAuthor = "   ";
+        _audiobookService.Setup(s => s.GenerateLibraryPathAsync(It.IsAny<Audiobook>())).ReturnsAsync("/library/x.m4b");
+
+        await _controller.GeneratePath(dto);
+
+        _audiobookService.Verify(s => s.GenerateLibraryPathAsync(It.Is<Audiobook>(a => a.MainAuthor == null)), Times.Once);
+    }
+
     [TestMethod]
     public async Task GeneratePath_DelegatesToService()
     {

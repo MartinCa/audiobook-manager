@@ -17,6 +17,8 @@ public static class LibrarySettingsMapping
             IncludeNarratorInPath = dbModel.IncludeNarratorInPath,
             MaxNarratorsInPath = dbModel.MaxNarratorsInPath,
             AutoSplitTitleOnColon = dbModel.AutoSplitTitleOnColon,
+            MainAuthorOnlyInPath = dbModel.MainAuthorOnlyInPath,
+            SearchInitialsHandlingBySource = MetadataSourceSearchSettings.Deserialize(dbModel.MetadataSourceSearchJson),
             MetadataApplyRules = MetadataApplyRuleSet.Deserialize(dbModel.MetadataApplyRulesJson),
         };
 

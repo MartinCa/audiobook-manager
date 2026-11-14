@@ -72,7 +72,8 @@ export const queryKeys = {
     bookName: string,
     fileName: string,
     handling: string,
-  ) => ["defaultMetadataSearchQuery", handling, authors, bookName, fileName] as const,
+    mainAuthor: string,
+  ) => ["defaultMetadataSearchQuery", handling, authors, bookName, fileName, mainAuthor] as const,
 
   consistency: {
     all: () => ["consistency"] as const,

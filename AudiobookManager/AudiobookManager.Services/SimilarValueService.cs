@@ -480,6 +480,13 @@ public class SimilarValueService : ISimilarValueService
                     }
                 }
                 domain.Authors = newAuthors;
+                // The main author is database-only and found by name, so a rename of it has to be
+                // carried here or the book would silently lose it (and, with the main-author-only
+                // path setting on, change folder).
+                if (domain.MainAuthor is not null && sourceSet.Contains(domain.MainAuthor))
+                {
+                    domain.MainAuthor = targetName;
+                }
 
                 await _audiobookService.UpdateAudiobook(dbBook.Id, domain);
             },

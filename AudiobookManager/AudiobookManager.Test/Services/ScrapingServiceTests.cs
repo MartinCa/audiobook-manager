@@ -284,4 +284,50 @@ public class ScrapingServiceTests
         Assert.AreEqual("House of Earth and Blood (Part 1 of 2)", result.BookName);
         CollectionAssert.AreEqual(new List<string> { "dramatized" }, result.Qualifiers!.ToList());
     }
+
+    [TestMethod]
+    public async Task SearchMultiple_PerSourceQueries_EachSourceIsSearchedWithItsOwnQuery()
+    {
+        _audibleScraper.Setup(s => s.Search("George R. R. Martin - Book"))
+            .ReturnsAsync(new List<MetadataSearchResult> { new("https://audible.com/1", "From Audible") });
+        _goodreadsScraper.Setup(s => s.Search("George R.R. Martin - Book"))
+            .ReturnsAsync(new List<MetadataSearchResult> { new("https://goodreads.com/1", "From Goodreads") });
+
+        var result = await _service.SearchMultiple(new Dictionary<string, string>
+        {
+            ["Audible"] = "George R. R. Martin - Book",
+            ["Goodreads"] = "George R.R. Martin - Book",
+        });
+
+        Assert.AreEqual(2, result.Results.Count);
+        _audibleScraper.Verify(s => s.Search("George R.R. Martin - Book"), Times.Never);
+        _goodreadsScraper.Verify(s => s.Search("George R. R. Martin - Book"), Times.Never);
+        Assert.IsTrue(result.SourceStatuses.All(s => s.Success));
+    }
+
+    [TestMethod]
+    public async Task SearchMultiple_PerSourceQueries_OnlyTheListedSourcesAreSearched_AnyCase()
+    {
+        _goodreadsScraper.Setup(s => s.Search("q"))
+            .ReturnsAsync(new List<MetadataSearchResult> { new("https://goodreads.com/1", "From Goodreads") });
+
+        var result = await _service.SearchMultiple(new Dictionary<string, string> { ["goodreads"] = "q" });
+
+        Assert.AreEqual(1, result.SourceStatuses.Count);
+        Assert.AreEqual("Goodreads", result.SourceStatuses[0].Source);
+        _audibleScraper.Verify(s => s.Search(It.IsAny<string>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task SearchMultiple_PerSourceQueries_OneSourceFailing_DoesNotLoseTheOther()
+    {
+        _audibleScraper.Setup(s => s.Search("a")).ThrowsAsync(new Exception("Audible timed out"));
+        _goodreadsScraper.Setup(s => s.Search("g"))
+            .ReturnsAsync(new List<MetadataSearchResult> { new("https://goodreads.com/1", "From Goodreads") });
+
+        var result = await _service.SearchMultiple(new Dictionary<string, string> { ["Audible"] = "a", ["Goodreads"] = "g" });
+
+        Assert.AreEqual(1, result.Results.Count);
+        Assert.IsFalse(result.SourceStatuses.Single(s => s.Source == "Audible").Success);
+    }
 }
