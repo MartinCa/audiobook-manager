@@ -49,7 +49,7 @@ public class TagMismatchDetectorTests
             MakeParsed("Macmillan Audio", description),
             "/library/author/2024 - A Book",
             "/library",
-            0);
+            AudiobookManager.Domain.LibraryPathOptions.None);
 
         var issues = detector.Detect(context).ToList();
 

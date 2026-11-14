@@ -60,7 +60,7 @@ public class AudiobookIssueDetectionServiceTests
         _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>()))
             .Throws(new InvalidDataException("Not an MP4 container"));
 
-        var issues = _service.DetectIssues(MakeAudiobook(_filePath), 0);
+        var issues = _service.DetectIssues(MakeAudiobook(_filePath), AudiobookManager.Domain.LibraryPathOptions.None);
 
         Assert.AreEqual(1, issues.Count);
         Assert.AreEqual(BookConsistencyIssueType.UnreadableFile, issues[0].IssueType);
@@ -76,7 +76,7 @@ public class AudiobookIssueDetectionServiceTests
         _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>()))
             .Throws(new UnauthorizedAccessException("Access to the path is denied"));
 
-        var issues = _service.DetectIssues(MakeAudiobook(_filePath), 0);
+        var issues = _service.DetectIssues(MakeAudiobook(_filePath), AudiobookManager.Domain.LibraryPathOptions.None);
 
         Assert.AreEqual(BookConsistencyIssueType.UnreadableFile, issues.Single().IssueType);
     }
@@ -86,7 +86,7 @@ public class AudiobookIssueDetectionServiceTests
     [TestMethod]
     public void DetectIssues_TheFileIsAbsent_IsStillMissingMediaFileNotUnreadable()
     {
-        var issues = _service.DetectIssues(MakeAudiobook(Path.Combine(_libraryPath, "gone.m4b")), 0);
+        var issues = _service.DetectIssues(MakeAudiobook(Path.Combine(_libraryPath, "gone.m4b")), AudiobookManager.Domain.LibraryPathOptions.None);
 
         Assert.AreEqual(BookConsistencyIssueType.MissingMediaFile, issues.Single().IssueType);
     }
@@ -99,7 +99,7 @@ public class AudiobookIssueDetectionServiceTests
     public void DetectIssues_TheFileAndItsParentDirectoryAreAbsent_ReportsLibraryPathUnavailable()
     {
         var bookSubtree = Path.Combine(_libraryPath, "Dead Author");
-        var issues = _service.DetectIssues(MakeAudiobook(Path.Combine(bookSubtree, "gone.m4b")), 0);
+        var issues = _service.DetectIssues(MakeAudiobook(Path.Combine(bookSubtree, "gone.m4b")), AudiobookManager.Domain.LibraryPathOptions.None);
 
         Assert.AreEqual(BookConsistencyIssueType.LibraryPathUnavailable, issues.Single().IssueType);
     }
@@ -141,7 +141,7 @@ public class AudiobookIssueDetectionServiceTests
                 File.Exists(bookInDeniedDirectory),
                 "Precondition: File.Exists must be reporting this present file as absent - that is the bug under test.");
 
-            var issues = _service.DetectIssues(MakeAudiobook(bookInDeniedDirectory), 0);
+            var issues = _service.DetectIssues(MakeAudiobook(bookInDeniedDirectory), AudiobookManager.Domain.LibraryPathOptions.None);
 
             Assert.AreEqual(
                 BookConsistencyIssueType.UnreadableFile,
@@ -164,7 +164,7 @@ public class AudiobookIssueDetectionServiceTests
         var directoryPath = Path.Combine(_libraryPath, "not-a-file.m4b");
         Directory.CreateDirectory(directoryPath);
 
-        var issues = _service.DetectIssues(MakeAudiobook(directoryPath), 0);
+        var issues = _service.DetectIssues(MakeAudiobook(directoryPath), AudiobookManager.Domain.LibraryPathOptions.None);
 
         Assert.AreEqual(BookConsistencyIssueType.UnreadableFile, issues.Single().IssueType);
     }
@@ -177,8 +177,47 @@ public class AudiobookIssueDetectionServiceTests
                 new List<Domain.Person>(), "Test Book", 2024,
                 new Domain.AudiobookFileInfo(_filePath, "book.m4b", 1000)));
 
-        var issues = _service.DetectIssues(MakeAudiobook(_filePath), 0);
+        var issues = _service.DetectIssues(MakeAudiobook(_filePath), AudiobookManager.Domain.LibraryPathOptions.None);
 
         Assert.AreEqual(0, issues.Count, "No detectors are registered in this fixture, so a readable file has no issues.");
+    }
+
+    private sealed class CapturingDetector : IBookConsistencyIssueDetector
+    {
+        public AudiobookCheckContext? Context { get; private set; }
+
+        public IEnumerable<BookConsistencyIssue> Detect(AudiobookCheckContext context)
+        {
+            Context = context;
+            return Array.Empty<BookConsistencyIssue>();
+        }
+    }
+
+    // The main author is database-only - no tag carries it - so the parse of the file never has
+    // one. Without the detection service copying it from the row, the expected path would always be
+    // computed from every author and a book filed under its main author would be flagged forever.
+    [TestMethod]
+    public void DetectIssues_TheMainAuthorComesFromTheDatabaseRowNotTheFile()
+    {
+        var detector = new CapturingDetector();
+        var service = new AudiobookIssueDetectionService(
+            Options.Create(new AudiobookManagerSettings { AudiobookLibraryPath = _libraryPath }),
+            Mock.Of<AudiobookManager.Services.ISettingsService>(),
+            _tagHandler.Object,
+            new IBookConsistencyIssueDetector[] { detector },
+            NullLogger<AudiobookIssueDetectionService>.Instance);
+        _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>()))
+            .Returns(new AudiobookManager.Domain.Audiobook(
+                new List<AudiobookManager.Domain.Person> { new("Author"), new("Other") }, "Test Book", 2024,
+                new AudiobookManager.Domain.AudiobookFileInfo(_filePath, "book.m4b", 1000)));
+
+        var book = MakeAudiobook(_filePath);
+        book.Authors = new List<Person> { new(1, "Author"), new(2, "Other") };
+        book.MainAuthorId = 2;
+
+        service.DetectIssues(book, new AudiobookManager.Domain.LibraryPathOptions(0, true));
+
+        Assert.AreEqual("Other", detector.Context!.Parsed.MainAuthor);
+        Assert.AreEqual(new AudiobookManager.Domain.LibraryPathOptions(0, true), detector.Context.PathOptions);
     }
 }

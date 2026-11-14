@@ -60,9 +60,9 @@ public class SettingsServiceTests
         {
             _librarySettingsRepository
                 .Setup(r => r.UpdateAsync(
-                    It.IsAny<DbInitialsSpacing>(), It.IsAny<DbInitialsPunctuation>(), It.IsAny<int>(), It.IsAny<bool>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<AudiobookManager.Database.Models.SearchInitialsHandling>(), It.IsAny<bool>(), It.IsAny<int>(), It.IsAny<bool>()))
-                .ReturnsAsync((DbInitialsSpacing s, DbInitialsPunctuation p, int delayMs, bool enabled, string cron, int pageSize, AudiobookManager.Database.Models.SearchInitialsHandling search, bool includeNarrator, int maxNarrators, bool autoSplit) =>
-                    new DbLibrarySettings(1, s, p, delayMs, enabled, cron, pageSize, search, includeNarrator, maxNarrators, autoSplit));
+                    It.IsAny<DbInitialsSpacing>(), It.IsAny<DbInitialsPunctuation>(), It.IsAny<int>(), It.IsAny<bool>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<AudiobookManager.Database.Models.SearchInitialsHandling>(), It.IsAny<bool>(), It.IsAny<int>(), It.IsAny<bool>(), It.IsAny<bool>()))
+                .ReturnsAsync((DbInitialsSpacing s, DbInitialsPunctuation p, int delayMs, bool enabled, string cron, int pageSize, AudiobookManager.Database.Models.SearchInitialsHandling search, bool includeNarrator, int maxNarrators, bool autoSplit, bool mainOnly) =>
+                    new DbLibrarySettings(1, s, p, delayMs, enabled, cron, pageSize, search, includeNarrator, maxNarrators, autoSplit, mainOnly));
 
             var result = await _service.UpdateLibrarySettings(
                 new DomainLibrarySettings
@@ -79,9 +79,9 @@ public class SettingsServiceTests
 
         // The delay rides along with the spacing through the same update - not a second write path.
         _librarySettingsRepository.Verify(
-            r => r.UpdateAsync(DbInitialsSpacing.Spaced, DbInitialsPunctuation.Dotted, 2500, true, "0 3 * * *", 50, AudiobookManager.Database.Models.SearchInitialsHandling.AsStored, false, 1, false), Times.Once);
+            r => r.UpdateAsync(DbInitialsSpacing.Spaced, DbInitialsPunctuation.Dotted, 2500, true, "0 3 * * *", 50, AudiobookManager.Database.Models.SearchInitialsHandling.AsStored, false, 1, false, false), Times.Once);
         _librarySettingsRepository.Verify(
-            r => r.UpdateAsync(DbInitialsSpacing.Unspaced, DbInitialsPunctuation.Dotted, 2500, true, "0 3 * * *", 50, AudiobookManager.Database.Models.SearchInitialsHandling.AsStored, false, 1, false), Times.Once);
+            r => r.UpdateAsync(DbInitialsSpacing.Unspaced, DbInitialsPunctuation.Dotted, 2500, true, "0 3 * * *", 50, AudiobookManager.Database.Models.SearchInitialsHandling.AsStored, false, 1, false, false), Times.Once);
     }
 
     [TestMethod]
@@ -89,9 +89,9 @@ public class SettingsServiceTests
     {
         _librarySettingsRepository
             .Setup(r => r.UpdateAsync(
-                It.IsAny<DbInitialsSpacing>(), It.IsAny<DbInitialsPunctuation>(), It.IsAny<int>(), It.IsAny<bool>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<AudiobookManager.Database.Models.SearchInitialsHandling>(), It.IsAny<bool>(), It.IsAny<int>(), It.IsAny<bool>()))
-            .ReturnsAsync((DbInitialsSpacing s, DbInitialsPunctuation p, int delayMs, bool enabled, string cron, int pageSize, AudiobookManager.Database.Models.SearchInitialsHandling search, bool includeNarrator, int maxNarrators, bool autoSplit) =>
-                new DbLibrarySettings(1, s, p, delayMs, enabled, cron, pageSize, search, includeNarrator, maxNarrators, autoSplit));
+                It.IsAny<DbInitialsSpacing>(), It.IsAny<DbInitialsPunctuation>(), It.IsAny<int>(), It.IsAny<bool>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<AudiobookManager.Database.Models.SearchInitialsHandling>(), It.IsAny<bool>(), It.IsAny<int>(), It.IsAny<bool>(), It.IsAny<bool>()))
+            .ReturnsAsync((DbInitialsSpacing s, DbInitialsPunctuation p, int delayMs, bool enabled, string cron, int pageSize, AudiobookManager.Database.Models.SearchInitialsHandling search, bool includeNarrator, int maxNarrators, bool autoSplit, bool mainOnly) =>
+                new DbLibrarySettings(1, s, p, delayMs, enabled, cron, pageSize, search, includeNarrator, maxNarrators, autoSplit, mainOnly));
 
         foreach (var handling in Enum.GetValues<AudiobookManager.Domain.SearchInitialsHandling>())
         {
@@ -220,6 +220,98 @@ public class SettingsServiceTests
 
         StringAssert.Contains(ex.Message, "Goodreadss");
         _librarySettingsRepository.Verify(r => r.SetMetadataSourceOrderJsonAsync(It.IsAny<string?>()), Times.Never);
+    }
+
+    #endregion
+
+    #region Main author path setting and per-source search initials
+
+    private void SetupUpdateEcho(List<string>? order = null)
+    {
+        _librarySettingsRepository
+            .Setup(r => r.UpdateAsync(
+                It.IsAny<DbInitialsSpacing>(), It.IsAny<DbInitialsPunctuation>(), It.IsAny<int>(), It.IsAny<bool>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<AudiobookManager.Database.Models.SearchInitialsHandling>(), It.IsAny<bool>(), It.IsAny<int>(), It.IsAny<bool>(), It.IsAny<bool>()))
+            .Callback(() => order?.Add("update"))
+            .ReturnsAsync((DbInitialsSpacing s, DbInitialsPunctuation p, int delayMs, bool enabled, string cron, int pageSize, AudiobookManager.Database.Models.SearchInitialsHandling search, bool includeNarrator, int maxNarrators, bool autoSplit, bool mainOnly) =>
+                new DbLibrarySettings(1, s, p, delayMs, enabled, cron, pageSize, search, includeNarrator, maxNarrators, autoSplit, mainOnly));
+    }
+
+    [TestMethod]
+    public async Task UpdateLibrarySettings_PassesTheMainAuthorOnlyPathSettingToTheRepository()
+    {
+        SetupUpdateEcho();
+
+        var result = await _service.UpdateLibrarySettings(new DomainLibrarySettings { MainAuthorOnlyInPath = true });
+
+        Assert.IsTrue(result.MainAuthorOnlyInPath);
+        _librarySettingsRepository.Verify(r => r.UpdateAsync(
+            It.IsAny<DbInitialsSpacing>(), It.IsAny<DbInitialsPunctuation>(), It.IsAny<int>(), It.IsAny<bool>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<AudiobookManager.Database.Models.SearchInitialsHandling>(), It.IsAny<bool>(), It.IsAny<int>(), It.IsAny<bool>(), true), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task GetLibrarySettings_ReadsTheMainAuthorSettingAndThePerSourceOverrides()
+    {
+        _librarySettingsRepository
+            .Setup(r => r.GetOrCreateAsync())
+            .ReturnsAsync(new DbLibrarySettings
+            {
+                MainAuthorOnlyInPath = true,
+                MetadataSourceSearchJson = """{"Hardcover":"Compact"}""",
+            });
+
+        var result = await _service.GetLibrarySettings();
+
+        Assert.IsTrue(result.MainAuthorOnlyInPath);
+        Assert.AreEqual(AudiobookManager.Domain.SearchInitialsHandling.Compact, result.SearchInitialsHandlingFor("Hardcover"));
+        Assert.AreEqual(AudiobookManager.Domain.SearchInitialsHandling.AsStored, result.SearchInitialsHandlingFor("Audible"));
+    }
+
+    [TestMethod]
+    public async Task UpdateLibrarySettings_PerSourceOverrides_AreStoredInTheRegisteredSpellingBeforeTheRowIsRead()
+    {
+        var order = new List<string>();
+        SetupUpdateEcho(order);
+        string? saved = null;
+        _librarySettingsRepository.Setup(r => r.SetMetadataSourceSearchJsonAsync(It.IsAny<string?>()))
+            .Callback<string?>(j => { saved = j; order.Add("json"); })
+            .Returns(Task.CompletedTask);
+
+        var settings = new DomainLibrarySettings();
+        settings.SearchInitialsHandlingBySource["hardcover"] = AudiobookManager.Domain.SearchInitialsHandling.Compact;
+        await _service.UpdateLibrarySettings(settings);
+
+        Assert.AreEqual("""{"Hardcover":"Compact"}""", saved);
+        // The JSON is written set-based, so it has to land before the row the call returns is loaded.
+        CollectionAssert.AreEqual(new[] { "json", "update" }, order);
+    }
+
+    [TestMethod]
+    public async Task UpdateLibrarySettings_NoOverrides_StoresNullSoTheColumnIsClearedNotLeftStale()
+    {
+        SetupUpdateEcho();
+        var calls = new List<string?>();
+        _librarySettingsRepository.Setup(r => r.SetMetadataSourceSearchJsonAsync(It.IsAny<string?>()))
+            .Callback<string?>(calls.Add)
+            .Returns(Task.CompletedTask);
+
+        await _service.UpdateLibrarySettings(new DomainLibrarySettings());
+
+        CollectionAssert.AreEqual(new string?[] { null }, calls);
+    }
+
+    [TestMethod]
+    public async Task UpdateLibrarySettings_UnknownSource_ThrowsAndChangesNothing()
+    {
+        SetupUpdateEcho();
+        var settings = new DomainLibrarySettings();
+        settings.SearchInitialsHandlingBySource["Nonexistent"] = AudiobookManager.Domain.SearchInitialsHandling.Compact;
+
+        var ex = await Assert.ThrowsExactlyAsync<ArgumentException>(() => _service.UpdateLibrarySettings(settings));
+
+        StringAssert.Contains(ex.Message, "Nonexistent");
+        _librarySettingsRepository.Verify(r => r.SetMetadataSourceSearchJsonAsync(It.IsAny<string?>()), Times.Never);
+        _librarySettingsRepository.Verify(r => r.UpdateAsync(
+            It.IsAny<DbInitialsSpacing>(), It.IsAny<DbInitialsPunctuation>(), It.IsAny<int>(), It.IsAny<bool>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<AudiobookManager.Database.Models.SearchInitialsHandling>(), It.IsAny<bool>(), It.IsAny<int>(), It.IsAny<bool>(), It.IsAny<bool>()), Times.Never);
     }
 
     #endregion

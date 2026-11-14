@@ -20,7 +20,9 @@ import { notifications } from "@/lib/notifications";
 import { MetadataApplyRulesCard } from "@/components/settings/MetadataApplyRulesCard";
 import { MetadataSourceOrderCard } from "@/components/settings/MetadataSourceOrderCard";
 import { QualifierIndicatorsCard } from "@/components/settings/QualifierIndicatorsCard";
+import { SourceSearchInitialsField } from "@/components/settings/SourceSearchInitialsField";
 import { PAGE_SIZE_OPTIONS, type PageSizeOption } from "@/constants/paging";
+import { SEARCH_INITIALS_HANDLING_OPTIONS } from "@/constants/searchInitialsHandling";
 import type {
   InitialsPunctuation,
   InitialsSpacing,
@@ -35,12 +37,6 @@ const INITIALS_SPACING_OPTIONS: { value: InitialsSpacing; label: string }[] = [
 const INITIALS_PUNCTUATION_OPTIONS: { value: InitialsPunctuation; label: string }[] = [
   { value: "Dotted", label: "Dotted (J. R. R. Tolkien)" },
   { value: "Undotted", label: "Undotted (J R R Tolkien)" },
-];
-
-const SEARCH_INITIALS_HANDLING_OPTIONS: { value: SearchInitialsHandling; label: string }[] = [
-  { value: "AsStored", label: "As stored (the name as it is in the library)" },
-  { value: "Compact", label: "Compact (George R.R. Martin)" },
-  { value: "Spaced", label: "Spaced (George R. R. Martin)" },
 ];
 
 const MIN_NARRATORS_IN_PATH = 1;
@@ -67,6 +63,12 @@ export function LibrarySettingsPage() {
     useState<SearchInitialsHandling | null>(null);
   const [includeNarratorInPath, setIncludeNarratorInPath] = useState<boolean | null>(null);
   const [autoSplitTitleOnColon, setAutoSplitTitleOnColon] = useState<boolean | null>(null);
+  const [mainAuthorOnlyInPath, setMainAuthorOnlyInPath] = useState<boolean | null>(null);
+  // The per-source overrides as edited; null until touched, so the stored set shows until then.
+  const [searchInitialsBySource, setSearchInitialsBySource] = useState<Record<
+    string,
+    SearchInitialsHandling
+  > | null>(null);
   // Held as the typed text so a half-edited field ("", "1") is not snapped back under the cursor.
   const [maxNarratorsInPath, setMaxNarratorsInPath] = useState<string | null>(null);
 
@@ -86,6 +88,8 @@ export function LibrarySettingsPage() {
       includeNarratorInPath: boolean;
       maxNarratorsInPath: number;
       autoSplitTitleOnColon: boolean;
+      mainAuthorOnlyInPath: boolean;
+      searchInitialsHandlingBySource: Record<string, SearchInitialsHandling>;
     }) => settingsApi.updateLibrarySettings(settings),
     onSuccess: () => {
       notifications.success("Library settings saved");
@@ -113,6 +117,9 @@ export function LibrarySettingsPage() {
     includeNarratorInPath ?? data?.includeNarratorInPath ?? false;
   const currentAutoSplitTitleOnColon =
     autoSplitTitleOnColon ?? data?.autoSplitTitleOnColon ?? false;
+  const currentMainAuthorOnlyInPath = mainAuthorOnlyInPath ?? data?.mainAuthorOnlyInPath ?? false;
+  const currentSearchInitialsBySource =
+    searchInitialsBySource ?? data?.searchInitialsHandlingBySource ?? {};
   const currentMaxNarratorsInPathText =
     maxNarratorsInPath ?? (data ? String(data.maxNarratorsInPath) : "");
   const currentMaxNarratorsInPath = Number(currentMaxNarratorsInPathText);
@@ -148,6 +155,8 @@ export function LibrarySettingsPage() {
         ? currentMaxNarratorsInPath
         : (data?.maxNarratorsInPath ?? currentMaxNarratorsInPath),
       autoSplitTitleOnColon: currentAutoSplitTitleOnColon,
+      mainAuthorOnlyInPath: currentMainAuthorOnlyInPath,
+      searchInitialsHandlingBySource: currentSearchInitialsBySource,
     });
   };
 
@@ -265,7 +274,35 @@ export function LibrarySettingsPage() {
                   the manual search and the bulk search. Some sources only match one form (on
                   Hardcover, &ldquo;George R.R. Martin&rdquo; finds books that &ldquo;George R. R.
                   Martin&rdquo; misses). It never changes stored names, and text you type into the
-                  search box is sent as typed.
+                  search box is sent as typed. A book&apos;s main author, when it has one, is the
+                  only author in that search.
+                </p>
+                <SourceSearchInitialsField
+                  value={currentSearchInitialsBySource}
+                  libraryDefault={currentSearchInitialsHandling}
+                  onChange={setSearchInitialsBySource}
+                  disabled={mutation.isPending}
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="flex items-center gap-2 text-sm">
+                  <Checkbox
+                    checked={currentMainAuthorOnlyInPath}
+                    onCheckedChange={(checked) => setMainAuthorOnlyInPath(Boolean(checked))}
+                    disabled={mutation.isPending}
+                  />
+                  Only the main author in the folder name
+                </label>
+                <p className="text-muted-foreground text-xs">
+                  For a book with several authors and a main author set, the author folder names
+                  only the main author (<span className="font-mono">Brandon Sanderson</span> instead
+                  of <span className="font-mono">Brandon Sanderson, Janci Patterson</span>), so a
+                  co-written book files with the rest of that author&apos;s books. Books without a
+                  main author keep every author in the folder name, and the tags always keep every
+                  author. Turning this on or off changes the expected path of every book that has
+                  several authors and a main author: they show up as &ldquo;wrong file path&rdquo;
+                  in the consistency check, where resolving them moves the files.
                 </p>
               </div>
 

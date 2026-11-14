@@ -225,7 +225,9 @@ Each DB entity gets an `IRepository` + `Repository` pair in `Database/Repositori
 
 `AudiobookFileHandler.GenerateRelativeAudiobookPath()` builds: `Author / [Series /] [BookNN - ] Year - BookName / filename.m4b`. All path parts are sanitized via `GetSafeFileName()` and `GetSafeCompletePath()`.
 
-**The narrator in the folder name is a library setting, and the flag is a required argument.** With `LibrarySettings.IncludeNarratorInPath` on (default off), the book folder gains Audiobookshelf's `{Narrator}` suffix - `Year - BookName {Narrator A}` - so two narrations of one book get distinct folders (Audiobookshelf has no native multi-version support; each folder is its own library item). The folder only, never the file name, and after any qualifier suffix. `GenerateRelativeAudiobookPath(audiobook, maxNarratorsInPath)` takes that number **without a default** so a caller cannot forget it and compute a different path from the rest of the app. Async entry points read it through `IAudiobookService.GenerateLibraryPathAsync` / `IAudiobookIssueDetectionService.DetectIssuesAsync`; a loop that already holds the setting (the full consistency check, the discovered-books page) passes it to the synchronous overloads instead of re-reading it per book. Flipping the setting is intentionally not a migration: every book with a narrator becomes a `WrongFilePath` issue and a bulk resolve moves the files through `UpdateAudiobook`. The brace group has to be the last thing in the folder name, preceded by a space - Audiobookshelf matches `^(.*) \{(.*)\}$` against it. How many narrators are listed is a second library setting, `MaxNarratorsInPath` (1-10, default 1; the first ones in tag order, counted after blank names and duplicates are dropped); the path code takes one number, `LibrarySettings.NarratorsInPath`, which is 0 when the toggle is off, so `0` means "narrator not in the path" everywhere. A lower limit can make two casts that share their first narrators share a folder - that is the trade-off the setting exposes. The narrator text is brace-stripped, sanitized like any other segment, and capped at 100 UTF-8 _bytes_ (file systems limit bytes, not characters) by skipping names that do not fit, so a name is never cut mid-name - the one exception is a first name that alone exceeds the budget, which is cut on a character boundary. Several narrators are joined with `, ` as in the narrator tag; that join is best-effort, since the scanner takes the group as one string and how it later splits it into narrators is unconfirmed. Anything that previews or checks a path from the client (`toPathPreviewDto`) must send `narrators`, or the preview and the target-collision check build the path of a narrator-less book.
+**The settings that shape the path travel as one required argument, `LibraryPathOptions`.** `GenerateRelativeAudiobookPath(audiobook, LibraryPathOptions)` takes `LibraryPathOptions(NarratorsInPath, MainAuthorOnly)` (`LibrarySettings.PathOptions`) **without a default**, so a caller cannot forget either setting and compute a different path from the rest of the app. Everywhere this section says "the number" for the narrator limit, the value now rides inside that record; add any future path-shaping setting to the record rather than as another loose parameter. Both settings are described below.
+
+**The narrator in the folder name is a library setting, and the flag is a required argument.** With `LibrarySettings.IncludeNarratorInPath` on (default off), the book folder gains Audiobookshelf's `{Narrator}` suffix - `Year - BookName {Narrator A}` - so two narrations of one book get distinct folders (Audiobookshelf has no native multi-version support; each folder is its own library item). The folder only, never the file name, and after any qualifier suffix. `GenerateRelativeAudiobookPath(audiobook, pathOptions)` takes it (as `LibraryPathOptions.NarratorsInPath`) **without a default** so a caller cannot forget it and compute a different path from the rest of the app. Async entry points read it through `IAudiobookService.GenerateLibraryPathAsync` / `IAudiobookIssueDetectionService.DetectIssuesAsync`; a loop that already holds the setting (the full consistency check, the discovered-books page) passes it to the synchronous overloads instead of re-reading it per book. Flipping the setting is intentionally not a migration: every book with a narrator becomes a `WrongFilePath` issue and a bulk resolve moves the files through `UpdateAudiobook`. The brace group has to be the last thing in the folder name, preceded by a space - Audiobookshelf matches `^(.*) \{(.*)\}$` against it. How many narrators are listed is a second library setting, `MaxNarratorsInPath` (1-10, default 1; the first ones in tag order, counted after blank names and duplicates are dropped); the path code takes one number inside the options, `LibrarySettings.NarratorsInPath`, which is 0 when the toggle is off, so `0` means "narrator not in the path" everywhere. A lower limit can make two casts that share their first narrators share a folder - that is the trade-off the setting exposes. The narrator text is brace-stripped, sanitized like any other segment, and capped at 100 UTF-8 _bytes_ (file systems limit bytes, not characters) by skipping names that do not fit, so a name is never cut mid-name - the one exception is a first name that alone exceeds the budget, which is cut on a character boundary. Several narrators are joined with `, ` as in the narrator tag; that join is best-effort, since the scanner takes the group as one string and how it later splits it into narrators is unconfirmed. Anything that previews or checks a path from the client (`toPathPreviewDto`) must send `narrators`, or the preview and the target-collision check build the path of a narrator-less book.
 
 **The author folder is bounded, and no path segment may exceed the file system's name limit.** An
 anthology can credit dozens of authors; joined into one folder name they exceeded 255 bytes, so
@@ -943,7 +945,7 @@ Author names and series values are free text, so the same real-world value can e
 - **Ignoring a pair ("Ben Winters" is not "Ed Winters")** — a user can mark two specific values within a detected group as explicitly not similar. `ignored_similar_value_pairs` (`Kind`/`ValueA`/`ValueB`, `ValueA < ValueB` by `StringComparer.Ordinal` so a pair is unordered, unique index on `(Kind, ValueA, ValueB)`) stores these; `SimilarValueService.IgnorePairAsync(kind, value, againstValues)` adds one row per `againstValues` entry (the UI passes the rest of the candidate's current group) and `RemoveIgnoredPairAsync`/`GetIgnoredPairsAsync` round out the CRUD, all behind `SimilarValuesController`'s `POST similar-values/ignore` / `DELETE similar-values/ignore/{id}` / `GET similar-values/ignored`. `GetOrComputeGroupsAsync` loads the kind's ignored pairs and passes them into `SimilarityGrouper.GroupSimilarValues` as `ignoredPairs`, which skips unioning that one edge directly — the two values can still end up in the same cluster transitively through a third value neither is ignored against, so ignoring a pair narrows the grouping rather than exiling either value from consideration. Both mutations invalidate the detection cache immediately, exactly like alignment. `SimilarValues.tsx` exposes this as a per-candidate "not similar" action plus a "Show ignored" dialog (`IgnoredSimilarValuesDialog.tsx`) listing and removing ignored pairs for the active tab.
 - **Series "the"-insensitivity** — `NameNormalizer.StripLeadingArticle` strips a leading `"the "` token from an already-normalized string. `SimilarityGrouper.GroupSimilarValues`'s `isSeries` flag (passed `true` only from the series detection call site, never for authors) runs an extra O(n) bucketing pass keyed on the stripped form, independent of the length-blocking loop, so `"The Mistborn Saga"` and `"Mistborn Saga"` group even though the edit distance (inserting `"The "`) and the length gap can both fall outside the normal thresholds. `SimilarValueService.ScoreSimilarMatches` applies the same rule for series-kind entry-status matches, for consistency between the detection screen and the entry-time "similar" indicator. This is series-only by construction — an author literally named "The Rock" is never affected, because `isSeries` is never passed for the author call site.
 
-**Binding invariant: no DB-only field updates for Author/Series/SeriesPart/Year/BookName/Qualifiers** (Series/SeriesPart here mean the primary series; see "Series relations" above for the additional ones, which are edited on the same domain object and saved through the same call). Any code path that changes `Author`, `Series`, `SeriesPart`, `Year`, `BookName`, or the qualifiers on a library audiobook — a single edit, a bulk operation, anything — must go through `AudiobookService.UpdateAudiobook` (directly, or per-book in a loop for bulk operations like `AlignAuthorsAsync`/`AlignSeriesAsync` above). Never write those fields to the database directly. This is required because `UpdateAudiobook` always rewrites the m4b tags, always recomputes the library path from the _entire_ object and relocates the file (cleaning up stale sidecars) whenever that path differs from the current one, and always rewrites `desc.txt`/`reader.txt`/cover sidecars regardless of whether a relocation happened. A DB-only update would silently desync the file on disk from the database record. `LibraryConsistencyService.ResolveTagOrPathMismatch` handles both the `TagMismatch` and `WrongFilePath` consistency issue types through this same call for exactly this reason: a narrower `WrongFilePath` handler used to exist that re-parsed tags from the file itself (assuming they were already correct) and only moved it, then deleted every stored issue for the book on success — including a `TagMismatch` it had never actually fixed, so the issue silently reappeared on the next check. Resolving a wrong file path always goes through the full `UpdateAudiobook` now, so there is no "assume tags are fine" path left to desync from what actually got resolved.
+**Binding invariant: no DB-only field updates for Author/MainAuthor/Series/SeriesPart/Year/BookName/Qualifiers** (Series/SeriesPart here mean the primary series; see "Series relations" above for the additional ones, which are edited on the same domain object and saved through the same call; the main author is described under "A book can have a main author"). Any code path that changes `Author`, the main author, `Series`, `SeriesPart`, `Year`, `BookName`, or the qualifiers on a library audiobook — a single edit, a bulk operation, anything — must go through `AudiobookService.UpdateAudiobook` (directly, or per-book in a loop for bulk operations like `AlignAuthorsAsync`/`AlignSeriesAsync` above). Never write those fields to the database directly. This is required because `UpdateAudiobook` always rewrites the m4b tags, always recomputes the library path from the _entire_ object and relocates the file (cleaning up stale sidecars) whenever that path differs from the current one, and always rewrites `desc.txt`/`reader.txt`/cover sidecars regardless of whether a relocation happened. A DB-only update would silently desync the file on disk from the database record. `LibraryConsistencyService.ResolveTagOrPathMismatch` handles both the `TagMismatch` and `WrongFilePath` consistency issue types through this same call for exactly this reason: a narrower `WrongFilePath` handler used to exist that re-parsed tags from the file itself (assuming they were already correct) and only moved it, then deleted every stored issue for the book on success — including a `TagMismatch` it had never actually fixed, so the issue silently reappeared on the next check. Resolving a wrong file path always goes through the full `UpdateAudiobook` now, so there is no "assume tags are fine" path left to desync from what actually got resolved.
 
 ### Renaming an author or series, and the source's name for an author
 
@@ -993,6 +995,73 @@ dotted) and is the one implementation, used by the bulk search (`PendingOnlineMa
 `useResolveDefaultMetadataSearchQuery` (resolved before the dialog opens, so the seed never changes under the user). **The frontend holds no copy of the formatting rules**; its
 `buildDefaultMetadataSearchQuery` is only the as-stored fallback. Text a user types into the search
 box is never rewritten, and the setting never touches stored names, tags or paths.
+
+**The handling can be set per source, and the main author replaces the author list.** Sources index
+names differently, so `library_settings.metadata_source_search_json` holds optional per-source
+overrides of `SearchInitialsHandling` (source name to enum name; `MetadataSourceSearchSettings` in
+`AudiobookManager.Domain` is the one implementation of reading, validating and resolving it, and
+`LibrarySettings.SearchInitialsHandlingFor(source)` is what callers use). A source with no entry follows
+the library-wide setting - `AsStored` on a source is a real override, not "unset". The set is edited
+through `GET`/`PUT api/settings/library` (`searchInitialsHandlingBySource`; when sent it replaces the
+whole set, omitted keeps the stored one, names are matched to the registered scrapers and stored in
+their spelling, an unknown source is a 400), and the JSON is written set-based _before_ the row is
+re-read so `UpdateLibrarySettings` returns it. **The frontend holds no list of sources for this**: the
+settings page (`SourceSearchInitialsField`) lists what `GET api/metadata-search/services` serves.
+
+Because one search can now ask each source something different, `MetadataSearchQueryBuilder.BuildPerSource`
+builds one query per source and the search takes them per source: `IScrapingService.SearchMultiple(
+IReadOnlyDictionary<string,string>)` (the bulk search - `PendingOnlineMatchService` falls back to the
+plain single-query call when every source would get the same text, which is the usual case),
+and `POST api/metadata-search/multi` accepts optional `queriesBySource`. `POST .../default-query` returns
+`query` (library-wide form) plus `queriesBySource` for every registered source. The dialog sends
+`queriesBySource` **only while the box still holds the unedited seed**; once the user types, their text goes
+to every source exactly as typed. `useResolveDefaultMetadataSearchQuery` returns `{ query, queriesBySource? }`
+and only asks the server when some handling (library-wide or per source) is not `AsStored`; when every
+source agrees it seeds that one query instead of a map.
+
+A book's **main author** (next section), when it has one, is the only author in every default and
+automated query (`Build(..., mainAuthor)`; `PendingOnlineMatchService` passes `book.MainAuthorName`). A
+book without one searches with every author, as before.
+
+### A book can have a main author (optional), and the path can use only it
+
+**Invariant: `audiobooks.main_author_id` names the one author that stands for a book, or is null.** A
+book with several equal authors (an anthology, co-writers) simply has none - the field is optional on
+purpose. It is **database-only**: no m4b tag, sidecar or `metadata.opf` carries it (the AlbumArtist tag
+keeps every author, which is also what Audiobookshelf reads), the same way additional series and the
+title-split flag are database-only. It is a nullable FK to `persons` (`ON DELETE SET NULL`), so removing a
+person can never delete a book. On the domain `Audiobook` it is `MainAuthor`, the author's **name**
+(persons are keyed by exact name, so the match is exact and case-sensitive).
+
+- **A main author is always one of the authors.** `Audiobook.EffectiveMainAuthor` is `MainAuthor` only if it
+  exactly names one of `Authors`, otherwise null, and everything that acts on it (path, query, save) reads
+  that, never the raw property. `AudiobookService.MainAuthorIdOf` writes the FK only for such a name, so
+  removing or renaming the main author in the same edit leaves the book with none instead of a stale value.
+  The client mirrors this in `helpers/mainAuthor.ts`, and `BookEditForm` clears the form value the moment
+  the author leaves the list (not only on save) so typing the same name back later does not revive it.
+- **It rides every `FromDb` -> `UpdateAudiobook` round trip** (`FromDb` maps `MainAuthorName` - found by id
+  among the loaded authors, so no extra `Include`), like `Qualifiers`; dropping it there would clear it and,
+  with the path setting on, move the book. **A rewrite that renames an author must carry it**:
+  `SimilarValueService.AlignAuthorsAsync` (and so a manual rename) maps a renamed main author to the target
+  name. A metadata refresh that replaces the author list keeps it only if the source credits that exact name.
+- **The save DTO is the whole state, not a patch.** `OrganizeAudiobookDto.MainAuthor` null clears it, so
+  every client that saves a loaded book must send it back (`toAudiobookDto`, built from
+  `audiobookMapping.toAudiobook`) - and `toPathPreviewDto` must send it too, or the preview and
+  target-collision check build the path of a book with no main author.
+- **Library setting `MainAuthorOnlyInPath` (default off).** With it on, the author folder names only the
+  main author (`GetAuthorFolderName(audiobook, mainAuthorOnly)`, still bounded by `MaxAuthorFolderBytes`);
+  a book with no (effective) main author keeps its full author list, so the setting never leaves a book
+  without an author folder. It travels as `LibraryPathOptions.MainAuthorOnly`. Only the folder changes:
+  tags and database keep every author. Flipping it is intentionally not a migration - every book that has
+  several authors **and** a main author becomes a `WrongFilePath` issue and a bulk resolve moves the files
+  through `UpdateAudiobook` (the same trade-off as the narrator setting and the author-folder byte cap).
+  **This changes the folder naming for those books relative to what Audiobookshelf's own docs describe
+  (a folder per author); it is opt-in and was requested explicitly, but any further change to how the
+  folder is derived needs the confirmation the Audiobookshelf-compatibility rule above asks for.**
+- **The consistency check reads it from the database row, because the file cannot supply it.**
+  `AudiobookIssueDetectionService` sets `parsed.MainAuthor = audiobook.MainAuthorName` before the detectors
+  run (same idea as `BookQualifiers.ApplyExpected`); without it `PathMismatchDetector` would expect the
+  full-author folder for every book and flag a correctly filed book forever.
 
 ## Frontend Patterns
 

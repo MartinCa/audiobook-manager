@@ -505,4 +505,162 @@ describe("BookSearchDialog", () => {
       expect(metadataSearchApi.searchMultiple).not.toHaveBeenCalled();
     });
   });
+
+  describe("per-source default queries", () => {
+    const SEED = "George R. R. Martin - A Game of Thrones";
+    const BY_SOURCE = {
+      Audible: "George R. R. Martin - A Game of Thrones",
+      Goodreads: "George R.R. Martin - A Game of Thrones",
+    };
+
+    // `null` renders the dialog with no per-source map (an omitted argument means BY_SOURCE).
+    function renderSeeded(queriesBySource: Record<string, string> | null = BY_SOURCE) {
+      const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      return render(
+        <QueryClientProvider client={queryClient}>
+          <BookSearchDialog
+            open
+            onOpenChange={vi.fn()}
+            onSelectResult={vi.fn()}
+            initialQuery={SEED}
+            initialQueriesBySource={queriesBySource ?? undefined}
+          />
+        </QueryClientProvider>,
+      );
+    }
+
+    async function clickSearch() {
+      await screen.findByText("Audible");
+      await waitFor(() =>
+        expect(screen.getByRole("button", { name: /^search$/i })).not.toBeDisabled(),
+      );
+      fireEvent.click(screen.getByRole("button", { name: /^search$/i }));
+    }
+
+    it("sends each chosen source its own query while the box still holds the unedited seed", async () => {
+      vi.mocked(metadataSearchApi.searchMultiple).mockResolvedValue({
+        results: [],
+        sourceStatuses: [],
+      });
+      renderSeeded();
+
+      await clickSearch();
+
+      await waitFor(() =>
+        expect(metadataSearchApi.searchMultiple).toHaveBeenCalledWith(
+          ["Audible", "Goodreads"],
+          SEED,
+          BY_SOURCE,
+        ),
+      );
+    });
+
+    it("sends only the queries of the sources that are chosen", async () => {
+      vi.mocked(metadataSearchApi.searchMultiple).mockResolvedValue({
+        results: [],
+        sourceStatuses: [],
+      });
+      renderSeeded();
+      await screen.findByText("Audible");
+      fireEvent.click(screen.getByText("Audible"));
+
+      await clickSearch();
+
+      await waitFor(() =>
+        expect(metadataSearchApi.searchMultiple).toHaveBeenCalledWith(["Goodreads"], SEED, {
+          Goodreads: BY_SOURCE.Goodreads,
+        }),
+      );
+    });
+
+    it("sends exactly what was typed, to every source, once the user edits the text", async () => {
+      vi.mocked(metadataSearchApi.searchMultiple).mockResolvedValue({
+        results: [],
+        sourceStatuses: [],
+      });
+      renderSeeded();
+      await screen.findByText("Audible");
+      fireEvent.change(screen.getByPlaceholderText("Search title, author, or paste URL..."), {
+        target: { value: "George R. R. Martin - A Clash of Kings" },
+      });
+
+      await clickSearch();
+
+      await waitFor(() =>
+        expect(metadataSearchApi.searchMultiple).toHaveBeenCalledWith(
+          ["Audible", "Goodreads"],
+          "George R. R. Martin - A Clash of Kings",
+        ),
+      );
+    });
+
+    it("goes back to per-source queries if the edit is undone to the seed", async () => {
+      vi.mocked(metadataSearchApi.searchMultiple).mockResolvedValue({
+        results: [],
+        sourceStatuses: [],
+      });
+      renderSeeded();
+      await screen.findByText("Audible");
+      const box = screen.getByPlaceholderText("Search title, author, or paste URL...");
+      fireEvent.change(box, { target: { value: "something else" } });
+      fireEvent.change(box, { target: { value: SEED } });
+
+      await clickSearch();
+
+      await waitFor(() =>
+        expect(metadataSearchApi.searchMultiple).toHaveBeenCalledWith(
+          ["Audible", "Goodreads"],
+          SEED,
+          BY_SOURCE,
+        ),
+      );
+    });
+
+    it("sends a plain search when there is no per-source map", async () => {
+      vi.mocked(metadataSearchApi.searchMultiple).mockResolvedValue({
+        results: [],
+        sourceStatuses: [],
+      });
+      renderSeeded(null);
+
+      await clickSearch();
+
+      await waitFor(() =>
+        expect(metadataSearchApi.searchMultiple).toHaveBeenCalledWith(
+          ["Audible", "Goodreads"],
+          SEED,
+        ),
+      );
+    });
+
+    it("says the initials are written per source while the sources would be asked different things", async () => {
+      renderSeeded();
+
+      expect(
+        await screen.findByText(/initials are written the way each source expects/i),
+      ).toBeInTheDocument();
+    });
+
+    it("does not say so once the user has edited the text", async () => {
+      renderSeeded();
+      await screen.findByText(/initials are written the way each source expects/i);
+
+      fireEvent.change(screen.getByPlaceholderText("Search title, author, or paste URL..."), {
+        target: { value: "my own query" },
+      });
+
+      expect(
+        screen.queryByText(/initials are written the way each source expects/i),
+      ).not.toBeInTheDocument();
+    });
+
+    it("does not say so when every chosen source would be asked the same thing", async () => {
+      renderSeeded({ Audible: SEED, Goodreads: SEED });
+      await screen.findByText("Audible");
+
+      expect(
+        screen.queryByText(/initials are written the way each source expects/i),
+      ).not.toBeInTheDocument();
+    });
+  });
 });

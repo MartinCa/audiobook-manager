@@ -18,7 +18,8 @@ public interface ILibrarySettingsRepository
         SearchInitialsHandling searchInitialsHandling,
         bool includeNarratorInPath,
         int maxNarratorsInPath,
-        bool autoSplitTitleOnColon);
+        bool autoSplitTitleOnColon,
+        bool mainAuthorOnlyInPath);
 
     /// <summary>
     /// Replaces only the online-metadata apply rules JSON (null = all defaults), leaving every other
@@ -28,4 +29,10 @@ public interface ILibrarySettingsRepository
 
     /// <summary>Replaces just the stored metadata source order, leaving every other setting alone.</summary>
     Task SetMetadataSourceOrderJsonAsync(string? json);
+
+    /// <summary>
+    /// Replaces just the per-source search initials handling JSON (null = none), leaving every other
+    /// setting alone.
+    /// </summary>
+    Task SetMetadataSourceSearchJsonAsync(string? json);
 }

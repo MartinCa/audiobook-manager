@@ -528,6 +528,9 @@ public class AudiobookController : ControllerBase
 
         var mapped = new Audiobook(authors, dto.BookName, dto.Year, fileInfo)
         {
+            // Matched to the authors by name; one that is not among them is dropped
+            // (EffectiveMainAuthor), so a stale value can never reach the path or the database.
+            MainAuthor = string.IsNullOrWhiteSpace(dto.MainAuthor) ? null : dto.MainAuthor.Trim(),
             Narrators = narrators,
             Subtitle = dto.Subtitle,
             SplitTitleOnColon = dto.SplitTitleOnColon,

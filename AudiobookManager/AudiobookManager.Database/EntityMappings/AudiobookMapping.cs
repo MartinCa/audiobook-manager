@@ -12,6 +12,15 @@ public class AudiobookMapping : IEntityTypeConfiguration<Audiobook>
             .WithMany(p => p.BooksAuthored)
             .UsingEntity("audiobooks_authors_persons");
 
+        // The main author is one of the authors above, referenced by id. No inverse navigation:
+        // nothing walks from a person to the books that call them "main". If the person row is
+        // ever removed, the book simply has no main author (SetNull) rather than being deleted.
+        builder
+            .HasOne<Person>()
+            .WithMany()
+            .HasForeignKey(a => a.MainAuthorId)
+            .OnDelete(DeleteBehavior.SetNull);
+
         builder
             .HasMany(a => a.Narrators)
             .WithMany(p => p.BooksNarrated)

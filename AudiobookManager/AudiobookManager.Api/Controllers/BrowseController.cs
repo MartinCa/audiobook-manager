@@ -974,7 +974,8 @@ public class BrowseController : ControllerBase
             (SeriesRelationSync.AdditionalOf(audiobook) ?? new List<Domain.SeriesRelation>())
                 .Select(r => new SeriesRelationDto { SeriesName = r.Name, SeriesPart = r.Part })
                 .ToList(),
-            audiobook.SplitTitleOnColon
+            audiobook.SplitTitleOnColon,
+            audiobook.MainAuthorName
         );
     }
 

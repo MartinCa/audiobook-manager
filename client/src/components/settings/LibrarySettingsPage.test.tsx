@@ -31,7 +31,7 @@ vi.mock("@/services/api", () => ({
   },
 }));
 
-import { settingsApi } from "@/services/api";
+import { metadataSearchApi, settingsApi } from "@/services/api";
 
 function renderPage(
   queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } }),
@@ -58,6 +58,8 @@ function makeSettings(overrides: Partial<LibrarySettings> = {}): LibrarySettings
     includeNarratorInPath: false,
     maxNarratorsInPath: 3,
     autoSplitTitleOnColon: false,
+    mainAuthorOnlyInPath: false,
+    searchInitialsHandlingBySource: {},
     ...overrides,
   };
 }
@@ -284,6 +286,8 @@ describe("LibrarySettingsPage", () => {
         includeNarratorInPath: false,
         maxNarratorsInPath: 3,
         autoSplitTitleOnColon: false,
+        mainAuthorOnlyInPath: false,
+        searchInitialsHandlingBySource: {},
       });
     });
   });
@@ -340,6 +344,8 @@ describe("LibrarySettingsPage", () => {
         includeNarratorInPath: false,
         maxNarratorsInPath: 3,
         autoSplitTitleOnColon: false,
+        mainAuthorOnlyInPath: false,
+        searchInitialsHandlingBySource: {},
       });
     });
     expect(notifications.success).toHaveBeenCalledWith("Library settings saved");
@@ -375,6 +381,8 @@ describe("LibrarySettingsPage", () => {
         includeNarratorInPath: false,
         maxNarratorsInPath: 3,
         autoSplitTitleOnColon: false,
+        mainAuthorOnlyInPath: false,
+        searchInitialsHandlingBySource: {},
       });
     });
     expect(notifications.success).toHaveBeenCalledWith("Library settings saved");
@@ -405,6 +413,8 @@ describe("LibrarySettingsPage", () => {
         includeNarratorInPath: false,
         maxNarratorsInPath: 3,
         autoSplitTitleOnColon: false,
+        mainAuthorOnlyInPath: false,
+        searchInitialsHandlingBySource: {},
       });
     });
   });
@@ -451,6 +461,161 @@ describe("LibrarySettingsPage", () => {
 
     await waitFor(() => {
       expect(notifications.error).toHaveBeenCalled();
+    });
+  });
+
+  describe("main author in the folder name", () => {
+    it("is off by default and reflects a stored on", async () => {
+      vi.mocked(settingsApi.getLibrarySettings).mockResolvedValue(makeSettings());
+      const { unmount } = renderPage();
+      expect(
+        await screen.findByRole("checkbox", { name: /only the main author in the folder name/i }),
+      ).not.toBeChecked();
+      unmount();
+
+      vi.mocked(settingsApi.getLibrarySettings).mockResolvedValue(
+        makeSettings({ mainAuthorOnlyInPath: true }),
+      );
+      renderPage();
+      expect(
+        await screen.findByRole("checkbox", { name: /only the main author in the folder name/i }),
+      ).toBeChecked();
+    });
+
+    it("sends the setting on save when it is ticked", async () => {
+      const user = userEvent.setup();
+      vi.mocked(settingsApi.getLibrarySettings).mockResolvedValue(makeSettings());
+      vi.mocked(settingsApi.updateLibrarySettings).mockResolvedValue(makeSettings());
+      renderPage();
+
+      await user.click(
+        await screen.findByRole("checkbox", { name: /only the main author in the folder name/i }),
+      );
+      await user.click(screen.getByRole("button", { name: /^Save$/ }));
+
+      await waitFor(() =>
+        expect(settingsApi.updateLibrarySettings).toHaveBeenCalledWith(
+          expect.objectContaining({ mainAuthorOnlyInPath: true }),
+        ),
+      );
+    });
+
+    it("sends a stored on back unchanged when something else is saved", async () => {
+      const user = userEvent.setup();
+      vi.mocked(settingsApi.getLibrarySettings).mockResolvedValue(
+        makeSettings({ mainAuthorOnlyInPath: true }),
+      );
+      vi.mocked(settingsApi.updateLibrarySettings).mockResolvedValue(makeSettings());
+      renderPage();
+
+      await user.click(
+        await screen.findByRole("checkbox", { name: /check for upcoming releases/i }),
+      );
+      await user.click(screen.getByRole("button", { name: /^Save$/ }));
+
+      await waitFor(() =>
+        expect(settingsApi.updateLibrarySettings).toHaveBeenCalledWith(
+          expect.objectContaining({ mainAuthorOnlyInPath: true }),
+        ),
+      );
+    });
+
+    it("warns that changing it moves books that have a main author and several authors", async () => {
+      vi.mocked(settingsApi.getLibrarySettings).mockResolvedValue(makeSettings());
+      renderPage();
+
+      expect(
+        await screen.findByText(
+          /changes the expected path of every book that has several authors/i,
+        ),
+      ).toBeInTheDocument();
+    });
+  });
+
+  describe("search initials handling per source", () => {
+    beforeEach(() => {
+      vi.mocked(metadataSearchApi.getServices).mockResolvedValue([
+        { name: "Audible", enabled: true },
+        { name: "Hardcover", enabled: true },
+      ]);
+    });
+
+    it("shows each source following the library default until it has an override", async () => {
+      vi.mocked(settingsApi.getLibrarySettings).mockResolvedValue(
+        makeSettings({ searchInitialsHandlingBySource: { Hardcover: "Compact" } }),
+      );
+      renderPage();
+
+      expect(
+        await screen.findByRole("combobox", { name: "Hardcover initials handling" }),
+      ).toHaveTextContent("Compact (George R.R. Martin)");
+      expect(screen.getByRole("combobox", { name: "Audible initials handling" })).toHaveTextContent(
+        "Library default",
+      );
+    });
+
+    it("sends the edited overrides with a save, keeping the stored ones it did not touch", async () => {
+      const user = userEvent.setup();
+      vi.mocked(settingsApi.getLibrarySettings).mockResolvedValue(
+        makeSettings({ searchInitialsHandlingBySource: { Audible: "Spaced" } }),
+      );
+      vi.mocked(settingsApi.updateLibrarySettings).mockResolvedValue(makeSettings());
+      renderPage();
+
+      await user.click(
+        await screen.findByRole("combobox", { name: "Hardcover initials handling" }),
+      );
+      await user.click(await screen.findByRole("option", { name: "Compact (George R.R. Martin)" }));
+      await user.click(screen.getByRole("button", { name: /^Save$/ }));
+
+      await waitFor(() =>
+        expect(settingsApi.updateLibrarySettings).toHaveBeenCalledWith(
+          expect.objectContaining({
+            searchInitialsHandlingBySource: { Audible: "Spaced", Hardcover: "Compact" },
+          }),
+        ),
+      );
+    });
+
+    it("sends the stored overrides back unchanged when only something else is edited", async () => {
+      const user = userEvent.setup();
+      vi.mocked(settingsApi.getLibrarySettings).mockResolvedValue(
+        makeSettings({ searchInitialsHandlingBySource: { Audible: "Spaced" } }),
+      );
+      vi.mocked(settingsApi.updateLibrarySettings).mockResolvedValue(makeSettings());
+      renderPage();
+
+      await user.click(
+        await screen.findByRole("checkbox", { name: /check for upcoming releases/i }),
+      );
+      await user.click(screen.getByRole("button", { name: /^Save$/ }));
+
+      await waitFor(() =>
+        expect(settingsApi.updateLibrarySettings).toHaveBeenCalledWith(
+          expect.objectContaining({ searchInitialsHandlingBySource: { Audible: "Spaced" } }),
+        ),
+      );
+    });
+
+    it("clears an override by sending the source out of the set, not as an empty value", async () => {
+      const user = userEvent.setup();
+      vi.mocked(settingsApi.getLibrarySettings).mockResolvedValue(
+        makeSettings({ searchInitialsHandlingBySource: { Hardcover: "Compact" } }),
+      );
+      vi.mocked(settingsApi.updateLibrarySettings).mockResolvedValue(makeSettings());
+      renderPage();
+
+      await user.click(
+        await screen.findByRole("combobox", { name: "Hardcover initials handling" }),
+      );
+      await user.click(await screen.findByRole("option", { name: /^Library default/ }));
+      await user.click(screen.getByRole("button", { name: /^Save$/ }));
+
+      await waitFor(() =>
+        expect(settingsApi.updateLibrarySettings).toHaveBeenCalledWith(
+          expect.objectContaining({ searchInitialsHandlingBySource: {} }),
+        ),
+      );
     });
   });
 });

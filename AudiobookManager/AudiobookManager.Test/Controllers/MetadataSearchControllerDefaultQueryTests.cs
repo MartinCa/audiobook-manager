@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using Moq;
 using AudiobookManager.Scraping;
+using AudiobookManager.Scraping.Models;
 
 namespace AudiobookManager.Test.Controllers;
 
@@ -18,14 +19,22 @@ namespace AudiobookManager.Test.Controllers;
 [TestClass]
 public class MetadataSearchControllerDefaultQueryTests
 {
-    private static MetadataSearchController CreateController(SearchInitialsHandling handling)
+    private static MetadataSearchController CreateController(SearchInitialsHandling handling) =>
+        CreateController(new LibrarySettings { SearchInitialsHandling = handling });
+
+    private static MetadataSearchController CreateController(LibrarySettings librarySettings)
     {
         var settings = new Mock<ISettingsService>();
-        settings.Setup(s => s.GetLibrarySettings())
-            .ReturnsAsync(new LibrarySettings { SearchInitialsHandling = handling });
+        settings.Setup(s => s.GetLibrarySettings()).ReturnsAsync(librarySettings);
+
+        var scraping = new Mock<IScrapingService>();
+        scraping.Setup(s => s.GetSearchServiceInfo()).ReturnsAsync(new List<MetadataSearchServiceInfo>
+        {
+            new("Audible", true), new("Hardcover", true),
+        });
 
         return new MetadataSearchController(
-            new Mock<IScrapingService>().Object,
+            scraping.Object,
             new Mock<IHttpClientFactory>().Object,
             settings.Object,
             new Mock<ILogger<MetadataSearchController>>().Object)
@@ -67,5 +76,59 @@ public class MetadataSearchControllerDefaultQueryTests
         var query = await QueryFor(SearchInitialsHandling.Compact, null!);
 
         Assert.AreEqual(string.Empty, query);
+    }
+
+    private static async Task<DefaultSearchQueryDto> Dto(LibrarySettings settings, DefaultSearchQueryRequestDto request)
+    {
+        var result = await CreateController(settings).GetDefaultQuery(request);
+        return Assert.IsInstanceOfType<DefaultSearchQueryDto>(Assert.IsInstanceOfType<OkObjectResult>(result.Result).Value);
+    }
+
+    [TestMethod]
+    public async Task GetDefaultQuery_MainAuthor_IsTheOnlyAuthorInTheQuery()
+    {
+        var dto = await Dto(
+            new LibrarySettings(),
+            new DefaultSearchQueryRequestDto(
+                new[] { "Brandon Sanderson", "Janci Patterson" }, "Steelheart", "f.m4b", MainAuthor: "Brandon Sanderson"));
+
+        Assert.AreEqual("Brandon Sanderson - Steelheart", dto.Query);
+        Assert.AreEqual("Brandon Sanderson - Steelheart", dto.QueriesBySource!["Audible"]);
+    }
+
+    [TestMethod]
+    public async Task GetDefaultQuery_NoMainAuthor_KeepsEveryAuthor()
+    {
+        var dto = await Dto(
+            new LibrarySettings(),
+            new DefaultSearchQueryRequestDto(new[] { "A One", "B Two" }, "Book", "f.m4b"));
+
+        Assert.AreEqual("A One, B Two - Book", dto.Query);
+    }
+
+    [TestMethod]
+    public async Task GetDefaultQuery_SourceWithItsOwnHandling_GetsItsOwnQuery()
+    {
+        var settings = new LibrarySettings { SearchInitialsHandling = SearchInitialsHandling.AsStored };
+        settings.SearchInitialsHandlingBySource["Hardcover"] = SearchInitialsHandling.Compact;
+
+        var dto = await Dto(
+            settings,
+            new DefaultSearchQueryRequestDto(new[] { "George R. R. Martin" }, "A Game of Thrones", "f.m4b"));
+
+        // The plain query follows the library-wide setting; each source follows its own rule.
+        Assert.AreEqual("George R. R. Martin - A Game of Thrones", dto.Query);
+        Assert.AreEqual("George R. R. Martin - A Game of Thrones", dto.QueriesBySource!["Audible"]);
+        Assert.AreEqual("George R.R. Martin - A Game of Thrones", dto.QueriesBySource["Hardcover"]);
+    }
+
+    [TestMethod]
+    public async Task GetDefaultQuery_SourceNamesGiven_OnlyThoseGetAQuery()
+    {
+        var dto = await Dto(
+            new LibrarySettings(),
+            new DefaultSearchQueryRequestDto(null, "Book", "f.m4b", SourceNames: new[] { "Audible" }));
+
+        CollectionAssert.AreEqual(new[] { "Audible" }, dto.QueriesBySource!.Keys.ToArray());
     }
 }

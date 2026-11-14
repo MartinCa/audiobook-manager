@@ -77,6 +77,29 @@ public class LibrarySettings
     public int NarratorsInPath => IncludeNarratorInPath ? MaxNarratorsInPath : 0;
 
     /// <summary>
+    /// Whether the author folder names only the book's main author (<see cref="Audiobook.MainAuthor"/>)
+    /// instead of every author. A book without a main author keeps its full author list. Off by
+    /// default: turning it on moves every book that has a main author and several authors, through
+    /// the consistency check's WrongFilePath resolve.
+    /// </summary>
+    public bool MainAuthorOnlyInPath { get; set; }
+
+    /// <summary>Everything the path code needs from the settings, as the one value it takes.</summary>
+    public LibraryPathOptions PathOptions => new(NarratorsInPath, MainAuthorOnlyInPath);
+
+    /// <summary>
+    /// Per-source overrides of <see cref="SearchInitialsHandling"/> for the default and automated
+    /// search query, keyed by source name (case-insensitive). A source without an entry follows
+    /// <see cref="SearchInitialsHandling"/>; use <see cref="SearchInitialsHandlingFor"/> to resolve.
+    /// </summary>
+    public Dictionary<string, SearchInitialsHandling> SearchInitialsHandlingBySource { get; set; } =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The initials handling for the search query sent to <paramref name="sourceName"/>.</summary>
+    public SearchInitialsHandling SearchInitialsHandlingFor(string sourceName) =>
+        MetadataSourceSearchSettings.Resolve(SearchInitialsHandlingBySource, sourceName, SearchInitialsHandling);
+
+    /// <summary>
     /// Per-field rules for applying online metadata, keyed by <c>MetadataRefreshFields</c> name. A
     /// field missing from the map uses the default rule (select it, ask me), which reproduces the
     /// behaviour from before these rules existed; <c>MetadataApplyRuleSet</c> resolves the map.

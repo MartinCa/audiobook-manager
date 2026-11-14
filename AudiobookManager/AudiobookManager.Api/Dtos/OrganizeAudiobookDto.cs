@@ -30,6 +30,15 @@ public class OrganizeAudiobookDto
     public List<string> Qualifiers { get; set; } = new();
     [Required] public int? Year { get; set; }
     [Required] public List<string> Authors { get; set; } = null!;
+
+    /// <summary>
+    /// The one author that stands for the book, or null for none (optional - not every book has a
+    /// single main author). Must be one of <c>Authors</c>; a name that is not is ignored. This is the
+    /// whole state, not a patch: omitting it on a save clears the book's main author. Database-only
+    /// (no tag), but it drives the default search query and, with the library setting on, the
+    /// author folder - so the path preview endpoints read it too.
+    /// </summary>
+    public string? MainAuthor { get; set; }
     public List<string> Narrators { get; set; } = new();
     public List<string> Genres { get; set; } = new();
     public string? Description { get; set; }

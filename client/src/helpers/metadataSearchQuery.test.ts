@@ -45,4 +45,27 @@ describe("buildDefaultMetadataSearchQuery", () => {
   it("returns an empty string when nothing is available", () => {
     expect(buildDefaultMetadataSearchQuery([], "", undefined)).toBe("");
   });
+
+  it("uses the main author alone in place of every author", () => {
+    expect(
+      buildDefaultMetadataSearchQuery(
+        ["Brandon Sanderson", "Janci Patterson"],
+        "Steelheart",
+        "file.m4b",
+        "Brandon Sanderson",
+      ),
+    ).toBe("Brandon Sanderson - Steelheart");
+  });
+
+  it.each([undefined, "", "   "])("keeps every author when the main author is %j", (main) => {
+    expect(buildDefaultMetadataSearchQuery(["A One", "B Two"], "Book", "file.m4b", main)).toBe(
+      "A One, B Two - Book",
+    );
+  });
+
+  it("falls back to the file name when there is a main author but no book name", () => {
+    expect(buildDefaultMetadataSearchQuery(["A One", "B Two"], "", "file.m4b", "A One")).toBe(
+      "file.m4b",
+    );
+  });
 });

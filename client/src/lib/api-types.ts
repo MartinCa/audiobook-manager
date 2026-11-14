@@ -5883,6 +5883,7 @@ export interface components {
             /** Format: int64 */
             id?: number | null;
             authors?: components["schemas"]["Person"][] | null;
+            mainAuthor?: string | null;
             narrators?: components["schemas"]["Person"][] | null;
             bookName?: string | null;
             subtitle?: string | null;
@@ -5947,6 +5948,7 @@ export interface components {
             qualifiers?: string[] | null;
             additionalSeries?: components["schemas"]["SeriesRelationDto"][] | null;
             splitTitleOnColon?: boolean;
+            mainAuthor?: string | null;
         };
         AudiobookFileInfo: {
             fullPath?: string | null;
@@ -6283,11 +6285,16 @@ export interface components {
         };
         DefaultSearchQueryDto: {
             query?: string | null;
+            queriesBySource?: {
+                [key: string]: string;
+            } | null;
         };
         DefaultSearchQueryRequestDto: {
             authors?: string[] | null;
             bookName?: string | null;
             fileName?: string | null;
+            mainAuthor?: string | null;
+            sourceNames?: string[] | null;
         };
         DiscoveredAudiobookDto: {
             fullPath?: string | null;
@@ -6458,6 +6465,10 @@ export interface components {
             /** Format: int32 */
             maxNarratorsInPath?: number;
             autoSplitTitleOnColon?: boolean;
+            mainAuthorOnlyInPath?: boolean;
+            searchInitialsHandlingBySource?: {
+                [key: string]: string;
+            } | null;
         };
         MatchAuthorDto: {
             sourceId?: string | null;
@@ -6497,6 +6508,9 @@ export interface components {
         MetadataMultiSearchDto: {
             sources?: string[] | null;
             q?: string | null;
+            queriesBySource?: {
+                [key: string]: string;
+            } | null;
         };
         MetadataMultiSourceSearchResult: {
             results?: components["schemas"]["MetadataSearchResult"][] | null;
@@ -6599,6 +6613,7 @@ export interface components {
             /** Format: int32 */
             year: number;
             authors: string[];
+            mainAuthor?: string | null;
             narrators?: string[] | null;
             genres?: string[] | null;
             description?: string | null;
@@ -7056,6 +7071,10 @@ export interface components {
             /** Format: int32 */
             maxNarratorsInPath?: number | null;
             autoSplitTitleOnColon?: boolean | null;
+            mainAuthorOnlyInPath?: boolean | null;
+            searchInitialsHandlingBySource?: {
+                [key: string]: string;
+            } | null;
         };
         UpdateMetadataApplyRulesDto: {
             rules?: components["schemas"]["MetadataApplyRuleInputDto"][] | null;

@@ -6,6 +6,26 @@ public class Audiobook
 {
     public long? Id { get; set; }
     public List<Person> Authors { get; set; }
+
+    /// <summary>
+    /// The name of the one author that stands for the book, or null when it has no single main
+    /// author (optional: anthologies and co-authored books often have none). It is always one of
+    /// <see cref="Authors"/> (matched by exact name); a value that is not is ignored and dropped on
+    /// save. Used alone by the default and automated search query, and - when the library setting
+    /// is on - alone in the author folder of the path. Database-only (no m4b tag): carried through
+    /// every FromDb -> UpdateAudiobook round trip like <see cref="Qualifiers"/>.
+    /// </summary>
+    public string? MainAuthor { get; set; }
+
+    /// <summary>
+    /// <see cref="MainAuthor"/> if it names one of <see cref="Authors"/>, otherwise null. Everything
+    /// that acts on the main author reads this, never the raw property, so a stale name (the author
+    /// was removed or renamed) can never reach a path or a query.
+    /// </summary>
+    [JsonIgnore]
+    public string? EffectiveMainAuthor =>
+        string.IsNullOrWhiteSpace(MainAuthor) ? null
+        : Authors?.FirstOrDefault(a => string.Equals(a.Name, MainAuthor, StringComparison.Ordinal))?.Name;
     public List<Person> Narrators { get; set; }
     public string? BookName { get; set; }
     public string? Subtitle { get; set; }

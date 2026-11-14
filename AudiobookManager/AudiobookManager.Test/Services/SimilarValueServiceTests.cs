@@ -1290,4 +1290,53 @@ public class SimilarValueServiceTests
 
         Assert.IsNull(await _service.ValidateSeriesRenameAsync("Old", "New"));
     }
+
+    // The main author is database-only and found by name, so an alignment that renames an author has
+    // to carry it: AudiobookService clears a main author that is not among the authors, and with the
+    // main-author-only path setting on that would also move the book to another folder.
+    [TestMethod]
+    public async Task AlignAuthorsAsync_RenamingTheMainAuthor_CarriesTheMainAuthorToTheTargetName()
+    {
+        var book = MakeDbAudiobook(1, "Book One");
+        book.Authors = new List<DbPerson> { new(1, "JK Rowling"), new(2, "Co Author") };
+        book.MainAuthorId = 1;
+        _audiobookRepository.Setup(r => r.GetBooksByAuthorNamesAsync(It.IsAny<IEnumerable<string>>()))
+            .ReturnsAsync(new List<DbAudiobook> { book });
+        Audiobook? saved = null;
+        _audiobookService.Setup(s => s.UpdateAudiobook(1, It.IsAny<Audiobook>()))
+            .ReturnsAsync((long id, Audiobook a, Func<string, int, Task>? progressAction) =>
+            {
+                saved = a;
+                return a;
+            });
+
+        await _service.AlignAuthorsAsync(
+            new List<string> { "J.K. Rowling", "JK Rowling" }, "J.K. Rowling", (_, _, _, _) => Task.CompletedTask);
+
+        Assert.IsNotNull(saved);
+        Assert.AreEqual("J.K. Rowling", saved.MainAuthor);
+        CollectionAssert.AreEqual(new[] { "J.K. Rowling", "Co Author" }, saved.Authors.Select(a => a.Name).ToArray());
+    }
+
+    [TestMethod]
+    public async Task AlignAuthorsAsync_MainAuthorIsAnotherAuthor_StaysAsItWas()
+    {
+        var book = MakeDbAudiobook(1, "Book One");
+        book.Authors = new List<DbPerson> { new(1, "JK Rowling"), new(2, "Co Author") };
+        book.MainAuthorId = 2;
+        _audiobookRepository.Setup(r => r.GetBooksByAuthorNamesAsync(It.IsAny<IEnumerable<string>>()))
+            .ReturnsAsync(new List<DbAudiobook> { book });
+        Audiobook? saved = null;
+        _audiobookService.Setup(s => s.UpdateAudiobook(1, It.IsAny<Audiobook>()))
+            .ReturnsAsync((long id, Audiobook a, Func<string, int, Task>? progressAction) =>
+            {
+                saved = a;
+                return a;
+            });
+
+        await _service.AlignAuthorsAsync(
+            new List<string> { "J.K. Rowling", "JK Rowling" }, "J.K. Rowling", (_, _, _, _) => Task.CompletedTask);
+
+        Assert.AreEqual("Co Author", saved!.MainAuthor);
+    }
 }

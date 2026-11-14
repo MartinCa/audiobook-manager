@@ -210,7 +210,7 @@ public class AudiobookServiceTests
             2024,
             new AudiobookFileInfo("/import/test.m4b", "test.m4b", 1000));
 
-        var result = _service.GenerateLibraryPath(audiobook, 0);
+        var result = _service.GenerateLibraryPath(audiobook, AudiobookManager.Domain.LibraryPathOptions.None);
 
         Assert.IsTrue(result.StartsWith("/library"));
         Assert.IsTrue(result.Contains("John Smith"));
@@ -231,7 +231,7 @@ public class AudiobookServiceTests
             Series = ".."
         };
 
-        var result = _service.GenerateLibraryPath(audiobook, 0);
+        var result = _service.GenerateLibraryPath(audiobook, AudiobookManager.Domain.LibraryPathOptions.None);
 
         Assert.IsTrue(
             AudiobookFileHandler.PathStartsWith(result, "/library"),
@@ -391,7 +391,7 @@ public class AudiobookServiceTests
         // updated metadata will generate a path for - i.e. only non-path fields change.
         var author = new Person("Same Author");
         var probe = new Audiobook(new List<Person> { author }, "Same Book", 2020, new AudiobookFileInfo("/unused/unused.m4b", "unused.m4b", 0));
-        var expectedPath = _service.GenerateLibraryPath(probe, 0);
+        var expectedPath = _service.GenerateLibraryPath(probe, AudiobookManager.Domain.LibraryPathOptions.None);
 
         var existing = CreateExistingDbAudiobook(1, expectedPath);
         existing.BookName = "Same Book";
@@ -449,7 +449,7 @@ public class AudiobookServiceTests
 
         var author = new Person("Same Author");
         var probe = new Audiobook(new List<Person> { author }, "Same Book", 2020, new AudiobookFileInfo("/unused/unused.m4b", "unused.m4b", 0));
-        var expectedPath = _service.GenerateLibraryPath(probe, 0);
+        var expectedPath = _service.GenerateLibraryPath(probe, AudiobookManager.Domain.LibraryPathOptions.None);
 
         var existing = CreateExistingDbAudiobook(1, expectedPath);
         existing.BookName = "Same Book";
@@ -509,7 +509,7 @@ public class AudiobookServiceTests
             Narrators = new List<Person> { new Person("New Narrator") }
         };
 
-        var expectedNewPath = _service.GenerateLibraryPath(new Audiobook(new List<Person> { newAuthor }, "New Book Name", 2024, new AudiobookFileInfo("/unused/unused.m4b", "unused.m4b", 0)), 0);
+        var expectedNewPath = _service.GenerateLibraryPath(new Audiobook(new List<Person> { newAuthor }, "New Book Name", 2024, new AudiobookFileInfo("/unused/unused.m4b", "unused.m4b", 0)), AudiobookManager.Domain.LibraryPathOptions.None);
 
         _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>()))
             .Returns((FileInfo fi, bool _) => new Audiobook(new List<Person> { newAuthor }, "New Book Name", 2024, new AudiobookFileInfo(fi.FullName, fi.Name, 1000))
@@ -570,7 +570,7 @@ public class AudiobookServiceTests
             });
 
         var expectedNewPath = _service.GenerateLibraryPath(
-            new Audiobook(new List<Person> { author }, "New Name", 2020, new AudiobookFileInfo("/unused/unused.m4b", "unused.m4b", 0)), 0);
+            new Audiobook(new List<Person> { author }, "New Name", 2020, new AudiobookFileInfo("/unused/unused.m4b", "unused.m4b", 0)), AudiobookManager.Domain.LibraryPathOptions.None);
         var newDirectory = Path.GetDirectoryName(expectedNewPath)!;
         Directory.CreateDirectory(newDirectory);
 
@@ -609,7 +609,7 @@ public class AudiobookServiceTests
             .Returns((FileInfo fi, bool _) => new Audiobook(new List<Person> { author }, "New Name", 2020, new AudiobookFileInfo(fi.FullName, fi.Name, 1000)));
 
         var expectedNewPath = _service.GenerateLibraryPath(
-            new Audiobook(new List<Person> { author }, "New Name", 2020, new AudiobookFileInfo("/unused/unused.m4b", "unused.m4b", 0)), 0);
+            new Audiobook(new List<Person> { author }, "New Name", 2020, new AudiobookFileInfo("/unused/unused.m4b", "unused.m4b", 0)), AudiobookManager.Domain.LibraryPathOptions.None);
         var newDirectory = Path.GetDirectoryName(expectedNewPath)!;
 
         var result = await _service.UpdateAudiobook(1, updateDto);
@@ -632,7 +632,7 @@ public class AudiobookServiceTests
         // The book stays where it is, so nothing but the sidecar rules can explain the deletions.
         var author = new Person("Same Author");
         var probe = new Audiobook(new List<Person> { author }, "A Book", 2020, new AudiobookFileInfo("/unused/unused.m4b", "unused.m4b", 0));
-        var expectedPath = _service.GenerateLibraryPath(probe, 0);
+        var expectedPath = _service.GenerateLibraryPath(probe, AudiobookManager.Domain.LibraryPathOptions.None);
         var bookDirectory = Path.GetDirectoryName(expectedPath)!;
         Directory.CreateDirectory(bookDirectory);
         File.WriteAllText(expectedPath, "fake audio");
@@ -1093,7 +1093,7 @@ public class AudiobookServiceTests
             Narrators = new List<Person> { new Person("New Narrator") }
         };
 
-        var expectedPath = _service.GenerateLibraryPath(audiobook, 0);
+        var expectedPath = _service.GenerateLibraryPath(audiobook, AudiobookManager.Domain.LibraryPathOptions.None);
 
         _tagHandler.Setup(t => t.SaveAudiobookTagsToFile(It.IsAny<Audiobook>(), It.IsAny<Action<float>?>()));
         _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>()))
@@ -1244,7 +1244,7 @@ public class AudiobookServiceTests
         Assert.IsNull(result.ExistingAudiobookId);
         Assert.IsNull(result.ExistingSizeInBytes);
         Assert.IsNull(result.ExistingDurationInSeconds);
-        Assert.AreEqual(_service.GenerateLibraryPath(book, 0), result.TargetPath);
+        Assert.AreEqual(_service.GenerateLibraryPath(book, AudiobookManager.Domain.LibraryPathOptions.None), result.TargetPath);
     }
 
     [TestMethod]
@@ -1252,7 +1252,7 @@ public class AudiobookServiceTests
     {
         SetupUpdateAudiobookTest();
         var book = MakeAudiobookForCollisionCheck();
-        var targetPath = _service.GenerateLibraryPath(book, 0);
+        var targetPath = _service.GenerateLibraryPath(book, AudiobookManager.Domain.LibraryPathOptions.None);
         Directory.CreateDirectory(Path.GetDirectoryName(targetPath)!);
         await File.WriteAllTextAsync(targetPath, "existing audio");
 
@@ -1277,7 +1277,7 @@ public class AudiobookServiceTests
     {
         SetupUpdateAudiobookTest();
         var book = MakeAudiobookForCollisionCheck();
-        var targetPath = _service.GenerateLibraryPath(book, 0);
+        var targetPath = _service.GenerateLibraryPath(book, AudiobookManager.Domain.LibraryPathOptions.None);
         Directory.CreateDirectory(Path.GetDirectoryName(targetPath)!);
         var content = "orphaned file contents";
         await File.WriteAllTextAsync(targetPath, content);
@@ -1303,7 +1303,7 @@ public class AudiobookServiceTests
         try
         {
             var book = MakeAudiobookForCollisionCheck();
-            var targetPath = _service.GenerateLibraryPath(book, 0);
+            var targetPath = _service.GenerateLibraryPath(book, AudiobookManager.Domain.LibraryPathOptions.None);
             Directory.CreateDirectory(Path.GetDirectoryName(targetPath)!);
             await File.WriteAllTextAsync(targetPath, "existing target");
 
@@ -1336,7 +1336,7 @@ public class AudiobookServiceTests
             await File.WriteAllTextAsync(sourcePath, "new source content");
 
             var book = MakeAudiobookForCollisionCheck(sourcePath: sourcePath);
-            var targetPath = _service.GenerateLibraryPath(book, 0);
+            var targetPath = _service.GenerateLibraryPath(book, AudiobookManager.Domain.LibraryPathOptions.None);
             Directory.CreateDirectory(Path.GetDirectoryName(targetPath)!);
             await File.WriteAllTextAsync(targetPath, "existing target");
 
@@ -1568,7 +1568,7 @@ public class AudiobookServiceTests
 
         var author = new Person("Same Author");
         var probe = new Audiobook(new List<Person> { author }, "Same Book", 2020, new AudiobookFileInfo("/unused/unused.m4b", "unused.m4b", 0));
-        var expectedPath = _service.GenerateLibraryPath(probe, 0);
+        var expectedPath = _service.GenerateLibraryPath(probe, AudiobookManager.Domain.LibraryPathOptions.None);
 
         var existing = CreateExistingDbAudiobook(1, expectedPath);
         existing.BookName = "Same Book";
@@ -1599,7 +1599,7 @@ public class AudiobookServiceTests
 
         var author = new Person("Same Author");
         var probe = new Audiobook(new List<Person> { author }, "Same Book", 2020, new AudiobookFileInfo("/unused/unused.m4b", "unused.m4b", 0));
-        var expectedPath = _service.GenerateLibraryPath(probe, 0);
+        var expectedPath = _service.GenerateLibraryPath(probe, AudiobookManager.Domain.LibraryPathOptions.None);
 
         var existing = CreateExistingDbAudiobook(1, expectedPath);
         existing.BookName = "Same Book";
@@ -1627,7 +1627,7 @@ public class AudiobookServiceTests
 
         var author = new Person("Same Author");
         var probe = new Audiobook(new List<Person> { author }, "Same Book", 2020, new AudiobookFileInfo("/unused/unused.m4b", "unused.m4b", 0));
-        var expectedPath = _service.GenerateLibraryPath(probe, 0);
+        var expectedPath = _service.GenerateLibraryPath(probe, AudiobookManager.Domain.LibraryPathOptions.None);
 
         var existing = CreateExistingDbAudiobook(1, expectedPath);
         existing.BookName = "Same Book";
@@ -1655,7 +1655,7 @@ public class AudiobookServiceTests
 
         var author = new Person("Same Author");
         var probe = new Audiobook(new List<Person> { author }, "Same Book", 2020, new AudiobookFileInfo("/unused/unused.m4b", "unused.m4b", 0));
-        var expectedPath = _service.GenerateLibraryPath(probe, 0);
+        var expectedPath = _service.GenerateLibraryPath(probe, AudiobookManager.Domain.LibraryPathOptions.None);
 
         var existing = CreateExistingDbAudiobook(1, expectedPath);
         existing.BookName = "Same Book";
@@ -1688,6 +1688,209 @@ public class AudiobookServiceTests
         var domain = AudiobookService.FromDb(db);
 
         Assert.AreEqual(when, domain.LastMetadataRefreshedAt);
+    }
+
+    #endregion
+
+    #region Main author
+
+    private void UseLibrarySettings(AudiobookManager.Domain.LibrarySettings settings)
+    {
+        _service = new AudiobookService(
+            _tagHandler.Object,
+            _fileHandler,
+            _fileOperations,
+            _settings,
+            _audiobookRepository.Object,
+            _personRepository.Object,
+            _genreRepository.Object,
+            _issueRepository.Object,
+            _pendingOnlineMatchRepository.Object,
+            _reconciliationCache,
+            Mock.Of<AudiobookManager.Services.ISettingsService>(s => s.GetLibrarySettings() == Task.FromResult(settings)),
+            _logger.Object);
+    }
+
+    private static Dictionary<string, DbPerson> DistinctPersons(IEnumerable<string> names) =>
+        names.Distinct().Select((n, i) => new DbPerson(i + 1, n)).ToDictionary(p => p.Name);
+
+    [TestMethod]
+    public async Task InsertAudiobook_MainAuthor_IsStoredAsThePersonRowAndReadBackByName()
+    {
+        _personRepository.Setup(r => r.GetOrCreatePersons(It.IsAny<IEnumerable<string>>()))
+            .ReturnsAsync((IEnumerable<string> names) => DistinctPersons(names));
+        _genreRepository.Setup(r => r.GetOrCreateGenres(It.IsAny<IEnumerable<string>>()))
+            .ReturnsAsync(new Dictionary<string, DbGenre>());
+        _audiobookRepository.Setup(r => r.InsertAudiobook(It.IsAny<DbAudiobook>()))
+            .ReturnsAsync((DbAudiobook db) => { db.Id = 1; return db; });
+
+        var audiobook = new Audiobook(
+            new List<Person> { new("First Author"), new("Second Author") }, "Book", 2024,
+            new AudiobookFileInfo("/path/test.m4b", "test.m4b", 1000))
+        { MainAuthor = "Second Author" };
+
+        var result = await _service.InsertAudiobook(audiobook);
+
+        _audiobookRepository.Verify(r => r.InsertAudiobook(It.Is<DbAudiobook>(db => db.MainAuthorId == 2)), Times.Once);
+        Assert.AreEqual("Second Author", result.MainAuthor);
+    }
+
+    [TestMethod]
+    public async Task InsertAudiobook_MainAuthorNotAmongTheAuthors_IsNotStored()
+    {
+        _personRepository.Setup(r => r.GetOrCreatePersons(It.IsAny<IEnumerable<string>>()))
+            .ReturnsAsync((IEnumerable<string> names) => DistinctPersons(names));
+        _genreRepository.Setup(r => r.GetOrCreateGenres(It.IsAny<IEnumerable<string>>()))
+            .ReturnsAsync(new Dictionary<string, DbGenre>());
+        _audiobookRepository.Setup(r => r.InsertAudiobook(It.IsAny<DbAudiobook>()))
+            .ReturnsAsync((DbAudiobook db) => { db.Id = 1; return db; });
+
+        var audiobook = new Audiobook(
+            new List<Person> { new("First Author") }, "Book", 2024,
+            new AudiobookFileInfo("/path/test.m4b", "test.m4b", 1000))
+        { MainAuthor = "Someone Else" };
+
+        var result = await _service.InsertAudiobook(audiobook);
+
+        _audiobookRepository.Verify(r => r.InsertAudiobook(It.Is<DbAudiobook>(db => db.MainAuthorId == null)), Times.Once);
+        Assert.IsNull(result.MainAuthor);
+    }
+
+    [TestMethod]
+    public void FromDb_CarriesTheMainAuthorSoAnyRewriteFromTheDatabaseKeepsIt()
+    {
+        var db = new DbAudiobook(
+            1, "Book", null, null, null, 2020,
+            null, null, null, null, null, null, null, null, null,
+            "/library/Book/book.m4b", "book.m4b", 1000)
+        {
+            Authors = new List<DbPerson> { new(10, "Co Author"), new(11, "Main Author") },
+            MainAuthorId = 11,
+        };
+
+        var domain = AudiobookService.FromDb(db);
+
+        Assert.AreEqual("Main Author", domain.MainAuthor);
+    }
+
+    [TestMethod]
+    public void FromDb_NoMainAuthor_IsNull()
+    {
+        var db = new DbAudiobook(
+            1, "Book", null, null, null, 2020,
+            null, null, null, null, null, null, null, null, null,
+            "/library/Book/book.m4b", "book.m4b", 1000)
+        {
+            Authors = new List<DbPerson> { new(10, "Co Author"), new(11, "Main Author") },
+        };
+
+        Assert.IsNull(AudiobookService.FromDb(db).MainAuthor);
+    }
+
+    [TestMethod]
+    public async Task UpdateAudiobook_MainAuthor_IsStoredAndClearedWithTheRestOfTheSave()
+    {
+        SetupUpdateAudiobookTest();
+        var oldFilePath = Path.Combine(_libraryPath, "Old Author", "2020 - Old Book Name", "book.m4b");
+        var existing = CreateExistingDbAudiobook(1, oldFilePath);
+        SetupCommonRepositoryMocks(1, existing);
+        _personRepository.Setup(r => r.GetOrCreatePersons(It.IsAny<IEnumerable<string>>()))
+            .ReturnsAsync((IEnumerable<string> names) => DistinctPersons(names));
+        _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>()))
+            .Returns((FileInfo fi, bool _) => new Audiobook(
+                new List<Person> { new("A One"), new("B Two") }, "New", 2024, new AudiobookFileInfo(fi.FullName, fi.Name, 1000)));
+
+        Audiobook Edit(string? main) => new(
+            new List<Person> { new("A One"), new("B Two") }, "New", 2024, new AudiobookFileInfo("/unused/u.m4b", "u.m4b", 0))
+        { MainAuthor = main };
+
+        var withMain = await _service.UpdateAudiobook(1, Edit("B Two"));
+        Assert.AreEqual(2, existing.MainAuthorId);
+        Assert.AreEqual("B Two", withMain.MainAuthor);
+
+        // The edit form always sends the whole state, so a save without one clears it.
+        var cleared = await _service.UpdateAudiobook(1, Edit(null));
+        Assert.IsNull(existing.MainAuthorId);
+        Assert.IsNull(cleared.MainAuthor);
+    }
+
+    [TestMethod]
+    public async Task UpdateAudiobook_MainAuthorRemovedFromTheAuthors_IsDroppedRatherThanKeptStale()
+    {
+        SetupUpdateAudiobookTest();
+        var oldFilePath = Path.Combine(_libraryPath, "Old Author", "2020 - Old Book Name", "book.m4b");
+        var existing = CreateExistingDbAudiobook(1, oldFilePath);
+        existing.MainAuthorId = 1;
+        SetupCommonRepositoryMocks(1, existing);
+        _personRepository.Setup(r => r.GetOrCreatePersons(It.IsAny<IEnumerable<string>>()))
+            .ReturnsAsync((IEnumerable<string> names) => DistinctPersons(names));
+        _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>()))
+            .Returns((FileInfo fi, bool _) => new Audiobook(
+                new List<Person> { new("New Author") }, "New", 2024, new AudiobookFileInfo(fi.FullName, fi.Name, 1000)));
+
+        await _service.UpdateAudiobook(1, new Audiobook(
+            new List<Person> { new("New Author") }, "New", 2024, new AudiobookFileInfo("/unused/u.m4b", "u.m4b", 0))
+        { MainAuthor = "Old Author" });
+
+        Assert.IsNull(existing.MainAuthorId);
+    }
+
+    [TestMethod]
+    public async Task UpdateAudiobook_MainAuthorOnlySettingOn_FilesTheBookUnderTheMainAuthorAlone()
+    {
+        SetupUpdateAudiobookTest();
+        UseLibrarySettings(new AudiobookManager.Domain.LibrarySettings { MainAuthorOnlyInPath = true });
+        var oldFilePath = Path.Combine(_libraryPath, "Old Author", "2020 - Old Book Name", "book.m4b");
+        var existing = CreateExistingDbAudiobook(1, oldFilePath);
+        SetupCommonRepositoryMocks(1, existing);
+        _personRepository.Setup(r => r.GetOrCreatePersons(It.IsAny<IEnumerable<string>>()))
+            .ReturnsAsync((IEnumerable<string> names) => DistinctPersons(names));
+        _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>()))
+            .Returns((FileInfo fi, bool _) => new Audiobook(
+                new List<Person> { new("A One"), new("B Two") }, "Title", 2024, new AudiobookFileInfo(fi.FullName, fi.Name, 1000)));
+
+        var result = await _service.UpdateAudiobook(1, new Audiobook(
+            new List<Person> { new("A One"), new("B Two") }, "Title", 2024, new AudiobookFileInfo("/unused/u.m4b", "u.m4b", 0))
+        { MainAuthor = "A One" });
+
+        var relative = Path.GetRelativePath(_libraryPath, result.FileInfo.FullPath);
+        Assert.AreEqual("A One", relative.Split(Path.DirectorySeparatorChar)[0]);
+        Assert.IsTrue(File.Exists(result.FileInfo.FullPath));
+    }
+
+    [TestMethod]
+    public async Task UpdateAudiobook_MainAuthorOnlySettingOff_StillFilesTheBookUnderEveryAuthor()
+    {
+        SetupUpdateAudiobookTest();
+        var oldFilePath = Path.Combine(_libraryPath, "Old Author", "2020 - Old Book Name", "book.m4b");
+        var existing = CreateExistingDbAudiobook(1, oldFilePath);
+        SetupCommonRepositoryMocks(1, existing);
+        _personRepository.Setup(r => r.GetOrCreatePersons(It.IsAny<IEnumerable<string>>()))
+            .ReturnsAsync((IEnumerable<string> names) => DistinctPersons(names));
+        _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>()))
+            .Returns((FileInfo fi, bool _) => new Audiobook(
+                new List<Person> { new("A One"), new("B Two") }, "Title", 2024, new AudiobookFileInfo(fi.FullName, fi.Name, 1000)));
+
+        var result = await _service.UpdateAudiobook(1, new Audiobook(
+            new List<Person> { new("A One"), new("B Two") }, "Title", 2024, new AudiobookFileInfo("/unused/u.m4b", "u.m4b", 0))
+        { MainAuthor = "A One" });
+
+        var relative = Path.GetRelativePath(_libraryPath, result.FileInfo.FullPath);
+        Assert.AreEqual("A One, B Two", relative.Split(Path.DirectorySeparatorChar)[0]);
+    }
+
+    [TestMethod]
+    public async Task GenerateLibraryPathAsync_ReadsTheMainAuthorOnlySetting()
+    {
+        UseLibrarySettings(new AudiobookManager.Domain.LibrarySettings { MainAuthorOnlyInPath = true });
+        var book = new Audiobook(
+            new List<Person> { new("A One"), new("B Two") }, "Title", 2024, new AudiobookFileInfo("/unused/u.m4b", "u.m4b", 0))
+        { MainAuthor = "B Two" };
+
+        var path = await _service.GenerateLibraryPathAsync(book);
+
+        StringAssert.Contains(path, $"{Path.DirectorySeparatorChar}B Two{Path.DirectorySeparatorChar}2024 - Title");
+        Assert.IsFalse(path.Contains("A One"), path);
     }
 
     #endregion

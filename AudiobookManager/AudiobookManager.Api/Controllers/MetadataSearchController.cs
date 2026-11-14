@@ -28,16 +28,25 @@ public class MetadataSearchController : ControllerBase
 
     /// <summary>
     /// The query the manual search dialog is seeded with. Built by the same
-    /// <see cref="MetadataSearchQueryBuilder"/> the bulk search uses, with the library's
-    /// search-initials handling applied, so the client holds no copy of the rules. (POST, so it
-    /// cannot collide with the <c>GET {sourceName}</c> route.)
+    /// <see cref="MetadataSearchQueryBuilder"/> the bulk search uses, so the client holds no copy
+    /// of the rules: the main author alone when the book has one, and author initials written per
+    /// source (a source's own setting, else the library-wide one). <c>query</c> is the library-wide
+    /// form; <c>queriesBySource</c> the one for each source. (POST, so it cannot collide with the
+    /// <c>GET {sourceName}</c> route.)
     /// </summary>
     [HttpPost("default-query")]
     public async Task<ActionResult<DefaultSearchQueryDto>> GetDefaultQuery([FromBody] DefaultSearchQueryRequestDto dto)
     {
         var settings = await _settingsService.GetLibrarySettings();
-        return Ok(new DefaultSearchQueryDto(MetadataSearchQueryBuilder.Build(
-            dto?.Authors, dto?.BookName, dto?.FileName, settings.SearchInitialsHandling)));
+        var sourceNames = dto?.SourceNames is { Count: > 0 }
+            ? dto.SourceNames
+            : (await _scrapingService.GetSearchServiceInfo()).Select(s => s.Name).ToList();
+
+        return Ok(new DefaultSearchQueryDto(
+            MetadataSearchQueryBuilder.Build(
+                dto?.Authors, dto?.BookName, dto?.FileName, settings.SearchInitialsHandling, dto?.MainAuthor),
+            MetadataSearchQueryBuilder.BuildPerSource(
+                sourceNames, dto?.Authors, dto?.BookName, dto?.FileName, settings, dto?.MainAuthor)));
     }
 
     [HttpGet("{sourceName}")]
@@ -49,7 +58,22 @@ public class MetadataSearchController : ControllerBase
     [HttpPost("multi")]
     public async Task<MetadataMultiSourceSearchResult> SearchMultiple([FromBody] MetadataMultiSearchDto dto)
     {
-        return await _scrapingService.SearchMultiple(dto.Sources, dto.Q);
+        if (dto.QueriesBySource is not { Count: > 0 })
+        {
+            return await _scrapingService.SearchMultiple(dto.Sources, dto.Q);
+        }
+
+        // The box still held the default query, which is written per source: every chosen source
+        // gets its own (or the plain query where it has none).
+        var queries = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var source in dto.Sources)
+        {
+            queries.TryAdd(source, dto.QueriesBySource
+                .FirstOrDefault(e => string.Equals(e.Key, source, StringComparison.OrdinalIgnoreCase)).Value
+                ?? dto.Q);
+        }
+
+        return await _scrapingService.SearchMultiple(queries);
     }
 
     [HttpPost("details")]

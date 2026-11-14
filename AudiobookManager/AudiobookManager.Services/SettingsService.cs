@@ -24,6 +24,19 @@ public class SettingsService : ISettingsService
 
     public async Task<Domain.LibrarySettings> UpdateLibrarySettings(Domain.LibrarySettings settings)
     {
+        // The per-source overrides are validated and written first: a bad source name must fail the
+        // whole save before any other setting changes, and the row UpdateAsync returns must already
+        // carry them (the JSON is written set-based, bypassing the tracker).
+        var registered = _scrapers.Select(s => s.SourceName).ToList();
+        var bySource = MetadataSourceSearchSettings.Normalize(settings.SearchInitialsHandlingBySource)
+            .ToDictionary(
+                e => registered.FirstOrDefault(r => string.Equals(r, e.Key, StringComparison.OrdinalIgnoreCase))
+                    ?? throw new ArgumentException($"'{e.Key}' is not a known metadata source."),
+                e => e.Value,
+                StringComparer.OrdinalIgnoreCase);
+        MetadataSourceSearchSettings.Validate(bySource);
+        await _librarySettingsRepository.SetMetadataSourceSearchJsonAsync(MetadataSourceSearchSettings.Serialize(bySource));
+
         var dbSettings = await _librarySettingsRepository.UpdateAsync(
             settings.InitialsSpacing.ToDb(),
             settings.InitialsPunctuation.ToDb(),
@@ -34,7 +47,8 @@ public class SettingsService : ISettingsService
             settings.SearchInitialsHandling.ToDb(),
             settings.IncludeNarratorInPath,
             settings.MaxNarratorsInPath,
-            settings.AutoSplitTitleOnColon);
+            settings.AutoSplitTitleOnColon,
+            settings.MainAuthorOnlyInPath);
         return dbSettings.ToDomain();
     }
 

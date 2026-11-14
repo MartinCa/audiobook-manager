@@ -64,6 +64,85 @@ public class PendingOnlineMatchServiceTests
     }
 
     [TestMethod]
+    public async Task SearchSelectedAsync_BookWithAMainAuthor_SearchesWithTheMainAuthorAlone()
+    {
+        var book = Book(5, "Steelheart", "some-file.m4b", "Brandon Sanderson", "Janci Patterson");
+        // Book() gives every author id 0; the main author is found by id, so give them real ones.
+        book.Authors = new List<Person> { new(1, "Brandon Sanderson"), new(2, "Janci Patterson") };
+        book.MainAuthorId = 1;
+        _audiobookRepository.Setup(r => r.GetByIdsWithIncludesAsync(It.IsAny<IReadOnlyList<long>>()))
+            .ReturnsAsync(new List<Audiobook> { book });
+        _scrapingService.Setup(s => s.SearchMultiple(It.IsAny<IEnumerable<string>>(), It.IsAny<string>()))
+            .ReturnsAsync(new MetadataMultiSourceSearchResult());
+
+        await CreateService().SearchSelectedAsync(new List<long> { 5 }, new List<string> { "Audible" }, NoopProgress);
+
+        _scrapingService.Verify(s => s.SearchMultiple(
+            It.IsAny<IEnumerable<string>>(), "Brandon Sanderson - Steelheart"), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task SearchSelectedAsync_BookWithoutAMainAuthor_StillSearchesWithEveryAuthor()
+    {
+        var book = Book(6, "Steelheart", "some-file.m4b", "Brandon Sanderson", "Janci Patterson");
+        _audiobookRepository.Setup(r => r.GetByIdsWithIncludesAsync(It.IsAny<IReadOnlyList<long>>()))
+            .ReturnsAsync(new List<Audiobook> { book });
+        _scrapingService.Setup(s => s.SearchMultiple(It.IsAny<IEnumerable<string>>(), It.IsAny<string>()))
+            .ReturnsAsync(new MetadataMultiSourceSearchResult());
+
+        await CreateService().SearchSelectedAsync(new List<long> { 6 }, new List<string> { "Audible" }, NoopProgress);
+
+        _scrapingService.Verify(s => s.SearchMultiple(
+            It.IsAny<IEnumerable<string>>(), "Brandon Sanderson, Janci Patterson - Steelheart"), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task SearchSelectedAsync_SourcesWithDifferentInitialsHandling_EachSourceGetsItsOwnQuery()
+    {
+        var settings = new AudiobookManager.Domain.LibrarySettings();
+        settings.SearchInitialsHandlingBySource["Hardcover"] = AudiobookManager.Domain.SearchInitialsHandling.Compact;
+        settings.SearchInitialsHandlingBySource["Audible"] = AudiobookManager.Domain.SearchInitialsHandling.Spaced;
+        _settingsService.Setup(s => s.GetLibrarySettings()).ReturnsAsync(settings);
+        var book = Book(7, "A Game of Thrones", "some-file.m4b", "George R.R. Martin");
+        _audiobookRepository.Setup(r => r.GetByIdsWithIncludesAsync(It.IsAny<IReadOnlyList<long>>()))
+            .ReturnsAsync(new List<Audiobook> { book });
+        IReadOnlyDictionary<string, string>? sent = null;
+        _scrapingService.Setup(s => s.SearchMultiple(It.IsAny<IReadOnlyDictionary<string, string>>()))
+            .Callback<IReadOnlyDictionary<string, string>>(q => sent = q)
+            .ReturnsAsync(new MetadataMultiSourceSearchResult());
+
+        var result = await CreateService().SearchSelectedAsync(
+            new List<long> { 7 }, new List<string> { "Audible", "Hardcover" }, NoopProgress);
+
+        Assert.AreEqual(1, result.Succeeded);
+        Assert.IsNotNull(sent);
+        Assert.AreEqual("George R. R. Martin - A Game of Thrones", sent["Audible"]);
+        Assert.AreEqual("George R.R. Martin - A Game of Thrones", sent["Hardcover"]);
+        _scrapingService.Verify(s => s.SearchMultiple(It.IsAny<IEnumerable<string>>(), It.IsAny<string>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task SearchSelectedAsync_SourcesThatWouldSearchTheSame_UseOnePlainSearch()
+    {
+        var settings = new AudiobookManager.Domain.LibrarySettings();
+        // Hardcover has its own rule, but the book's name has no initials, so nothing differs.
+        settings.SearchInitialsHandlingBySource["Hardcover"] = AudiobookManager.Domain.SearchInitialsHandling.Compact;
+        _settingsService.Setup(s => s.GetLibrarySettings()).ReturnsAsync(settings);
+        var book = Book(8, "Some Book", "some-file.m4b", "Brandon Sanderson");
+        _audiobookRepository.Setup(r => r.GetByIdsWithIncludesAsync(It.IsAny<IReadOnlyList<long>>()))
+            .ReturnsAsync(new List<Audiobook> { book });
+        _scrapingService.Setup(s => s.SearchMultiple(It.IsAny<IEnumerable<string>>(), It.IsAny<string>()))
+            .ReturnsAsync(new MetadataMultiSourceSearchResult());
+
+        await CreateService().SearchSelectedAsync(
+            new List<long> { 8 }, new List<string> { "Audible", "Hardcover" }, NoopProgress);
+
+        _scrapingService.Verify(s => s.SearchMultiple(
+            It.IsAny<IEnumerable<string>>(), "Brandon Sanderson - Some Book"), Times.Once);
+        _scrapingService.Verify(s => s.SearchMultiple(It.IsAny<IReadOnlyDictionary<string, string>>()), Times.Never);
+    }
+
+    [TestMethod]
     public async Task SearchSelectedAsync_BookHasATitle_SearchesWithBookNameNotFileName()
     {
         var book = Book(1, "The Real Title", "some-file.m4b");

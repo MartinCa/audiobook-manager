@@ -2478,7 +2478,7 @@ public class LibraryConsistencyServiceTests
                 "Book",
                 2024,
                 new Domain.AudiobookFileInfo("placeholder.m4b", "placeholder.m4b", 1000));
-            var expectedRelativePath = AudiobookFileHandler.GenerateRelativeAudiobookPath(placeholderParsed, 0);
+            var expectedRelativePath = AudiobookFileHandler.GenerateRelativeAudiobookPath(placeholderParsed, AudiobookManager.Domain.LibraryPathOptions.None);
             var currentFile = AudiobookFileHandler.JoinPaths(tempDir, expectedRelativePath);
             Directory.CreateDirectory(Path.GetDirectoryName(currentFile)!);
             await File.WriteAllTextAsync(currentFile, "fake audio content");
@@ -2533,7 +2533,7 @@ public class LibraryConsistencyServiceTests
                 "Book",
                 2024,
                 new Domain.AudiobookFileInfo("placeholder.m4b", "placeholder.m4b", 1000));
-            var expectedRelativePath = AudiobookFileHandler.GenerateRelativeAudiobookPath(placeholderParsed, 0);
+            var expectedRelativePath = AudiobookFileHandler.GenerateRelativeAudiobookPath(placeholderParsed, AudiobookManager.Domain.LibraryPathOptions.None);
             var currentFile = AudiobookFileHandler.JoinPaths(tempDir, expectedRelativePath);
             Directory.CreateDirectory(Path.GetDirectoryName(currentFile)!);
             await File.WriteAllTextAsync(currentFile, "fake audio content");
@@ -2583,7 +2583,7 @@ public class LibraryConsistencyServiceTests
                 "Book",
                 2024,
                 new Domain.AudiobookFileInfo("placeholder.m4b", "placeholder.m4b", 1000));
-            var expectedRelativePath = AudiobookFileHandler.GenerateRelativeAudiobookPath(placeholderParsed, 0);
+            var expectedRelativePath = AudiobookFileHandler.GenerateRelativeAudiobookPath(placeholderParsed, AudiobookManager.Domain.LibraryPathOptions.None);
             var currentFile = AudiobookFileHandler.JoinPaths(tempDir, expectedRelativePath);
             Directory.CreateDirectory(Path.GetDirectoryName(currentFile)!);
             await File.WriteAllTextAsync(currentFile, "fake audio content");
@@ -2640,7 +2640,7 @@ public class LibraryConsistencyServiceTests
                 2024,
                 new Domain.AudiobookFileInfo("placeholder.m4b", "placeholder.m4b", 1000));
             var currentFile = AudiobookFileHandler.JoinPaths(
-                tempDir, AudiobookFileHandler.GenerateRelativeAudiobookPath(placeholderParsed, 0));
+                tempDir, AudiobookFileHandler.GenerateRelativeAudiobookPath(placeholderParsed, AudiobookManager.Domain.LibraryPathOptions.None));
             var bookDir = Path.GetDirectoryName(currentFile)!;
             Directory.CreateDirectory(bookDir);
             await File.WriteAllTextAsync(currentFile, "fake audio content");
@@ -2703,7 +2703,7 @@ public class LibraryConsistencyServiceTests
                 2024,
                 new Domain.AudiobookFileInfo("placeholder.m4b", "placeholder.m4b", 1000));
             var currentFile = AudiobookFileHandler.JoinPaths(
-                tempDir, AudiobookFileHandler.GenerateRelativeAudiobookPath(placeholderParsed, 0));
+                tempDir, AudiobookFileHandler.GenerateRelativeAudiobookPath(placeholderParsed, AudiobookManager.Domain.LibraryPathOptions.None));
             var bookDir = Path.GetDirectoryName(currentFile)!;
             Directory.CreateDirectory(bookDir);
             await File.WriteAllTextAsync(currentFile, "fake audio content");

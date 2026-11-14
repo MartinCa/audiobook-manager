@@ -53,7 +53,8 @@ public class LibrarySettingsRepository : ILibrarySettingsRepository
         SearchInitialsHandling searchInitialsHandling,
         bool includeNarratorInPath,
         int maxNarratorsInPath,
-        bool autoSplitTitleOnColon)
+        bool autoSplitTitleOnColon,
+        bool mainAuthorOnlyInPath)
     {
         var settings = await _db.LibrarySettings.SingleOrDefaultAsync();
         if (settings == null)
@@ -69,7 +70,8 @@ public class LibrarySettingsRepository : ILibrarySettingsRepository
                 searchInitialsHandling,
                 includeNarratorInPath,
                 maxNarratorsInPath,
-                autoSplitTitleOnColon);
+                autoSplitTitleOnColon,
+                mainAuthorOnlyInPath);
             _db.LibrarySettings.Add(settings);
         }
         else
@@ -84,6 +86,7 @@ public class LibrarySettingsRepository : ILibrarySettingsRepository
             settings.IncludeNarratorInPath = includeNarratorInPath;
             settings.MaxNarratorsInPath = maxNarratorsInPath;
             settings.AutoSplitTitleOnColon = autoSplitTitleOnColon;
+            settings.MainAuthorOnlyInPath = mainAuthorOnlyInPath;
         }
 
         try
@@ -108,6 +111,7 @@ public class LibrarySettingsRepository : ILibrarySettingsRepository
             winner.IncludeNarratorInPath = includeNarratorInPath;
             winner.MaxNarratorsInPath = maxNarratorsInPath;
             winner.AutoSplitTitleOnColon = autoSplitTitleOnColon;
+            winner.MainAuthorOnlyInPath = mainAuthorOnlyInPath;
             await _db.SaveChangesAsync();
             return winner;
         }
@@ -124,5 +128,11 @@ public class LibrarySettingsRepository : ILibrarySettingsRepository
     {
         await GetOrCreateAsync();
         await _db.LibrarySettings.ExecuteUpdateAsync(s => s.SetProperty(x => x.MetadataSourceOrderJson, json));
+    }
+
+    public async Task SetMetadataSourceSearchJsonAsync(string? json)
+    {
+        await GetOrCreateAsync();
+        await _db.LibrarySettings.ExecuteUpdateAsync(s => s.SetProperty(x => x.MetadataSourceSearchJson, json));
     }
 }

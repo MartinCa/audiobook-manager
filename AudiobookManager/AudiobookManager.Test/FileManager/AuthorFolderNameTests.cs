@@ -79,7 +79,7 @@ public class AuthorFolderNameTests
     [TestMethod]
     public void Regression_OctaviasBrood_GeneratedPathHasNoSegmentOverTheFileSystemLimit()
     {
-        var path = AudiobookFileHandler.GenerateRelativeAudiobookPath(MakeBook(OctaviasBroodAuthors), 0);
+        var path = AudiobookFileHandler.GenerateRelativeAudiobookPath(MakeBook(OctaviasBroodAuthors), AudiobookManager.Domain.LibraryPathOptions.None);
 
         foreach (var segment in path.Split(Sep))
         {

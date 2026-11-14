@@ -10,6 +10,8 @@
  * `useResolveDefaultMetadataSearchQuery`), so the client holds no copy of the formatting rules - this
  * helper is the query used while that request is in flight or when the setting is `AsStored`.
  *
+ * A book's main author, when it has one, is the only author in the query.
+ *
  * Priority, highest to lowest, falling back to the next when the higher one is blank:
  * 1. "Author - Book name" (authors joined with ", ", matching the display convention used
  *    elsewhere, e.g. MetadataSearchResultCard)
@@ -20,9 +22,13 @@ export function buildDefaultMetadataSearchQuery(
   authors: readonly string[] | undefined,
   bookName: string | undefined,
   fileName: string | undefined,
+  mainAuthor?: string,
 ): string {
   const trimmedBookName = bookName?.trim() ?? "";
-  const authorNames = (authors ?? []).map((a) => a.trim()).filter(Boolean);
+  const trimmedMain = mainAuthor?.trim();
+  const authorNames = trimmedMain
+    ? [trimmedMain]
+    : (authors ?? []).map((a) => a.trim()).filter(Boolean);
 
   if (authorNames.length > 0 && trimmedBookName) {
     return `${authorNames.join(", ")} - ${trimmedBookName}`;

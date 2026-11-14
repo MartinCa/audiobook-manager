@@ -19,6 +19,13 @@ interface BookSearchDialogProps {
   onOpenChange: (open: boolean) => void;
   onSelectResult: (result: MetadataSearchResult) => void;
   initialQuery?: string;
+  /**
+   * The default query for each source, when sources want it written differently (per-source
+   * initials handling). `initialQuery` is what the box shows; while the text still equals it, the
+   * search sends each chosen source its own query from here instead. Once the user edits the text
+   * it is sent exactly as typed to every source.
+   */
+  initialQueriesBySource?: Record<string, string>;
 }
 
 export function BookSearchDialog({
@@ -26,6 +33,7 @@ export function BookSearchDialog({
   onOpenChange,
   onSelectResult,
   initialQuery = "",
+  initialQueriesBySource,
 }: BookSearchDialogProps) {
   const [query, setQuery] = useState(initialQuery);
   const [prevInitialQuery, setPrevInitialQuery] = useState(initialQuery);
@@ -65,6 +73,21 @@ export function BookSearchDialog({
   // explicit choice and disables Search, matching BulkOnlineMatchSearchDialog's identical
   // treatment of the same shared hook.
   const activeSources = selectedSources;
+
+  // The unedited default query is written per source; a typed one is sent as typed.
+  const usesPerSourceQueries =
+    initialQueriesBySource !== undefined && query.trim() === initialQuery.trim();
+  const perSourceQueries = usesPerSourceQueries
+    ? Object.fromEntries(
+        activeSources.flatMap((name) => {
+          const own = initialQueriesBySource[name];
+          return own === undefined ? [] : [[name, own] as const];
+        }),
+      )
+    : undefined;
+  const perSourceQueriesDiffer =
+    perSourceQueries !== undefined &&
+    new Set(activeSources.map((name) => perSourceQueries[name] ?? query.trim())).size > 1;
 
   // Every searched source errored: "no results" would be untrue, and the failure is shown instead.
   const allSourcesFailed =
@@ -126,7 +149,9 @@ export function BookSearchDialog({
     setFailedSources({});
 
     try {
-      const res = await metadataSearchApi.searchMultiple(activeSources, trimmedQuery);
+      const res = perSourceQueries
+        ? await metadataSearchApi.searchMultiple(activeSources, trimmedQuery, perSourceQueries)
+        : await metadataSearchApi.searchMultiple(activeSources, trimmedQuery);
       setResults(res.results || []);
       // Tabs follow the order the response lists the sources in (the order chosen in Library
       // Settings), not the order they were ticked in. Without statuses, fall back to the picker's.
@@ -215,6 +240,12 @@ export function BookSearchDialog({
               Search
             </Button>
           </form>
+
+          {perSourceQueriesDiffer && (
+            <p className="text-muted-foreground text-xs">
+              Author initials are written the way each source expects until you edit this text.
+            </p>
+          )}
 
           <MetadataSourceSelector
             services={services}

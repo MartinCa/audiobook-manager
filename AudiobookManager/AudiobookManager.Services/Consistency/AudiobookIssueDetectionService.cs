@@ -104,14 +104,14 @@ public class AudiobookIssueDetectionService : IAudiobookIssueDetectionService
 
     public async Task<List<BookConsistencyIssue>> DetectIssuesAsync(Audiobook audiobook)
     {
-        var maxNarratorsInPath = (await _settingsService.GetLibrarySettings()).NarratorsInPath;
+        var pathOptions = (await _settingsService.GetLibrarySettings()).PathOptions;
 
         // Blocking work - an ATL parse of the whole m4b plus several file reads - so never on the
         // calling (request) thread.
-        return await Task.Run(() => DetectIssues(audiobook, maxNarratorsInPath));
+        return await Task.Run(() => DetectIssues(audiobook, pathOptions));
     }
 
-    public List<BookConsistencyIssue> DetectIssues(Audiobook audiobook, int maxNarratorsInPath)
+    public List<BookConsistencyIssue> DetectIssues(Audiobook audiobook, Domain.LibraryPathOptions pathOptions)
     {
         var (state, detail) = ProbeMediaFile(audiobook.FileInfoFullPath);
 
@@ -163,8 +163,11 @@ public class AudiobookIssueDetectionService : IAudiobookIssueDetectionService
             // reshape the parse into the database's form - but only for the qualifiers this book
             // is stored with: a title that merely looks qualified is never split.
             BookQualifiers.ApplyExpected(parsed, QualifierColumn.Parse(audiobook.Qualifiers));
+            // The main author is database-only (no tag carries it), so it comes from the row. The
+            // path the file is expected at depends on it when the library setting is on.
+            parsed.MainAuthor = audiobook.MainAuthorName;
             var directoryPath = Path.GetDirectoryName(audiobook.FileInfoFullPath)!;
-            var context = new AudiobookCheckContext(audiobook, parsed, directoryPath, _settings.AudiobookLibraryPath, maxNarratorsInPath);
+            var context = new AudiobookCheckContext(audiobook, parsed, directoryPath, _settings.AudiobookLibraryPath, pathOptions);
 
             return _detectors.SelectMany(detector => detector.Detect(context)).ToList();
         }

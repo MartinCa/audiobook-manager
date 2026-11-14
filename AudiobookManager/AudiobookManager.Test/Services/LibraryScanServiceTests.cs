@@ -552,9 +552,9 @@ public class LibraryScanServiceTests
             Year = 2022
         };
 
-        _audiobookService.Setup(s => s.GenerateLibraryPath(It.IsAny<DomainAudiobook>(), 0)).Returns(targetPath);
+        _audiobookService.Setup(s => s.GenerateLibraryPath(It.IsAny<DomainAudiobook>(), AudiobookManager.Domain.LibraryPathOptions.None)).Returns(targetPath);
 
-        var isDuplicate = _service.IsDuplicateTarget(discovered, 0);
+        var isDuplicate = _service.IsDuplicateTarget(discovered, AudiobookManager.Domain.LibraryPathOptions.None);
 
         Assert.IsTrue(isDuplicate);
     }
@@ -570,9 +570,9 @@ public class LibraryScanServiceTests
             Year = 2022
         };
 
-        _audiobookService.Setup(s => s.GenerateLibraryPath(It.IsAny<DomainAudiobook>(), 0)).Returns(targetPath);
+        _audiobookService.Setup(s => s.GenerateLibraryPath(It.IsAny<DomainAudiobook>(), AudiobookManager.Domain.LibraryPathOptions.None)).Returns(targetPath);
 
-        var isDuplicate = _service.IsDuplicateTarget(discovered, 0);
+        var isDuplicate = _service.IsDuplicateTarget(discovered, AudiobookManager.Domain.LibraryPathOptions.None);
 
         Assert.IsFalse(isDuplicate);
     }
@@ -589,9 +589,9 @@ public class LibraryScanServiceTests
             Year = 2022
         };
 
-        _audiobookService.Setup(s => s.GenerateLibraryPath(It.IsAny<DomainAudiobook>(), 0)).Returns(targetPath);
+        _audiobookService.Setup(s => s.GenerateLibraryPath(It.IsAny<DomainAudiobook>(), AudiobookManager.Domain.LibraryPathOptions.None)).Returns(targetPath);
 
-        var isDuplicate = _service.IsDuplicateTarget(discovered, 0);
+        var isDuplicate = _service.IsDuplicateTarget(discovered, AudiobookManager.Domain.LibraryPathOptions.None);
 
         Assert.IsFalse(isDuplicate);
     }
@@ -605,10 +605,10 @@ public class LibraryScanServiceTests
             Year = 2022
         };
 
-        var isDuplicate = _service.IsDuplicateTarget(discovered, 0);
+        var isDuplicate = _service.IsDuplicateTarget(discovered, AudiobookManager.Domain.LibraryPathOptions.None);
 
         Assert.IsFalse(isDuplicate);
-        _audiobookService.Verify(s => s.GenerateLibraryPath(It.IsAny<DomainAudiobook>(), 0), Times.Never);
+        _audiobookService.Verify(s => s.GenerateLibraryPath(It.IsAny<DomainAudiobook>(), AudiobookManager.Domain.LibraryPathOptions.None), Times.Never);
     }
 
     [TestMethod]

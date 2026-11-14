@@ -147,7 +147,7 @@ public class LibraryControllerTests
 
         _discoveredRepo.Setup(r => r.GetPaginatedAsync(20, 0, null))
             .ReturnsAsync((new List<DiscoveredAudiobook> { entry }, 1));
-        _libraryScanService.Setup(s => s.IsDuplicateTarget(entry, 0)).Returns(false);
+        _libraryScanService.Setup(s => s.IsDuplicateTarget(entry, AudiobookManager.Domain.LibraryPathOptions.None)).Returns(false);
 
         var result = await _controller.GetDiscovered();
 
@@ -168,7 +168,7 @@ public class LibraryControllerTests
         var entry = MakeWellTagged("/import/book.m4b");
         _discoveredRepo.Setup(r => r.GetPaginatedAsync(20, 0, null))
             .ReturnsAsync((new List<DiscoveredAudiobook> { entry }, 1));
-        _libraryScanService.Setup(s => s.IsDuplicateTarget(entry, 0)).Returns(true);
+        _libraryScanService.Setup(s => s.IsDuplicateTarget(entry, AudiobookManager.Domain.LibraryPathOptions.None)).Returns(true);
 
         var result = await _controller.GetDiscovered();
 
@@ -182,7 +182,7 @@ public class LibraryControllerTests
         var entry = MakeWellTagged("/import/book.m4b");
         _discoveredRepo.Setup(r => r.GetPaginatedAsync(20, 0, null))
             .ReturnsAsync((new List<DiscoveredAudiobook> { entry }, 1));
-        _libraryScanService.Setup(s => s.IsDuplicateTarget(entry, 0)).Returns(false);
+        _libraryScanService.Setup(s => s.IsDuplicateTarget(entry, AudiobookManager.Domain.LibraryPathOptions.None)).Returns(false);
 
         var result = await _controller.GetDiscovered();
 
@@ -204,7 +204,7 @@ public class LibraryControllerTests
 
         Assert.IsFalse(result.Items[0].IsWellTagged);
         Assert.IsFalse(result.Items[0].IsDuplicate);
-        _libraryScanService.Verify(s => s.IsDuplicateTarget(It.IsAny<DiscoveredAudiobook>(), 0), Times.Never);
+        _libraryScanService.Verify(s => s.IsDuplicateTarget(It.IsAny<DiscoveredAudiobook>(), AudiobookManager.Domain.LibraryPathOptions.None), Times.Never);
     }
 
     [TestMethod]
@@ -222,8 +222,8 @@ public class LibraryControllerTests
 
         _discoveredRepo.Setup(r => r.GetPaginatedAsync(20, 0, null))
             .ReturnsAsync((new List<DiscoveredAudiobook> { duplicateEntry, freeEntry, notWellTagged }, 3));
-        _libraryScanService.Setup(s => s.IsDuplicateTarget(duplicateEntry, 0)).Returns(true);
-        _libraryScanService.Setup(s => s.IsDuplicateTarget(freeEntry, 0)).Returns(false);
+        _libraryScanService.Setup(s => s.IsDuplicateTarget(duplicateEntry, AudiobookManager.Domain.LibraryPathOptions.None)).Returns(true);
+        _libraryScanService.Setup(s => s.IsDuplicateTarget(freeEntry, AudiobookManager.Domain.LibraryPathOptions.None)).Returns(false);
 
         var result = await _controller.GetDiscovered();
 
@@ -231,7 +231,7 @@ public class LibraryControllerTests
         Assert.IsTrue(result.Items.Single(i => i.FullPath == "/import/dup.m4b").IsDuplicate);
         Assert.IsFalse(result.Items.Single(i => i.FullPath == "/import/free.m4b").IsDuplicate);
         Assert.IsFalse(result.Items.Single(i => i.FullPath == "/import/untagged.m4b").IsDuplicate);
-        _libraryScanService.Verify(s => s.IsDuplicateTarget(notWellTagged, 0), Times.Never);
+        _libraryScanService.Verify(s => s.IsDuplicateTarget(notWellTagged, AudiobookManager.Domain.LibraryPathOptions.None), Times.Never);
     }
 
     [TestMethod]

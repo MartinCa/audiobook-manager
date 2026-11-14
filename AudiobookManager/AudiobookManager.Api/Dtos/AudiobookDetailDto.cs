@@ -29,5 +29,7 @@ public record AudiobookDetailDto(
     /// <summary>The book's non-primary series in display order. <c>Series</c>/<c>SeriesPart</c> above are the primary one.</summary>
     List<SeriesRelationDto> AdditionalSeries,
     /// <summary>The book's title is kept split at its first colon into <c>BookName</c> and <c>Subtitle</c>; a metadata refresh splits the source's title the same way.</summary>
-    bool SplitTitleOnColon
+    bool SplitTitleOnColon,
+    /// <summary>The one author that stands for the book (one of <c>Authors</c>), or null when it has no single main author.</summary>
+    string? MainAuthor
 );

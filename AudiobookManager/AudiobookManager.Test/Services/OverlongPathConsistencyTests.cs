@@ -77,7 +77,7 @@ public class OverlongPathConsistencyTests
         var longTitle = new string('a', 300);
         _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>())).Returns(FileTags(longTitle, 1997, path));
 
-        var issues = _service.DetectIssues(DbBook(longTitle, path), 0);
+        var issues = _service.DetectIssues(DbBook(longTitle, path), AudiobookManager.Domain.LibraryPathOptions.None);
 
         Assert.IsFalse(issues.Any(i => i.IssueType == BookConsistencyIssueType.UnreadableFile),
             string.Join("; ", issues.Select(i => $"{i.IssueType}: {i.Description}")));
@@ -90,7 +90,7 @@ public class OverlongPathConsistencyTests
         var longTitle = new string('a', 300);
         _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>())).Returns(FileTags(longTitle, 1997, path));
 
-        var issue = _service.DetectIssues(DbBook(longTitle, path), 0).Single();
+        var issue = _service.DetectIssues(DbBook(longTitle, path), AudiobookManager.Domain.LibraryPathOptions.None).Single();
 
         Assert.AreEqual(BookConsistencyIssueType.WrongFilePath, issue.IssueType);
         StringAssert.Contains(issue.Description, "bytes");
@@ -108,7 +108,7 @@ public class OverlongPathConsistencyTests
         // reporting next to the path verdict instead of discarding it with an exception.
         _tagHandler.Setup(t => t.ParseAudiobook(It.IsAny<FileInfo>(), It.IsAny<bool>())).Returns(FileTags(longTitle, 1998, path));
 
-        var types = _service.DetectIssues(DbBook(longTitle, path), 0).Select(i => i.IssueType).ToList();
+        var types = _service.DetectIssues(DbBook(longTitle, path), AudiobookManager.Domain.LibraryPathOptions.None).Select(i => i.IssueType).ToList();
 
         CollectionAssert.AreEquivalent(
             new[] { BookConsistencyIssueType.TagMismatch, BookConsistencyIssueType.WrongFilePath }, types);

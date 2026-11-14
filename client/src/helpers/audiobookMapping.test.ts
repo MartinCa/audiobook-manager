@@ -135,6 +135,26 @@ describe("toAudiobook", () => {
     expect(toAudiobook(base).splitTitleOnColon).toBe(false);
   });
 
+  // The detail page is where the edit form's book comes from, and a save sends the whole state: a
+  // main author lost here would be cleared by the next unrelated edit (and, with the
+  // main-author-only folder setting on, move the book).
+  it("carries the main author of an AudiobookDetail through, and none when it has none", () => {
+    const base = {
+      id: 1,
+      filePath: "/library/a.m4b",
+      fileName: "a.m4b",
+      sizeInBytes: 1,
+      authors: ["A One", "B Two"],
+      narrators: [],
+      genres: [],
+      authorRefs: [],
+    };
+
+    expect(toAudiobook({ ...base, mainAuthor: "B Two" }).mainAuthor).toBe("B Two");
+    expect(toAudiobook({ ...base, mainAuthor: null }).mainAuthor).toBeUndefined();
+    expect(toAudiobook(base).mainAuthor).toBeUndefined();
+  });
+
   it("carries the qualifiers of an AudiobookDetail through, alongside the clean name", () => {
     const result = toAudiobook({
       id: 1,

@@ -36,7 +36,7 @@ public class PendingOnlineMatchService : IPendingOnlineMatchService
     {
         var books = await _audiobookRepository.GetByIdsWithIncludesAsync(audiobookIds);
         var booksById = books.ToDictionary(b => b.Id);
-        var initialsHandling = (await _settingsService.GetLibrarySettings()).SearchInitialsHandling;
+        var settings = await _settingsService.GetLibrarySettings();
 
         var (processed, succeeded, failed) = await BulkOperationRunner.RunAsync(
             audiobookIds,
@@ -50,16 +50,29 @@ public class PendingOnlineMatchService : IPendingOnlineMatchService
                 // Same precedence BookEditForm seeds BookSearchDialog's query with (author(s) -
                 // book name, falling back to book name, falling back to the on-disk file name) -
                 // the two flows must not drift, since the whole point of the bulk search is "what
-                // the interactive dialog would have searched for, run for many books at once". The initials
-                // handling is the library setting, read once for the whole batch.
-                var query = MetadataSearchQueryBuilder.Build(
-                    book.Authors.Select(a => a.Name), book.BookName, book.FileInfoFileName, initialsHandling);
-                if (string.IsNullOrWhiteSpace(query))
+                // the interactive dialog would have searched for, run for many books at once". The
+                // settings are read once for the whole batch: the book's main author (when it has one)
+                // is the only author in the query, and each source gets the initials handling that
+                // applies to it.
+                var queries = MetadataSearchQueryBuilder.BuildPerSource(
+                    sourceNames, book.Authors.Select(a => a.Name), book.BookName, book.FileInfoFileName,
+                    settings, book.MainAuthorName);
+                // Initials handling only re-spells author names, so emptiness is the same for every
+                // source; the library-wide form stands in when no source was chosen at all.
+                var libraryQuery = MetadataSearchQueryBuilder.Build(
+                    book.Authors.Select(a => a.Name), book.BookName, book.FileInfoFileName,
+                    settings.SearchInitialsHandling, book.MainAuthorName);
+                if (string.IsNullOrWhiteSpace(libraryQuery))
                 {
                     throw new InvalidOperationException($"Audiobook {id} has no title or file name to search with.");
                 }
 
-                var multi = await _scrapingService.SearchMultiple(sourceNames, query);
+                // When every source would be asked the same thing (the usual case), it is one plain
+                // search; only a real difference between sources needs the per-source form.
+                var distinctQueries = queries.Values.Distinct(StringComparer.Ordinal).ToList();
+                var multi = distinctQueries.Count <= 1
+                    ? await _scrapingService.SearchMultiple(sourceNames, distinctQueries.FirstOrDefault() ?? libraryQuery)
+                    : await _scrapingService.SearchMultiple(queries);
                 var snapshots = multi.Results.Select(PendingRefreshPayload.FromSearchResult).ToList();
 
                 await _repository.UpsertAsync(new PendingOnlineMatch

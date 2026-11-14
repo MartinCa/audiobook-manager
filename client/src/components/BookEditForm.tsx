@@ -50,8 +50,13 @@ import {
   splitQualifiers,
 } from "@/helpers/bookQualifiers";
 import { useBookQualifiers } from "@/hooks/useBookQualifiers";
-import { useResolveDefaultMetadataSearchQuery } from "@/hooks/useResolveDefaultMetadataSearchQuery";
+import {
+  useResolveDefaultMetadataSearchQuery,
+  type ResolvedDefaultSearchQuery,
+} from "@/hooks/useResolveDefaultMetadataSearchQuery";
 import { QualifiersField } from "@/components/fields/QualifiersField";
+import { MainAuthorField } from "@/components/fields/MainAuthorField";
+import { canChooseMainAuthor, keepMainAuthor, mainAuthorOf } from "@/helpers/mainAuthor";
 import { notifications } from "@/lib/notifications";
 import type { Audiobook, AudiobookImage } from "@/types/Audiobook";
 import type { MetadataSearchResult } from "@/types/MetadataSearchResult";
@@ -63,6 +68,9 @@ import type { OrganizeAudiobookInput } from "@/types/OrganizeAudiobookInput";
 const bookEditFormSchema = z
   .object({
     authors: z.array(z.string()).min(1, "At least one author is required"),
+    // The one author that stands for the book, "" for none; always one of `authors` (see
+    // helpers/mainAuthor.ts - a name no longer among them is dropped on save).
+    mainAuthor: z.string(),
     narrators: z.array(z.string()),
     bookName: z.string().trim().min(1, "Book title is required"),
     subtitle: z.string(),
@@ -112,6 +120,7 @@ type BookEditFormValues = z.infer<typeof bookEditFormSchema>;
 function valuesFromBook(book: Audiobook): BookEditFormValues {
   return {
     authors: book.authors?.map((a) => a.name) ?? [],
+    mainAuthor: keepMainAuthor(book.mainAuthor, book.authors?.map((a) => a.name) ?? []),
     narrators: book.narrators?.map((n) => n.name) ?? [],
     bookName: book.bookName || "",
     subtitle: book.subtitle || "",
@@ -175,6 +184,7 @@ function buildAudiobook(
 ): Audiobook {
   return {
     authors: (values.authors ?? []).map((name) => ({ name })),
+    mainAuthor: mainAuthorOf(values),
     narrators: (values.narrators ?? []).map((name) => ({ name })),
     bookName: (values.bookName ?? "").trim(),
     subtitle: values.subtitle?.trim() || undefined,
@@ -291,7 +301,7 @@ export function BookEditForm({
   const [searchDialogOpen, setSearchDialogOpen] = useState(false);
   // The dialog's seed is fixed at the moment it opens: BookSearchDialog re-seeds its input
   // whenever initialQuery changes, so it must not change while the dialog is up.
-  const [searchSeed, setSearchSeed] = useState("");
+  const [searchSeed, setSearchSeed] = useState<ResolvedDefaultSearchQuery>({ query: "" });
   const [searchOpening, setSearchOpening] = useState(false);
   const resolveDefaultSearchQuery = useResolveDefaultMetadataSearchQuery();
   const [saving, setSaving] = useState(false);
@@ -321,6 +331,7 @@ export function BookEditForm({
           values.authors,
           values.bookName,
           initialBook.fileInfo?.fileName,
+          mainAuthorOf(values),
         ),
       );
       setSearchDialogOpen(true);
@@ -626,11 +637,14 @@ export function BookEditForm({
       form.setValue("subtitle", result.subtitle ?? "", { shouldDirty: true });
     }
     if (selectedFields.has("authors") && result.authors) {
-      form.setValue(
-        "authors",
-        result.authors.map((a) => a.name),
-        { shouldDirty: true, shouldValidate: true },
-      );
+      const appliedAuthors = result.authors.map((a) => a.name);
+      form.setValue("authors", appliedAuthors, { shouldDirty: true, shouldValidate: true });
+      // The source's author list replaces the book's: the main author stays only if the source
+      // still credits that exact name, otherwise the book is back to having none.
+      const main = form.getValues("mainAuthor");
+      if (main && keepMainAuthor(main, appliedAuthors) !== main) {
+        form.setValue("mainAuthor", "", { shouldDirty: true });
+      }
     }
     if (selectedFields.has("narrators") && result.narrators) {
       form.setValue(
@@ -915,7 +929,15 @@ export function BookEditForm({
               render={({ field }) => (
                 <AuthorsField
                   value={field.value ?? []}
-                  onChange={field.onChange}
+                  onChange={(next) => {
+                    field.onChange(next);
+                    // A main author who is no longer an author (removed or renamed) is dropped
+                    // here, so it cannot come back if the same name is typed again later.
+                    const main = form.getValues("mainAuthor");
+                    if (main && keepMainAuthor(main, next) !== main) {
+                      form.setValue("mainAuthor", "", { shouldDirty: true });
+                    }
+                  }}
                   error={form.formState.errors.authors?.message}
                 />
               )}
@@ -931,6 +953,22 @@ export function BookEditForm({
               />
             )}
           </div>
+
+          {canChooseMainAuthor(watchedValues.authors ?? [], watchedValues.mainAuthor) && (
+            <div className="sm:max-w-md">
+              <Controller
+                control={form.control}
+                name="mainAuthor"
+                render={({ field }) => (
+                  <MainAuthorField
+                    authors={watchedValues.authors ?? []}
+                    value={field.value ?? ""}
+                    onChange={field.onChange}
+                  />
+                )}
+              />
+            </div>
+          )}
 
           <div className="flex flex-col gap-4 sm:flex-row">
             <div className="min-w-0 flex-1">
@@ -1284,7 +1322,8 @@ export function BookEditForm({
         open={searchDialogOpen}
         onOpenChange={setSearchDialogOpen}
         onSelectResult={handleSelectSearchResult}
-        initialQuery={searchSeed}
+        initialQuery={searchSeed.query}
+        initialQueriesBySource={searchSeed.queriesBySource}
       />
 
       {cleanedPendingSearch && (

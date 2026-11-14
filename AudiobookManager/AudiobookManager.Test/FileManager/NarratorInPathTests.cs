@@ -23,7 +23,7 @@ public class NarratorInPathTests
     [TestMethod]
     public void SettingOff_NarratorNeverAppearsInThePath()
     {
-        var path = AudiobookFileHandler.GenerateRelativeAudiobookPath(MakeBook(null, null, "Narrator A"), 0);
+        var path = AudiobookFileHandler.GenerateRelativeAudiobookPath(MakeBook(null, null, "Narrator A"), AudiobookManager.Domain.LibraryPathOptions.None);
 
         Assert.AreEqual($"Author{Sep}2020 - Title{Sep}2020 - Title.m4b", path);
     }
@@ -31,7 +31,7 @@ public class NarratorInPathTests
     [TestMethod]
     public void SettingOn_AppendsTheNarratorInBracesToTheBookFolderOnly()
     {
-        var path = AudiobookFileHandler.GenerateRelativeAudiobookPath(MakeBook(null, null, "Narrator A"), 10);
+        var path = AudiobookFileHandler.GenerateRelativeAudiobookPath(MakeBook(null, null, "Narrator A"), new AudiobookManager.Domain.LibraryPathOptions(10, false));
 
         Assert.AreEqual($"Author{Sep}2020 - Title {{Narrator A}}{Sep}2020 - Title.m4b", path);
     }
@@ -39,7 +39,7 @@ public class NarratorInPathTests
     [TestMethod]
     public void SettingOn_InASeries_AppendsToTheBookFolderAfterTheTitle()
     {
-        var path = AudiobookFileHandler.GenerateRelativeAudiobookPath(MakeBook("Saga", "1", "Narrator A"), 10);
+        var path = AudiobookFileHandler.GenerateRelativeAudiobookPath(MakeBook("Saga", "1", "Narrator A"), new AudiobookManager.Domain.LibraryPathOptions(10, false));
 
         Assert.AreEqual(
             $"Author{Sep}Saga{Sep}Book 01 - 2020 - Title {{Narrator A}}{Sep}Saga 01 - 2020 - Title.m4b", path);
@@ -51,7 +51,7 @@ public class NarratorInPathTests
         var book = MakeBook(null, null, "Narrator A");
         book.Qualifiers = new List<string> { "abridged" };
 
-        var path = AudiobookFileHandler.GenerateRelativeAudiobookPath(book, 10);
+        var path = AudiobookFileHandler.GenerateRelativeAudiobookPath(book, new AudiobookManager.Domain.LibraryPathOptions(10, false));
 
         Assert.IsTrue(path.Contains("2020 - Title (Abridged) {Narrator A}"), path);
     }
@@ -59,7 +59,7 @@ public class NarratorInPathTests
     [TestMethod]
     public void SettingOn_NoNarrator_AddsNoEmptyBraces()
     {
-        var path = AudiobookFileHandler.GenerateRelativeAudiobookPath(MakeBook(), 10);
+        var path = AudiobookFileHandler.GenerateRelativeAudiobookPath(MakeBook(), new AudiobookManager.Domain.LibraryPathOptions(10, false));
 
         Assert.AreEqual($"Author{Sep}2020 - Title{Sep}2020 - Title.m4b", path);
     }
@@ -67,7 +67,7 @@ public class NarratorInPathTests
     [TestMethod]
     public void SettingOn_BlankNarratorNames_AreIgnored()
     {
-        var path = AudiobookFileHandler.GenerateRelativeAudiobookPath(MakeBook(null, null, "  ", ""), 10);
+        var path = AudiobookFileHandler.GenerateRelativeAudiobookPath(MakeBook(null, null, "  ", ""), new AudiobookManager.Domain.LibraryPathOptions(10, false));
 
         Assert.AreEqual($"Author{Sep}2020 - Title{Sep}2020 - Title.m4b", path);
     }
@@ -75,7 +75,7 @@ public class NarratorInPathTests
     [TestMethod]
     public void SettingOn_SeveralNarrators_AreJoinedLikeTheNarratorTag()
     {
-        var path = AudiobookFileHandler.GenerateRelativeAudiobookPath(MakeBook(null, null, "A One", "B Two", "A One"), 10);
+        var path = AudiobookFileHandler.GenerateRelativeAudiobookPath(MakeBook(null, null, "A One", "B Two", "A One"), new AudiobookManager.Domain.LibraryPathOptions(10, false));
 
         Assert.IsTrue(path.Contains("2020 - Title {A One, B Two}"), path);
     }
@@ -83,10 +83,10 @@ public class NarratorInPathTests
     [TestMethod]
     public void SettingOn_TwoNarrationsOfOneBook_GetDifferentFolders()
     {
-        var a = AudiobookFileHandler.GenerateRelativeAudiobookPath(MakeBook(null, null, "Narrator A"), 10);
-        var b = AudiobookFileHandler.GenerateRelativeAudiobookPath(MakeBook(null, null, "Narrator B"), 10);
-        var withoutSetting = AudiobookFileHandler.GenerateRelativeAudiobookPath(MakeBook(null, null, "Narrator A"), 0);
-        var withoutSettingB = AudiobookFileHandler.GenerateRelativeAudiobookPath(MakeBook(null, null, "Narrator B"), 0);
+        var a = AudiobookFileHandler.GenerateRelativeAudiobookPath(MakeBook(null, null, "Narrator A"), new AudiobookManager.Domain.LibraryPathOptions(10, false));
+        var b = AudiobookFileHandler.GenerateRelativeAudiobookPath(MakeBook(null, null, "Narrator B"), new AudiobookManager.Domain.LibraryPathOptions(10, false));
+        var withoutSetting = AudiobookFileHandler.GenerateRelativeAudiobookPath(MakeBook(null, null, "Narrator A"), AudiobookManager.Domain.LibraryPathOptions.None);
+        var withoutSettingB = AudiobookFileHandler.GenerateRelativeAudiobookPath(MakeBook(null, null, "Narrator B"), AudiobookManager.Domain.LibraryPathOptions.None);
 
         Assert.AreNotEqual(a, b);
         Assert.AreEqual(withoutSetting, withoutSettingB, "Off, the two collide - which is why the setting exists.");
@@ -95,7 +95,7 @@ public class NarratorInPathTests
     [TestMethod]
     public void SettingOn_BracesInTheNarratorName_CannotEndTheGroupEarly()
     {
-        var path = AudiobookFileHandler.GenerateRelativeAudiobookPath(MakeBook(null, null, "Evil} Name{"), 10);
+        var path = AudiobookFileHandler.GenerateRelativeAudiobookPath(MakeBook(null, null, "Evil} Name{"), new AudiobookManager.Domain.LibraryPathOptions(10, false));
 
         Assert.IsTrue(path.Contains("2020 - Title {Evil Name}"), path);
     }
@@ -103,7 +103,7 @@ public class NarratorInPathTests
     [TestMethod]
     public void SettingOn_PathSeparatorInTheNarratorName_StaysInsideOneSegment()
     {
-        var path = AudiobookFileHandler.GenerateRelativeAudiobookPath(MakeBook(null, null, "../../Escape"), 10);
+        var path = AudiobookFileHandler.GenerateRelativeAudiobookPath(MakeBook(null, null, "../../Escape"), new AudiobookManager.Domain.LibraryPathOptions(10, false));
 
         Assert.AreEqual(3, path.Split(Sep).Length, path);
     }
@@ -204,7 +204,7 @@ public class NarratorInPathTests
     [TestMethod]
     public void MaxNarrators_ZeroInThePath_MeansTheNarratorIsNotInThePathAtAll()
     {
-        var path = AudiobookFileHandler.GenerateRelativeAudiobookPath(MakeBook(null, null, "A One"), 0);
+        var path = AudiobookFileHandler.GenerateRelativeAudiobookPath(MakeBook(null, null, "A One"), AudiobookManager.Domain.LibraryPathOptions.None);
 
         Assert.AreEqual($"Author{Sep}2020 - Title{Sep}2020 - Title.m4b", path);
     }
@@ -212,9 +212,9 @@ public class NarratorInPathTests
     [TestMethod]
     public void MaxNarrators_TwoCastsSharingTheirFirstNarrator_CollideWhenTheLimitIsOne()
     {
-        var a = AudiobookFileHandler.GenerateRelativeAudiobookPath(MakeBook(null, null, "A One", "B Two"), 1);
-        var b = AudiobookFileHandler.GenerateRelativeAudiobookPath(MakeBook(null, null, "A One", "C Three"), 1);
-        var wider = AudiobookFileHandler.GenerateRelativeAudiobookPath(MakeBook(null, null, "A One", "C Three"), 2);
+        var a = AudiobookFileHandler.GenerateRelativeAudiobookPath(MakeBook(null, null, "A One", "B Two"), new AudiobookManager.Domain.LibraryPathOptions(1, false));
+        var b = AudiobookFileHandler.GenerateRelativeAudiobookPath(MakeBook(null, null, "A One", "C Three"), new AudiobookManager.Domain.LibraryPathOptions(1, false));
+        var wider = AudiobookFileHandler.GenerateRelativeAudiobookPath(MakeBook(null, null, "A One", "C Three"), new AudiobookManager.Domain.LibraryPathOptions(2, false));
 
         Assert.AreEqual(a, b, "The limit is a trade-off: a lower limit can make two casts share a folder.");
         Assert.AreNotEqual(a, wider);
@@ -232,7 +232,7 @@ public class NarratorInPathTests
     public void SettingOn_TheBraceGroupIsLastInTheFolderName_SoAudiobookshelfsFolderPatternMatchesIt()
     {
         // Audiobookshelf reads the narrator with /^(?<title>.*) \{(?<narrators>.*)\}$/ on the folder name.
-        var path = AudiobookFileHandler.GenerateRelativeAudiobookPath(MakeBook("Saga", "1", "A One", "B Two"), 10);
+        var path = AudiobookFileHandler.GenerateRelativeAudiobookPath(MakeBook("Saga", "1", "A One", "B Two"), new AudiobookManager.Domain.LibraryPathOptions(10, false));
 
         var folder = path.Split(Sep)[2];
         var match = System.Text.RegularExpressions.Regex.Match(folder, @"^(?<title>.*) \{(?<narrators>.*)\}$");
@@ -243,7 +243,7 @@ public class NarratorInPathTests
     [TestMethod]
     public void SettingOn_ResultStillResolvesInsideTheLibraryRoot()
     {
-        var relative = AudiobookFileHandler.GenerateRelativeAudiobookPath(MakeBook(null, null, "Narrator A"), 10);
+        var relative = AudiobookFileHandler.GenerateRelativeAudiobookPath(MakeBook(null, null, "Narrator A"), new AudiobookManager.Domain.LibraryPathOptions(10, false));
 
         var full = AudiobookFileHandler.JoinLibraryPath("/library", relative);
 

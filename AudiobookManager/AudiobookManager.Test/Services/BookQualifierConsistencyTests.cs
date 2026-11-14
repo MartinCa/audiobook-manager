@@ -64,7 +64,7 @@ public class BookQualifierConsistencyTests
         var domain = FileTags(bookName, series, "/import/book.m4b");
         domain.Qualifiers = qualifiers.ToList();
         var fullPath = AudiobookFileHandler.JoinLibraryPath(
-            _libraryPath, AudiobookFileHandler.GenerateRelativeAudiobookPath(domain, 0));
+            _libraryPath, AudiobookFileHandler.GenerateRelativeAudiobookPath(domain, AudiobookManager.Domain.LibraryPathOptions.None));
         Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
         File.WriteAllText(fullPath, "not really an m4b");
         return fullPath;
@@ -88,7 +88,7 @@ public class BookQualifierConsistencyTests
         var path = PlaceFileAt("Killing Floor", "Jack Reacher", "dramatized");
         FileSays(FileTags("Killing Floor (Dramatized)", "Jack Reacher (Dramatized)", path));
 
-        var issues = _service.DetectIssues(DbBook("Killing Floor", "Jack Reacher", path, ",dramatized,"), 0);
+        var issues = _service.DetectIssues(DbBook("Killing Floor", "Jack Reacher", path, ",dramatized,"), AudiobookManager.Domain.LibraryPathOptions.None);
 
         Assert.AreEqual(0, issues.Count, string.Join("; ", issues.Select(i => $"{i.IssueType}: {i.ExpectedValue} / {i.ActualValue}")));
     }
@@ -99,7 +99,7 @@ public class BookQualifierConsistencyTests
         var path = PlaceFileAt("Killing Floor", "Jack Reacher", "abridged", "dramatized");
         FileSays(FileTags("Killing Floor (Abridged) (Dramatized)", "Jack Reacher (Abridged) (Dramatized)", path));
 
-        var issues = _service.DetectIssues(DbBook("Killing Floor", "Jack Reacher", path, ",abridged,dramatized,"), 0);
+        var issues = _service.DetectIssues(DbBook("Killing Floor", "Jack Reacher", path, ",abridged,dramatized,"), AudiobookManager.Domain.LibraryPathOptions.None);
 
         Assert.AreEqual(0, issues.Count, string.Join("; ", issues.Select(i => i.IssueType)));
     }
@@ -112,7 +112,7 @@ public class BookQualifierConsistencyTests
         var path = PlaceFileAt("Killing Floor (Dramatized)", "Jack Reacher (Dramatized)");
         FileSays(FileTags("Killing Floor (Dramatized)", "Jack Reacher (Dramatized)", path));
 
-        var issues = _service.DetectIssues(DbBook("Killing Floor (Dramatized)", "Jack Reacher (Dramatized)", path, ""), 0);
+        var issues = _service.DetectIssues(DbBook("Killing Floor (Dramatized)", "Jack Reacher (Dramatized)", path, ""), AudiobookManager.Domain.LibraryPathOptions.None);
 
         Assert.AreEqual(0, issues.Count, string.Join("; ", issues.Select(i => $"{i.IssueType}: {i.ExpectedValue} / {i.ActualValue}")));
     }
@@ -123,7 +123,7 @@ public class BookQualifierConsistencyTests
         var path = PlaceFileAt("Killing Floor", "Jack Reacher", "dramatized");
         FileSays(FileTags("Killing Floor", "Jack Reacher", path));
 
-        var issues = _service.DetectIssues(DbBook("Killing Floor", "Jack Reacher", path, ",dramatized,"), 0);
+        var issues = _service.DetectIssues(DbBook("Killing Floor", "Jack Reacher", path, ",dramatized,"), AudiobookManager.Domain.LibraryPathOptions.None);
 
         var mismatch = issues.Single(i => i.IssueType == BookConsistencyIssueType.TagMismatch);
         StringAssert.Contains(mismatch.Description, "Qualifiers");
@@ -135,7 +135,7 @@ public class BookQualifierConsistencyTests
         var path = PlaceFileAt("Killing Floor", "Jack Reacher", "dramatized");
         FileSays(FileTags("Killing Floor (Dramatized)", "Jack Reacher", path));
 
-        var issues = _service.DetectIssues(DbBook("Killing Floor", "Jack Reacher", path, ",dramatized,"), 0);
+        var issues = _service.DetectIssues(DbBook("Killing Floor", "Jack Reacher", path, ",dramatized,"), AudiobookManager.Domain.LibraryPathOptions.None);
 
         Assert.IsTrue(issues.Any(i => i.IssueType == BookConsistencyIssueType.TagMismatch), "the series tag is wrong on disk");
     }
@@ -146,7 +146,7 @@ public class BookQualifierConsistencyTests
         var path = PlaceFileAt("Killing Floor", "Jack Reacher");
         FileSays(FileTags("Killing Floor (Dramatized)", "Jack Reacher (Dramatized)", path));
 
-        var issues = _service.DetectIssues(DbBook("Killing Floor", "Jack Reacher", path, ",dramatized,"), 0);
+        var issues = _service.DetectIssues(DbBook("Killing Floor", "Jack Reacher", path, ",dramatized,"), AudiobookManager.Domain.LibraryPathOptions.None);
 
         Assert.IsTrue(issues.Any(i => i.IssueType == BookConsistencyIssueType.WrongFilePath));
         Assert.IsFalse(issues.Any(i => i.IssueType == BookConsistencyIssueType.TagMismatch), "the tags themselves are right");
