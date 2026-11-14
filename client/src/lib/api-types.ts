@@ -456,6 +456,8 @@ export interface paths {
                     refreshedBefore?: string;
                     neverRefreshed?: boolean;
                     queueStates?: string[];
+                    multipleAuthors?: boolean;
+                    hasMainAuthor?: boolean;
                 };
                 header?: never;
                 path?: never;
@@ -547,6 +549,8 @@ export interface paths {
                     refreshedBefore?: string;
                     neverRefreshed?: boolean;
                     queueStates?: string[];
+                    multipleAuthors?: boolean;
+                    hasMainAuthor?: boolean;
                 };
                 header?: never;
                 path?: never;
@@ -737,6 +741,8 @@ export interface paths {
                     refreshedBefore?: string;
                     neverRefreshed?: boolean;
                     queueStates?: string[];
+                    multipleAuthors?: boolean;
+                    hasMainAuthor?: boolean;
                 };
                 header?: never;
                 path: {
@@ -3209,6 +3215,8 @@ export interface paths {
                     refreshedBefore?: string;
                     neverRefreshed?: boolean;
                     queueStates?: string[];
+                    multipleAuthors?: boolean;
+                    hasMainAuthor?: boolean;
                 };
                 header?: never;
                 path?: never;
@@ -3886,6 +3894,8 @@ export interface paths {
                     refreshedBefore?: string;
                     neverRefreshed?: boolean;
                     queueStates?: string[];
+                    multipleAuthors?: boolean;
+                    hasMainAuthor?: boolean;
                 };
                 header?: never;
                 path?: never;

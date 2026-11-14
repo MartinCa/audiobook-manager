@@ -4,7 +4,9 @@ namespace AudiobookManager.Database.Repositories;
 /// Additional narrowing for <see cref="IAudiobookRepository.GetAllAsync"/> and
 /// <see cref="IAudiobookRepository.SearchAsync"/>, the book-list counterpart of
 /// <see cref="AuthorSummaryFilter"/>/<see cref="SeriesOverviewFilter"/>. Every field is optional
-/// and independent - a null/empty field applies no constraint.
+/// and independent - a null/empty field applies no constraint. <c>MultipleAuthors</c> true keeps
+/// books credited to more than one author and false those with a single one;
+/// <c>HasMainAuthor</c> true keeps books that have a main author set and false those without.
 /// </summary>
 public record BookSummaryFilter(
     IReadOnlyCollection<string>? Sources = null,
@@ -16,7 +18,9 @@ public record BookSummaryFilter(
     DateTime? RefreshedAfter = null,
     DateTime? RefreshedBefore = null,
     bool? NeverRefreshed = null,
-    IReadOnlyCollection<string>? QueueStates = null)
+    IReadOnlyCollection<string>? QueueStates = null,
+    bool? MultipleAuthors = null,
+    bool? HasMainAuthor = null)
 {
     /// <summary>
     /// Synthetic <see cref="Qualifiers"/> value for a book that carries no qualifier at all. It
@@ -39,5 +43,6 @@ public record BookSummaryFilter(
         (Qualifiers is null || Qualifiers.Count == 0) &&
         MinDurationInSeconds is null && MaxDurationInSeconds is null &&
         RefreshedAfter is null && RefreshedBefore is null && NeverRefreshed is null &&
-        (QueueStates is null || QueueStates.Count == 0);
+        (QueueStates is null || QueueStates.Count == 0) &&
+        MultipleAuthors is null && HasMainAuthor is null;
 }

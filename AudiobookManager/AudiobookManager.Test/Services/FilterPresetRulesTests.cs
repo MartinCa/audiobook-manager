@@ -31,6 +31,30 @@ public class FilterPresetRulesTests
     }
 
     [TestMethod]
+    public void NormalizeFilters_AuthorFilters_AreBookFiltersKeepingBothTrueAndFalse()
+    {
+        var stored = Normalize(
+            FilterPresetScopes.Books, """{"multipleAuthors":true,"hasMainAuthor":false}""");
+
+        // false is a real choice ("books without a main author"), not an absent filter.
+        Assert.AreEqual("""{"hasMainAuthor":false,"multipleAuthors":true}""", stored);
+    }
+
+    [TestMethod]
+    public void NormalizeFilters_AuthorFilters_BelongToTheBookListOnly()
+    {
+        Rejected(FilterPresetScopes.Series, """{"multipleAuthors":true}""");
+        Rejected(FilterPresetScopes.Authors, """{"hasMainAuthor":true}""");
+    }
+
+    [TestMethod]
+    public void NormalizeFilters_AuthorFilters_MustBeBooleans()
+    {
+        Rejected(FilterPresetScopes.Books, """{"multipleAuthors":"yes"}""");
+        Rejected(FilterPresetScopes.Books, """{"hasMainAuthor":1}""");
+    }
+
+    [TestMethod]
     public void NormalizeFilters_EmptyListsAreDropped_AndDuplicatesCollapsed()
     {
         var stored = Normalize(

@@ -206,7 +206,9 @@ public class SeriesController : ControllerBase
         [FromQuery] DateTime? refreshedAfter = null,
         [FromQuery] DateTime? refreshedBefore = null,
         [FromQuery] bool? neverRefreshed = null,
-        [FromQuery] List<string>? queueStates = null)
+        [FromQuery] List<string>? queueStates = null,
+        [FromQuery] bool? multipleAuthors = null,
+        [FromQuery] bool? hasMainAuthor = null)
     {
         foreach (var check in new[]
         {
@@ -224,7 +226,7 @@ public class SeriesController : ControllerBase
             }
         }
 
-        var ownedFilter = new BookSummaryFilter(sources, genres, languages, minDurationInSeconds, maxDurationInSeconds, qualifiers, refreshedAfter, refreshedBefore, neverRefreshed, queueStates);
+        var ownedFilter = new BookSummaryFilter(sources, genres, languages, minDurationInSeconds, maxDurationInSeconds, qualifiers, refreshedAfter, refreshedBefore, neverRefreshed, queueStates, multipleAuthors, hasMainAuthor);
         var detail = await _seriesService.GetSeriesDetailPageAsync(
             seriesName,
             ownedSkip: (int)((long)ownedPage * ownedPageSize), ownedTake: ownedPageSize,

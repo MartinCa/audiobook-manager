@@ -116,9 +116,11 @@ public class BrowseController : ControllerBase
         [FromQuery] DateTime? refreshedAfter = null,
         [FromQuery] DateTime? refreshedBefore = null,
         [FromQuery] bool? neverRefreshed = null,
-        [FromQuery] List<string>? queueStates = null)
+        [FromQuery] List<string>? queueStates = null,
+        [FromQuery] bool? multipleAuthors = null,
+        [FromQuery] bool? hasMainAuthor = null)
     {
-        var filter = new BookSummaryFilter(sources, genres, languages, minDurationInSeconds, maxDurationInSeconds, qualifiers, refreshedAfter, refreshedBefore, neverRefreshed, queueStates);
+        var filter = new BookSummaryFilter(sources, genres, languages, minDurationInSeconds, maxDurationInSeconds, qualifiers, refreshedAfter, refreshedBefore, neverRefreshed, queueStates, multipleAuthors, hasMainAuthor);
         var (items, total) = await _audiobookRepo.GetAllAsync(limit, offset, filter.IsEmpty ? null : filter);
         var dtos = items.Select(MapToSummaryDto).ToList();
         return new PaginatedResult<AudiobookSummaryDto>(dtos.Count, total, dtos);
@@ -177,14 +179,16 @@ public class BrowseController : ControllerBase
         [FromQuery] DateTime? refreshedAfter = null,
         [FromQuery] DateTime? refreshedBefore = null,
         [FromQuery] bool? neverRefreshed = null,
-        [FromQuery] List<string>? queueStates = null)
+        [FromQuery] List<string>? queueStates = null,
+        [FromQuery] bool? multipleAuthors = null,
+        [FromQuery] bool? hasMainAuthor = null)
     {
         if (string.IsNullOrWhiteSpace(q))
         {
-            return await GetAudiobooks(limit, offset, sources, genres, languages, minDurationInSeconds, maxDurationInSeconds, qualifiers, refreshedAfter, refreshedBefore, neverRefreshed, queueStates);
+            return await GetAudiobooks(limit, offset, sources, genres, languages, minDurationInSeconds, maxDurationInSeconds, qualifiers, refreshedAfter, refreshedBefore, neverRefreshed, queueStates, multipleAuthors, hasMainAuthor);
         }
 
-        var filter = new BookSummaryFilter(sources, genres, languages, minDurationInSeconds, maxDurationInSeconds, qualifiers, refreshedAfter, refreshedBefore, neverRefreshed, queueStates);
+        var filter = new BookSummaryFilter(sources, genres, languages, minDurationInSeconds, maxDurationInSeconds, qualifiers, refreshedAfter, refreshedBefore, neverRefreshed, queueStates, multipleAuthors, hasMainAuthor);
         var (items, total) = await _audiobookRepo.SearchAsync(q, limit, offset, filter: filter.IsEmpty ? null : filter);
         var dtos = items.Select(MapToSummaryDto).ToList();
         return new PaginatedResult<AudiobookSummaryDto>(dtos.Count, total, dtos);
@@ -373,7 +377,9 @@ public class BrowseController : ControllerBase
         [FromQuery] DateTime? refreshedAfter = null,
         [FromQuery] DateTime? refreshedBefore = null,
         [FromQuery] bool? neverRefreshed = null,
-        [FromQuery] List<string>? queueStates = null)
+        [FromQuery] List<string>? queueStates = null,
+        [FromQuery] bool? multipleAuthors = null,
+        [FromQuery] bool? hasMainAuthor = null)
     {
         var clampError = ValidateSearchPaging(seriesLimit, seriesOffset)
             ?? ValidateSearchPaging(standaloneLimit, standaloneOffset)
@@ -406,7 +412,7 @@ public class BrowseController : ControllerBase
             search: null,
             matched: null,
             authorId: authorId);
-        var standaloneFilter = new BookSummaryFilter(sources, genres, languages, minDurationInSeconds, maxDurationInSeconds, qualifiers, refreshedAfter, refreshedBefore, neverRefreshed, queueStates);
+        var standaloneFilter = new BookSummaryFilter(sources, genres, languages, minDurationInSeconds, maxDurationInSeconds, qualifiers, refreshedAfter, refreshedBefore, neverRefreshed, queueStates, multipleAuthors, hasMainAuthor);
         var (standalone, standaloneTotal) = await _audiobookRepo.GetStandaloneBooksByAuthorAsync(
             authorId, standaloneLimit, standaloneOffset,
             string.IsNullOrWhiteSpace(q) ? null : q.Trim(),

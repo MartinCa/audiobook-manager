@@ -895,6 +895,15 @@ text is never part of a preset.
   saved on one applies on the others (`FilterPresetRulesTests` pins that every one of those endpoints
   accepts every books key).
 
+**Two book-list filters read authorship, and both are tri-state.** `multipleAuthors` (true = credited to
+more than one author, false = one or none) and `hasMainAuthor` (true = a main author is set, false = none)
+are `bool?` fields on `BookSummaryFilter`, so `false` is a real choice and not an absent filter (they are
+in `IsEmpty`, in `FilterPresetRules.Keys` for the books scope, and on every endpoint that takes a
+`BookSummaryFilter`). They are decided in SQL in `ApplyBookSummaryFilter` (the author join table's count
+and `main_author_id`), they are book-list-only (the series and author lists have no counterpart), and on
+the client they are `tristate` fields in `OwnedBookList` plus keys in the library route's search schema.
+Together they find co-authored books that still lack a main author.
+
 ### Metadata sidecar files
 
 Alongside each m4b, `WriteMetadata()` creates `desc.txt` (description), `reader.txt` (narrators)

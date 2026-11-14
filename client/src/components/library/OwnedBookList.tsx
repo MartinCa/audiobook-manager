@@ -221,6 +221,20 @@ export function OwnedBookList({
         },
       },
       {
+        type: "tristate",
+        key: "multipleAuthors",
+        label: "Authors",
+        trueLabel: "Multiple authors",
+        falseLabel: "Single author",
+      },
+      {
+        type: "tristate",
+        key: "hasMainAuthor",
+        label: "Main author",
+        trueLabel: "Has main author",
+        falseLabel: "No main author",
+      },
+      {
         type: "numberRange",
         label: "Duration (minutes)",
         minKey: "minDurationInSeconds",

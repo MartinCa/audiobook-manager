@@ -227,6 +227,21 @@ public class AudiobookRepository : IAudiobookRepository
                 || (wantsUnsupported && (a.MatchedSourceName == null || a.MatchedSourceName == "")));
         }
 
+        if (filter.MultipleAuthors is { } multipleAuthors)
+        {
+            // Counted in SQL off the join table; a book with no authors counts as "single".
+            query = multipleAuthors
+                ? query.Where(a => a.Authors.Count > 1)
+                : query.Where(a => a.Authors.Count <= 1);
+        }
+
+        if (filter.HasMainAuthor is { } hasMainAuthor)
+        {
+            query = hasMainAuthor
+                ? query.Where(a => a.MainAuthorId != null)
+                : query.Where(a => a.MainAuthorId == null);
+        }
+
         if (filter.QueueStates is { Count: > 0 } queueStates)
         {
             // Where the book sits in the online-metadata review queues (QueueState): a union of the

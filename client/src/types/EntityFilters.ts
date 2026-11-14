@@ -72,6 +72,11 @@ export interface BookListFilters {
   // Where the book sits in the online-metadata review queues (a bulk search awaiting a pick or
   // rejected, a refresh awaiting review) - options come from GET /browse/filter-options.
   queueStates?: string[];
+  // Authorship: true keeps books credited to several authors (false, a single one); hasMainAuthor
+  // true keeps books with a main author set (false, those without). Tri-state like `followed`:
+  // undefined is "any".
+  multipleAuthors?: boolean;
+  hasMainAuthor?: boolean;
 }
 
 /** Whether any filter field is actually set - lets a caller skip sending an empty filter object. */
