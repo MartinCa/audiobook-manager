@@ -64,6 +64,13 @@ public class BulkEditAudiobooksRequestDto
     /// to, or that book's item fails.
     /// </summary>
     public BulkEditSingleValueDto? MainAuthor { get; set; }
+
+    /// <summary>
+    /// Makes one series the primary series of every selected book (the series page's "make primary"). Action
+    /// is "set" only. Each book must already be in the series - its previous primary becomes an additional
+    /// series - or that book's item fails. Cannot be combined with a <see cref="Series"/> change.
+    /// </summary>
+    public BulkEditSingleValueDto? PrimarySeries { get; set; }
 }
 
 /// <summary>

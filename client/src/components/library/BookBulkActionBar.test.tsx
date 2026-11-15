@@ -4,7 +4,7 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { SignalRContext } from "@/context/SignalRContext";
 import { OperationKeys, SignalREvents } from "@/constants/signalrEvents";
-import { BookBulkActionBar } from "./BookBulkActionBar";
+import { BookBulkActionBar, type BookBulkActionBarProps } from "./BookBulkActionBar";
 import { useBookSelection, type SelectedBookInfo } from "@/hooks/useBookSelection";
 import { notifications } from "@/lib/notifications";
 import type * as ApiModule from "@/services/api";
@@ -63,7 +63,13 @@ const mockSignalRValue = {
 
 // Real useBookSelection, seeded from props the same way a view's row checkboxes would be, so
 // "Clear selection" and the bulk-edit-complete clear actually observable-empty the selection.
-function Harness({ initialBooks }: { initialBooks: SelectedBookInfo[] }) {
+function Harness({
+  initialBooks,
+  extraActions,
+}: {
+  initialBooks: SelectedBookInfo[];
+  extraActions?: BookBulkActionBarProps["extraActions"];
+}) {
   const selection = useBookSelection();
   // Seed once per selection while rendering — the same guarded adjust-during-render pattern
   // AuthorDetail/SeriesDetail use to reset state when an entity changes.
@@ -82,10 +88,13 @@ function Harness({ initialBooks }: { initialBooks: SelectedBookInfo[] }) {
     }
   }
 
-  return <BookBulkActionBar selection={selection} />;
+  return <BookBulkActionBar selection={selection} extraActions={extraActions} />;
 }
 
-function renderBar(initialBooks: SelectedBookInfo[] = []) {
+function renderBar(
+  initialBooks: SelectedBookInfo[] = [],
+  extraActions?: BookBulkActionBarProps["extraActions"],
+) {
   queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -94,7 +103,7 @@ function renderBar(initialBooks: SelectedBookInfo[] = []) {
   render(
     <SignalRContext.Provider value={mockSignalRValue}>
       <QueryClientProvider client={queryClient}>
-        <Harness initialBooks={initialBooks} />
+        <Harness initialBooks={initialBooks} extraActions={extraActions} />
       </QueryClientProvider>
     </SignalRContext.Provider>,
   );
@@ -315,6 +324,48 @@ describe("BookBulkActionBar", () => {
     for (const name of actions) {
       expect(screen.getByRole("button", { name })).toBeDisabled();
     }
+  });
+
+  it("renders a surface's extra actions, enabled while nothing is running", async () => {
+    vi.mocked(operationsApi.getStatus).mockImplementation(() =>
+      Promise.resolve({ isRunning: false, processed: 0, total: 0 }),
+    );
+    const extra = ({ disabled }: { disabled: boolean }) => (
+      <button type="button" disabled={disabled}>
+        Surface action
+      </button>
+    );
+
+    // Idle with a selection: present and enabled.
+    renderBar(books, extra);
+    expect(await screen.findByRole("button", { name: "Surface action" })).toBeEnabled();
+  });
+
+  it("disables a surface's extra actions while a bulk operation is running", async () => {
+    vi.mocked(operationsApi.getStatus).mockImplementation((key) =>
+      Promise.resolve(
+        key === OperationKeys.bulkEdit
+          ? { isRunning: true, processed: 1, total: 3 }
+          : { isRunning: false, processed: 0, total: 0 },
+      ),
+    );
+    const extra = ({ disabled }: { disabled: boolean }) => (
+      <button type="button" disabled={disabled}>
+        Surface action
+      </button>
+    );
+
+    renderBar([], extra);
+
+    expect(await screen.findByText("Bulk editing books...")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Surface action" })).toBeDisabled();
+  });
+
+  it("shows no extra action when the surface passes none", async () => {
+    renderBar(books);
+
+    await screen.findByRole("button", { name: "Edit Metadata" });
+    expect(screen.queryByRole("button", { name: "Surface action" })).not.toBeInTheDocument();
   });
 
   it("keeps progress visible after a disconnected browser misses the resume and re-subscribes", async () => {

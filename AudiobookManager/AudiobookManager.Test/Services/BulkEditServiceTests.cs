@@ -394,6 +394,89 @@ public class BulkEditServiceTests
     }
 
     [TestMethod]
+    public void IsEmpty_IsFalseForAPrimarySeriesChangeAlone()
+    {
+        Assert.IsFalse(new AudiobookBulkChanges { PrimarySeries = new BulkSingleChange("Spinoff", Clear: false) }.IsEmpty);
+    }
+
+    [TestMethod]
+    public void ApplyTo_APrimarySeriesChange_PromotesItAndDemotesTheOldPrimary()
+    {
+        var book = MakeBook();
+        book.Series = "Main";
+        book.SeriesPart = "1";
+        book.AdditionalSeries = new List<SeriesRelation> { new("Spinoff", "3") };
+
+        new AudiobookBulkChanges { PrimarySeries = new BulkSingleChange("Spinoff", Clear: false) }.ApplyTo(book);
+
+        Assert.AreEqual("Spinoff", book.Series);
+        Assert.AreEqual("3", book.SeriesPart);
+        Assert.AreEqual(new SeriesRelation("Main", "1"), book.AdditionalSeries!.Single());
+    }
+
+    [TestMethod]
+    public async Task ApplyAsync_APrimarySeriesChange_ReachesUpdateAudiobookWithTheNewPrimary()
+    {
+        var dbBook = MakeDbAudiobook(1, "A Book");
+        dbBook.SeriesRelations = new List<Database.Models.AudiobookSeries>
+        {
+            new() { SeriesName = "Main", SeriesPart = "1", IsPrimary = true, SortOrder = 0 },
+            new() { SeriesName = "Spinoff", SeriesPart = "3", IsPrimary = false, SortOrder = 1 },
+        };
+        _audiobookRepository.Setup(r => r.GetByIdsWithIncludesAsync(new List<long> { 1 }))
+            .ReturnsAsync(new List<DbAudiobook> { dbBook });
+        _libraryConsistencyService.Setup(s => s.RecheckAudiobookAsync(1))
+            .ReturnsAsync(new List<Database.Models.BookConsistencyIssue>());
+        Audiobook? captured = null;
+        _audiobookService.Setup(s => s.UpdateAudiobook(1, It.IsAny<Audiobook>()))
+            .Callback<long, Audiobook, Func<string, int, Task>?>((id, a, _) => captured = a)
+            .ReturnsAsync((long id, Audiobook a, Func<string, int, Task>? progressAction) => a);
+
+        var result = await _service.ApplyAsync(
+            new AudiobookBulkChanges { PrimarySeries = new BulkSingleChange("Spinoff", Clear: false) },
+            new List<long> { 1 },
+            NoOpProgress);
+
+        Assert.AreEqual((1, 1, 0), result);
+        Assert.AreEqual("Spinoff", captured!.Series);
+        Assert.AreEqual("3", captured.SeriesPart);
+        Assert.AreEqual(new SeriesRelation("Main", "1"), captured.AdditionalSeries!.Single());
+    }
+
+    // Regression guard for a silent no-op: a book that is not in the series would keep its series as they
+    // were while the batch reported it updated. It fails its own item; the book that is in it still succeeds.
+    [TestMethod]
+    public async Task ApplyAsync_APrimarySeriesTheBookIsNotIn_FailsJustThatItem()
+    {
+        var inSeries = MakeDbAudiobook(1, "In Series");
+        inSeries.SeriesRelations = new List<Database.Models.AudiobookSeries>
+        {
+            new() { SeriesName = "Main", SeriesPart = "1", IsPrimary = true, SortOrder = 0 },
+            new() { SeriesName = "Spinoff", SeriesPart = "3", IsPrimary = false, SortOrder = 1 },
+        };
+        var notInSeries = MakeDbAudiobook(2, "Not In Series");
+        notInSeries.SeriesRelations = new List<Database.Models.AudiobookSeries>
+        {
+            new() { SeriesName = "Main", SeriesPart = "2", IsPrimary = true, SortOrder = 0 },
+        };
+        _audiobookRepository.Setup(r => r.GetByIdsWithIncludesAsync(new List<long> { 1, 2 }))
+            .ReturnsAsync(new List<DbAudiobook> { inSeries, notInSeries });
+        _libraryConsistencyService.Setup(s => s.RecheckAudiobookAsync(It.IsAny<long>()))
+            .ReturnsAsync(new List<Database.Models.BookConsistencyIssue>());
+        _audiobookService.Setup(s => s.UpdateAudiobook(It.IsAny<long>(), It.IsAny<Audiobook>()))
+            .ReturnsAsync((long id, Audiobook a, Func<string, int, Task>? progressAction) => a);
+
+        var result = await _service.ApplyAsync(
+            new AudiobookBulkChanges { PrimarySeries = new BulkSingleChange("Spinoff", Clear: false) },
+            new List<long> { 1, 2 },
+            NoOpProgress);
+
+        Assert.AreEqual((2, 1, 1), result);
+        _audiobookService.Verify(s => s.UpdateAudiobook(1, It.IsAny<Audiobook>()), Times.Once);
+        _audiobookService.Verify(s => s.UpdateAudiobook(2, It.IsAny<Audiobook>()), Times.Never);
+    }
+
+    [TestMethod]
     public async Task GetPreviewAsync_MapsTheLoadedBooksWithTheirCurrentValues()
     {
         var dbBook = MakeDbAudiobook(7, "A Book");

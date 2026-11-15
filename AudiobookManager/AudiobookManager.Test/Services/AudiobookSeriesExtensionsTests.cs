@@ -14,6 +14,69 @@ public class AudiobookSeriesExtensionsTests
         };
 
     [TestMethod]
+    public void MakePrimarySeries_PromotesAnAdditionalSeries_AndKeepsTheOldPrimaryAsAdditionalWithItsPart()
+    {
+        var book = Book("Main", "1", new SeriesRelation("Spinoff", "3"), new SeriesRelation("Other", "7"));
+
+        var had = book.MakePrimarySeries("Spinoff");
+
+        Assert.IsTrue(had);
+        Assert.AreEqual("Spinoff", book.Series);
+        Assert.AreEqual("3", book.SeriesPart, "the promoted series brings its own part");
+        CollectionAssert.AreEqual(
+            new[] { new SeriesRelation("Main", "1"), new SeriesRelation("Other", "7") },
+            book.AdditionalSeries!.ToArray());
+    }
+
+    [TestMethod]
+    public void MakePrimarySeries_MatchesTheNameIgnoringCase_AndKeepsTheStoredSpelling()
+    {
+        var book = Book("Main", "1", new SeriesRelation("Spinoff", "3"));
+
+        Assert.IsTrue(book.MakePrimarySeries(" spinoff "));
+
+        Assert.AreEqual("Spinoff", book.Series);
+    }
+
+    [TestMethod]
+    public void MakePrimarySeries_OnTheCurrentPrimary_IsASuccessfulNoOp()
+    {
+        var book = Book("Main", "1", new SeriesRelation("Spinoff", "3"));
+
+        Assert.IsTrue(book.MakePrimarySeries("Main"));
+
+        Assert.AreEqual("Main", book.Series);
+        Assert.AreEqual("1", book.SeriesPart);
+        Assert.AreEqual(new SeriesRelation("Spinoff", "3"), book.AdditionalSeries!.Single());
+    }
+
+    // It reorders what the book has; it never adds a series, so the series page cannot quietly file a book
+    // under a series it was never in.
+    [TestMethod]
+    public void MakePrimarySeries_ForASeriesTheBookIsNotIn_ChangesNothingAndReturnsFalse()
+    {
+        var book = Book("Main", "1", new SeriesRelation("Spinoff", "3"));
+
+        var had = book.MakePrimarySeries("Elsewhere");
+
+        Assert.IsFalse(had);
+        Assert.AreEqual("Main", book.Series);
+        Assert.AreEqual("1", book.SeriesPart);
+        Assert.AreEqual(new SeriesRelation("Spinoff", "3"), book.AdditionalSeries!.Single());
+    }
+
+    [TestMethod]
+    public void MakePrimarySeries_OnABookWithNoPrimary_JustPromotesTheSeries()
+    {
+        var book = Book(null, null, new SeriesRelation("Spinoff", "3"));
+
+        Assert.IsTrue(book.MakePrimarySeries("Spinoff"));
+
+        Assert.AreEqual("Spinoff", book.Series);
+        Assert.AreEqual(0, book.AdditionalSeries!.Count);
+    }
+
+    [TestMethod]
     public void SetSeries_OnABookWithNoPrimary_MakesThatSeriesPrimary()
     {
         var book = Book(null, null);

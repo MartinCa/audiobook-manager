@@ -1123,6 +1123,56 @@ public class AudiobookControllerTests
     }
 
     [TestMethod]
+    public async Task StartBulkEdit_SetPrimarySeries_IsAcceptedAndMapsToATrimmedSetChange()
+    {
+        _bulkEditService.Setup(s => s.ApplyAsync(
+                It.IsAny<AudiobookBulkChanges>(), It.IsAny<List<long>>(), It.IsAny<Func<int, int, int, int, Task>>()))
+            .ReturnsAsync((1, 1, 0));
+
+        var dto = MakeBulkEditRequest();
+        dto.PrimarySeries = new BulkEditSingleValueDto { Action = "set", Value = " Sword Art Online / Progressive " };
+
+        var result = _controller.StartBulkEdit(dto);
+
+        Assert.IsInstanceOfType<OkResult>(result);
+        await OperationGate.WaitUntilReleasedAsync(typeof(AudiobookController));
+        _bulkEditService.Verify(s => s.ApplyAsync(
+            It.Is<AudiobookBulkChanges>(c =>
+                c.PrimarySeries != null && !c.PrimarySeries.Clear && c.PrimarySeries.Value == "Sword Art Online / Progressive"),
+            new List<long> { 1, 2 },
+            It.IsAny<Func<int, int, int, int, Task>>()), Times.Once);
+    }
+
+    [TestMethod]
+    [DataRow("clear", "Saga", "PrimarySeries action must be 'set'.")]
+    [DataRow("bogus", "Saga", "PrimarySeries action must be 'set'.")]
+    [DataRow("set", "  ", "PrimarySeries must name a series to set.")]
+    [DataRow("set", null, "PrimarySeries must name a series to set.")]
+    public void StartBulkEdit_APrimarySeriesRejection_IsA400_NothingStarts(string action, string? value, string expectedMessage)
+    {
+        var dto = MakeBulkEditRequest();
+        dto.PrimarySeries = new BulkEditSingleValueDto { Action = action, Value = value };
+
+        var result = _controller.StartBulkEdit(dto);
+
+        ProblemAssert.HasDetail(result, StatusCodes.Status400BadRequest, expectedMessage);
+        _bulkEditService.Verify(s => s.ApplyAsync(It.IsAny<AudiobookBulkChanges>(), It.IsAny<List<long>>(), It.IsAny<Func<int, int, int, int, Task>>()), Times.Never);
+    }
+
+    [TestMethod]
+    public void StartBulkEdit_PrimarySeriesTogetherWithASeriesChange_IsA400_NothingStarts()
+    {
+        var dto = MakeBulkEditRequest();
+        dto.PrimarySeries = new BulkEditSingleValueDto { Action = "set", Value = "Saga" };
+        dto.Series = new BulkEditSingleValueDto { Action = "set", Value = "Other" };
+
+        var result = _controller.StartBulkEdit(dto);
+
+        ProblemAssert.HasDetail(result, StatusCodes.Status400BadRequest, "PrimarySeries cannot be combined with a Series change.");
+        _bulkEditService.Verify(s => s.ApplyAsync(It.IsAny<AudiobookBulkChanges>(), It.IsAny<List<long>>(), It.IsAny<Func<int, int, int, int, Task>>()), Times.Never);
+    }
+
+    [TestMethod]
     public async Task StartBulkEdit_ClearGenres_IsAcceptedAndMapsToAnEmptyList()
     {
         _bulkEditService.Setup(s => s.ApplyAsync(

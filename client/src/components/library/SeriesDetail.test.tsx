@@ -472,6 +472,22 @@ describe("SeriesDetail", () => {
     expect(screen.getByText(/Missing Books \(50\)/)).toBeInTheDocument();
   });
 
+  it("offers Make primary series for the selected books, naming this series, only once something is selected", async () => {
+    vi.spyOn(seriesApi, "getSeriesDetail").mockResolvedValue(
+      makeDetail([], 0, [{ ...defaultOwned }]),
+    );
+
+    renderWithProviders();
+    await screen.findByRole("link", { name: /The Final Empire/ });
+    expect(screen.queryByRole("button", { name: "Make primary series" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select The Final Empire" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Make primary series" }));
+
+    expect(screen.getByText(/the 1 selected book\./)).toBeInTheDocument();
+    expect(screen.getByRole("dialog")).toHaveTextContent("Mistborn");
+  });
+
   it("selects owned books and reflects the page selection in the select-all checkbox", async () => {
     vi.spyOn(seriesApi, "getSeriesDetail").mockResolvedValue(
       makeDetail([], 0, [

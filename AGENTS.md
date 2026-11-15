@@ -728,6 +728,14 @@ Audiobookshelf sees exactly what it always did. The other ("additional") series 
   number (`SeriesPartSortKey`) and is never equivalent to a single part. A part stored before this
   existed (`2.0`, `Book 2`) is left as it is until the book is next saved, and then rewritten - which
   can rename its folder (`Book 02.0` becomes `Book 02`), a `WrongFilePath` issue a bulk resolve fixes.
+- **The series page can make its series primary for the selected books** (`primarySeries` on `POST
+  api/audiobook/bulk-edit`, "set" only, never together with a `Series` change). `MakePrimarySeries` only
+  *reorders* what a book already has: the old primary becomes the first additional series with its part, the
+  promoted one brings its own part, and a book that is not in the series fails its own item
+  (`BulkEditService` checks the result) rather than gaining the series or reporting a change it did not make.
+  It saves through the same per-book `UpdateAudiobook` loop, so the tags and folder follow the new primary.
+  The action is a `bulkActions` slot of `OwnedBookList`/`BookBulkActionBar` that only `SeriesDetail` fills
+  (`MakePrimarySeriesAction`), so the other lists are unchanged.
 - **Qualifiers stay on the primary only.** Additional series are stored clean and never suffixed.
 - **Series-keyed reads return one row per (book, series)**, with the part the book has _in that
   series_ - `SeriesOwnedKey`/`AuthorOwnedKey` are per pair, a standalone book (no relation rows)

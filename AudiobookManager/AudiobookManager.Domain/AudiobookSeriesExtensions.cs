@@ -114,6 +114,39 @@ public static class AudiobookSeriesExtensions
     }
 
     /// <summary>
+    /// Makes <paramref name="seriesName"/> the book's primary series. The previous primary is not lost: it
+    /// becomes the first additional series, keeping its part, and the promoted series brings its own part
+    /// with it. Returns false, changing nothing, when the book has no relation to the series - this only
+    /// reorders what the book already has, it never adds a series. Already primary is a successful no-op.
+    /// </summary>
+    public static bool MakePrimarySeries(this Audiobook book, string seriesName)
+    {
+        if (SameName(book.Series, seriesName))
+        {
+            return true;
+        }
+
+        var additional = book.AdditionalSeries?.ToList() ?? new List<SeriesRelation>();
+        var index = additional.FindIndex(r => SameName(r.Name, seriesName));
+        if (index < 0)
+        {
+            return false;
+        }
+
+        var promoted = additional[index];
+        additional.RemoveAt(index);
+        if (!string.IsNullOrWhiteSpace(book.Series))
+        {
+            additional.Insert(0, new SeriesRelation(book.Series.Trim(), book.SeriesPart));
+        }
+
+        book.Series = promoted.Name.Trim();
+        book.SeriesPart = promoted.Part;
+        book.AdditionalSeries = additional;
+        return true;
+    }
+
+    /// <summary>
     /// Removes the book's relation to <paramref name="seriesName"/>. Removing the primary
     /// promotes the first additional series (its part comes with it); with none left the book has
     /// no series. Returns whether the book had the relation.

@@ -47,10 +47,17 @@ public sealed class AudiobookBulkChanges
     /// </summary>
     public BulkSingleChange? MainAuthor;
 
+    /// <summary>
+    /// A series every selected book is already in, to make each book's primary one (set only). It only
+    /// reorders the books' own series - the old primary becomes an additional series - and a book that is
+    /// not in the series fails its own item rather than gaining it.
+    /// </summary>
+    public BulkSingleChange? PrimarySeries;
+
     public bool IsEmpty =>
         BookName is null && Subtitle is null && Series is null && SeriesPart is null && Description is null
         && Copyright is null && Publisher is null && Language is null && Rating is null && Asin is null && Www is null
-        && Year is null && Authors is null && Narrators is null && Genres is null && MainAuthor is null;
+        && Year is null && Authors is null && Narrators is null && Genres is null && MainAuthor is null && PrimarySeries is null;
 
     /// <summary>
     /// Applies every present change to <paramref name="book"/>. An absent change leaves the
@@ -84,6 +91,11 @@ public sealed class AudiobookBulkChanges
         if (Genres != null)
         {
             book.Genres = MergeNames(book.Genres, Genres);
+        }
+
+        if (PrimarySeries is { Clear: false, Value: { } primary })
+        {
+            book.MakePrimarySeries(primary);
         }
 
         // After the authors, so the name is judged against the list the book will end up with.
@@ -218,6 +230,15 @@ public class BulkEditService : IBulkEditService
                 {
                     throw new Exception(
                         $"Audiobook {dbBook.Id} is not credited to the chosen main author; the edit was refused.");
+                }
+
+                // The series is only reordered, never added: a book that is not in it keeps its series as
+                // they were and fails its own item, instead of the batch reporting a change it did not make.
+                if (changes.PrimarySeries is { Clear: false } wanted
+                    && !string.Equals(domain.Series?.Trim(), wanted.Value?.Trim(), StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new Exception(
+                        $"Audiobook {dbBook.Id} is not in the chosen series; the edit was refused.");
                 }
 
                 await _audiobookService.UpdateAudiobook(dbBook.Id, domain);

@@ -6296,6 +6296,7 @@ export interface components {
             narrators?: components["schemas"]["BulkEditMultiValueDto"];
             genres?: components["schemas"]["BulkEditMultiValueDto"];
             mainAuthor?: components["schemas"]["BulkEditSingleValueDto"];
+            primarySeries?: components["schemas"]["BulkEditSingleValueDto"];
         };
         BulkEditMultiValueDto: {
             action?: string | null;

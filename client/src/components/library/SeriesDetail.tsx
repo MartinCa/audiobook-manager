@@ -40,6 +40,7 @@ import { ExpectedBookList } from "./ExpectedBookList";
 import { SectionPager } from "./SectionPager";
 import { MissingBookCandidatesDialog } from "./MissingBookCandidatesDialog";
 import { BulkMissingBookMatchDialog } from "./BulkMissingBookMatchDialog";
+import { MakePrimarySeriesAction } from "./MakePrimarySeriesAction";
 import { SeriesRefreshPendingDialog } from "./SeriesRefreshPendingDialog";
 import { LastRefreshedHint } from "@/components/LastRefreshedHint";
 import { RenameValueDialog } from "@/components/RenameValueDialog";
@@ -853,6 +854,13 @@ export function SeriesDetail() {
           showSeriesPart
           hideSeries
           itemNoun="books"
+          bulkActions={({ disabled }) => (
+            <MakePrimarySeriesAction
+              seriesName={seriesName}
+              selection={selection}
+              disabled={disabled}
+            />
+          )}
           renderExtraBadges={(book) => {
             const primary = primarySeriesById.get(book.id);
             return primary && primary !== seriesName ? (

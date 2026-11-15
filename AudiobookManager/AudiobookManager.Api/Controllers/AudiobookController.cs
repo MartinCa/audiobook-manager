@@ -249,6 +249,8 @@ public class AudiobookController : ControllerBase
         if (error != null) return error;
         error = ParseMainAuthorChange(dto, changes);
         if (error != null) return error;
+        error = ParsePrimarySeriesChange(dto, changes);
+        if (error != null) return error;
         error = ParseMultiValueChange(
             dto.Narrators, "Narrators", allowClear: true,
             "Replacing narrators with an empty list would remove every narrator.", c => changes.Narrators = c);
@@ -291,6 +293,37 @@ public class AudiobookController : ControllerBase
         }
 
         changes.MainAuthor = new BulkSingleChange(name, Clear: false);
+        return null;
+    }
+
+    /// <summary>
+    /// "set" only. A Series change in the same request would also decide the primary, so the two are not
+    /// accepted together rather than letting the order they happen to be applied in pick a winner.
+    /// </summary>
+    private ObjectResult? ParsePrimarySeriesChange(BulkEditAudiobooksRequestDto dto, AudiobookBulkChanges changes)
+    {
+        if (dto.PrimarySeries == null)
+        {
+            return null;
+        }
+
+        if (dto.PrimarySeries.Action != "set")
+        {
+            return this.InvalidRequest("PrimarySeries action must be 'set'.");
+        }
+
+        var name = dto.PrimarySeries.Value?.Trim();
+        if (string.IsNullOrEmpty(name))
+        {
+            return this.InvalidRequest("PrimarySeries must name a series to set.");
+        }
+
+        if (dto.Series != null)
+        {
+            return this.InvalidRequest("PrimarySeries cannot be combined with a Series change.");
+        }
+
+        changes.PrimarySeries = new BulkSingleChange(name, Clear: false);
         return null;
     }
 
