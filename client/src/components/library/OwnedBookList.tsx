@@ -90,9 +90,6 @@ export interface OwnedBookListProps {
 
   /** Per-row extra badges (e.g. MissingTags' "Missing X" amber badges), below the meta line. */
   renderExtraBadges?: (book: ManagedAudiobook) => ReactNode;
-
-  /** Extra buttons in the bulk action bar for this surface only (SeriesDetail's "Make primary series"). */
-  bulkActions?: (context: { disabled: boolean }) => ReactNode;
 }
 
 /**
@@ -138,7 +135,6 @@ export function OwnedBookList({
   itemNoun = "audiobooks",
   skeletonRowCount = 6,
   renderExtraBadges,
-  bulkActions,
 }: OwnedBookListProps) {
   // Source options come from whichever scrapers are actually registered (see
   // BrowseController.GetFilterOptions), and genre/language options from what's actually present
@@ -419,7 +415,7 @@ export function OwnedBookList({
         </div>
       )}
 
-      <BookBulkActionBar selection={selection} extraActions={bulkActions} />
+      <BookBulkActionBar selection={selection} />
 
       {/* totalCount (not books.length) gates this: a page that comes back empty while the scope
           still holds rows elsewhere (a shrink mid-view) must keep the pager so the user can page

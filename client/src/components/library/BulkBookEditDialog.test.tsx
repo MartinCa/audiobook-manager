@@ -43,6 +43,7 @@ function book(overrides: Partial<BulkEditPreviewBook> = {}): BulkEditPreviewBook
   return {
     id: 1,
     authors: [],
+    additionalSeries: [],
     narrators: [],
     genres: [],
     bookName: null,
@@ -388,6 +389,105 @@ describe("BulkBookEditDialog", () => {
 
       expect(await screen.findByRole("alert")).toHaveTextContent(
         "The new author list does not include B Two.",
+      );
+      expect(screen.getByRole("button", { name: "Apply" })).toBeDisabled();
+    });
+  });
+
+  describe("primary series", () => {
+    const withSpinoff = () => [
+      book({ id: 1, bookName: "One", series: "Main", additionalSeries: ["Spinoff"] }),
+      book({ id: 2, bookName: "Two", series: "Main", additionalSeries: ["Spinoff", "Other"] }),
+    ];
+
+    it("offers the series every selected book is in that is not already primary on all of them", async () => {
+      renderDialog(withSpinoff());
+
+      expect(await screen.findByRole("radio", { name: "Spinoff" })).not.toBeChecked();
+      // Already primary on every book: choosing it would change nothing.
+      expect(screen.queryByRole("radio", { name: "Main" })).not.toBeInTheDocument();
+      // Only one book is in it: the action never adds a series.
+      expect(screen.queryByRole("radio", { name: "Other" })).not.toBeInTheDocument();
+    });
+
+    it("says so when the books share no series to promote", async () => {
+      renderDialog([
+        book({ id: 1, bookName: "One", series: "Main" }),
+        book({ id: 2, bookName: "Two", series: "Other" }),
+      ]);
+
+      expect(
+        await screen.findByText(
+          "The selected books share no series they could be made primary in.",
+        ),
+      ).toBeInTheDocument();
+    });
+
+    it("sends a primarySeries set payload on its own, and nothing else", async () => {
+      renderDialog(withSpinoff());
+
+      fireEvent.click(await screen.findByRole("radio", { name: "Spinoff" }));
+      await submit();
+
+      await waitFor(() => {
+        expect(bulkEditApi.apply).toHaveBeenCalledWith([1, 2], {
+          primarySeries: { action: "set", value: "Spinoff" },
+          audiobookIds: [1, 2],
+        });
+      });
+    });
+
+    it("goes out in the same request as a main author pick", async () => {
+      renderDialog([
+        book({
+          id: 1,
+          bookName: "One",
+          authors: ["A One", "B Two"],
+          series: "Main",
+          additionalSeries: ["Spinoff"],
+        }),
+        book({
+          id: 2,
+          bookName: "Two",
+          authors: ["A One", "B Two"],
+          series: "Main",
+          additionalSeries: ["Spinoff"],
+        }),
+      ]);
+
+      fireEvent.click(await screen.findByRole("radio", { name: "Spinoff" }));
+      fireEvent.click(screen.getByRole("radio", { name: "B Two" }));
+      await submit();
+
+      await waitFor(() => {
+        expect(bulkEditApi.apply).toHaveBeenCalledWith([1, 2], {
+          mainAuthor: { action: "set", value: "B Two" },
+          primarySeries: { action: "set", value: "Spinoff" },
+          audiobookIds: [1, 2],
+        });
+      });
+    });
+
+    it("keeps Apply disabled until a series is picked", async () => {
+      renderDialog(withSpinoff());
+      const apply = await screen.findByRole("button", { name: "Apply" });
+      expect(apply).toBeDisabled();
+
+      fireEvent.click(screen.getByRole("radio", { name: "Spinoff" }));
+      expect(apply).toBeEnabled();
+      fireEvent.click(screen.getByRole("radio", { name: "Leave unchanged" }));
+      expect(apply).toBeDisabled();
+    });
+
+    // The server refuses this pair, so the dialog says why and blocks it instead of sending it.
+    it("blocks Apply and says why when a Series change is made as well", async () => {
+      renderDialog(withSpinoff());
+
+      fireEvent.click(await screen.findByRole("radio", { name: "Spinoff" }));
+      fireEvent.click(screen.getByRole("checkbox", { name: "Clear Series" }));
+
+      expect(await screen.findByRole("alert")).toHaveTextContent(
+        "A new primary series cannot be combined with a change to the Series field.",
       );
       expect(screen.getByRole("button", { name: "Apply" })).toBeDisabled();
     });

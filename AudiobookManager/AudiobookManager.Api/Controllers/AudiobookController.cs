@@ -433,7 +433,8 @@ public class AudiobookController : ControllerBase
         book.Language,
         book.Rating,
         book.Asin,
-        book.Www);
+        book.Www,
+        (book.AdditionalSeries ?? new List<SeriesRelation>()).Select(r => r.Name).ToList());
 
     [HttpPut("{id}")]
     public IActionResult UpdateAudiobook(long id, [FromBody] OrganizeAudiobookDto dto)

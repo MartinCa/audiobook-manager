@@ -6321,6 +6321,7 @@ export interface components {
             rating?: string | null;
             asin?: string | null;
             www?: string | null;
+            additionalSeries?: string[] | null;
         };
         BulkEditPreviewResponseDto: {
             books?: components["schemas"]["BulkEditPreviewItemDto"][] | null;

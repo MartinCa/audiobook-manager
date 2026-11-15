@@ -2,11 +2,11 @@ import type { components } from "@/lib/api-types";
 import type { Require } from "@/lib/dto";
 
 // AudiobookManager.Api/Dtos/BulkEditDtos.cs: BulkEditPreviewItemDto is a positional record whose
-// id, authors, narrators, and genres are non-nullable; every other field is genuinely nullable
+// id, authors, narrators, genres, and additionalSeries are non-nullable; every other field is genuinely nullable
 // on the backend record.
 export type BulkEditPreviewBook = Require<
   components["schemas"]["BulkEditPreviewItemDto"],
-  "id" | "authors" | "narrators" | "genres"
+  "id" | "authors" | "narrators" | "genres" | "additionalSeries"
 >;
 
 // AudiobookManager.Api/Dtos/BulkEditDtos.cs: Books is initialized to a new list, so it is never

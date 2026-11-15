@@ -926,6 +926,40 @@ public class AudiobookControllerTests
         CollectionAssert.AreEqual(new List<string> { "Fantasy" }, dto.Books[0].Genres);
     }
 
+    // The dialog works out which series every selected book is in from this, so the additional ones have to
+    // be on the preview or only each book's primary could ever be offered.
+    [TestMethod]
+    public async Task GetBulkEditPreview_CarriesTheAdditionalSeriesNames()
+    {
+        var book = new Audiobook(
+            new List<Person> { new Person("Test Author") },
+            "Current Title",
+            2024,
+            new AudiobookFileInfo("/library/author/current.m4b", "current.m4b", 1000))
+        {
+            Id = 7,
+            Series = "Main",
+            AdditionalSeries = new List<SeriesRelation> { new("Spinoff", "3"), new("Other", null) },
+        };
+        var standalone = new Audiobook(
+            new List<Person> { new Person("Test Author") },
+            "Other Title",
+            2024,
+            new AudiobookFileInfo("/library/author/other.m4b", "other.m4b", 1000))
+        {
+            Id = 8,
+            AdditionalSeries = null,
+        };
+        _bulkEditService.Setup(s => s.GetPreviewAsync(new List<long> { 7, 8 }))
+            .ReturnsAsync(new List<Audiobook> { book, standalone });
+
+        var result = await _controller.GetBulkEditPreview(new BulkSelectionDto { AudiobookIds = new List<long> { 7, 8 } });
+
+        var dto = (BulkEditPreviewResponseDto)((OkObjectResult)result.Result!).Value!;
+        CollectionAssert.AreEqual(new List<string> { "Spinoff", "Other" }, dto.Books[0].AdditionalSeries);
+        CollectionAssert.AreEqual(new List<string>(), dto.Books[1].AdditionalSeries, "a book with none reports an empty list, not null");
+    }
+
     [TestMethod]
     public void StartBulkEdit_NoFieldChanges_IsA400_NothingStarts()
     {

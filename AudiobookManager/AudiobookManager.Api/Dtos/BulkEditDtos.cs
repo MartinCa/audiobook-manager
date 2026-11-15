@@ -93,7 +93,9 @@ public record BulkEditPreviewItemDto(
     string? Language,
     string? Rating,
     string? Asin,
-    string? Www);
+    string? Www,
+    /// <summary>The names of the book's non-primary series (the primary is <c>Series</c>), for the shared-series choice.</summary>
+    List<string> AdditionalSeries);
 
 public class BulkEditPreviewResponseDto
 {

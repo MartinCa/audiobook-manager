@@ -62,23 +62,63 @@ export function computeMultiFieldState(
 }
 
 /**
- * The authors every selected book is credited to, in the first book's order - what a bulk "set main
- * author" can offer, because a main author is always one of a book's own authors. Names compare
- * exactly (case-sensitive), the way the backend keys people and checks the main author, so a
- * "Jane Doe" and a "jane doe" are different people here and an offered name never fails on a book.
- * Empty when there is nothing in common, or nothing selected.
+ * The values every selected book has, in the first book's order and spelling. A value counts once
+ * even if a book repeats it. Empty when nothing is in common, or nothing is selected. `same` decides
+ * whether two spellings are the one value, which differs by field (see the two callers).
  */
-export function computeSharedAuthors(books: BulkEditPreviewBook[]): string[] {
+function computeSharedValues(
+  books: BulkEditPreviewBook[],
+  valuesOf: (book: BulkEditPreviewBook) => string[],
+  same: (a: string, b: string) => boolean,
+): string[] {
   const [first, ...rest] = books;
   if (!first) {
     return [];
   }
-  const seen = new Set<string>();
-  return first.authors.filter((name) => {
-    if (seen.has(name)) {
-      return false;
+  const shared: string[] = [];
+  for (const value of valuesOf(first)) {
+    if (shared.some((s) => same(s, value))) {
+      continue;
     }
-    seen.add(name);
-    return rest.every((book) => book.authors.includes(name));
-  });
+    if (rest.every((book) => valuesOf(book).some((v) => same(v, value)))) {
+      shared.push(value);
+    }
+  }
+  return shared;
+}
+
+/**
+ * The authors every selected book is credited to - what a bulk "set main author" can offer, because
+ * a main author is always one of a book's own authors. Names compare exactly (case-sensitive), the
+ * way the backend keys people and checks the main author, so a "Jane Doe" and a "jane doe" are
+ * different people here and an offered name never fails on a book.
+ */
+export function computeSharedAuthors(books: BulkEditPreviewBook[]): string[] {
+  return computeSharedValues(
+    books,
+    (book) => book.authors,
+    (a, b) => a === b,
+  );
+}
+
+/** Two series names are the same series when trimmed and equal ignoring case (the server's rule). */
+function sameSeries(a: string, b: string): boolean {
+  return a.trim().toLowerCase() === b.trim().toLowerCase();
+}
+
+function seriesOf(book: BulkEditPreviewBook): string[] {
+  const primary = book.series?.trim();
+  return [...(primary ? [primary] : []), ...book.additionalSeries];
+}
+
+/**
+ * The series a bulk "make primary" can offer: ones every selected book is in (as its primary or an
+ * additional series - the action only reorders a book's own series, it never adds one), leaving out
+ * a series that is already the primary of every selected book, since choosing it would change
+ * nothing. In the first book's order and spelling.
+ */
+export function computeSharedSeries(books: BulkEditPreviewBook[]): string[] {
+  return computeSharedValues(books, seriesOf, sameSeries).filter((name) =>
+    books.some((book) => !book.series || !sameSeries(book.series, name)),
+  );
 }

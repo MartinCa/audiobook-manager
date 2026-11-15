@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { ListChecks, Pencil, RefreshCw, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -76,11 +76,6 @@ interface OnlineMatchSearchCompletePayload {
 
 export interface BookBulkActionBarProps {
   selection: BookSelection;
-  /**
-   * Extra buttons for one surface (the series page's "Make primary series"), rendered after the
-   * shared actions. `disabled` is true while any background operation runs, like the shared buttons.
-   */
-  extraActions?: (context: { disabled: boolean }) => ReactNode;
 }
 
 /**
@@ -89,7 +84,7 @@ export interface BookBulkActionBarProps {
  * keeps its SignalR listeners and operation resync) across navigation while a bulk edit, a
  * selected metadata refresh, or a selected consistency check is in flight.
  */
-export function BookBulkActionBar({ selection, extraActions }: BookBulkActionBarProps) {
+export function BookBulkActionBar({ selection }: BookBulkActionBarProps) {
   const queryClient = useQueryClient();
 
   const [bulkEditProgress, setBulkEditProgress] = useState<BulkEditProgressPayload | null>(null);
@@ -361,7 +356,6 @@ export function BookBulkActionBar({ selection, extraActions }: BookBulkActionBar
               <Search className="mr-1.5 h-3.5 w-3.5" />
               Search Online Metadata
             </Button>
-            {extraActions?.({ disabled: anyOperationRunning })}
             <Button
               variant="ghost"
               disabled={anyOperationRunning}

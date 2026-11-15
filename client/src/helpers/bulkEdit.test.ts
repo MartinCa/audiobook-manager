@@ -1,11 +1,17 @@
 import { describe, it, expect } from "vitest";
-import { computeMultiFieldState, computeSharedAuthors, computeSingleFieldState } from "./bulkEdit";
+import {
+  computeMultiFieldState,
+  computeSharedAuthors,
+  computeSharedSeries,
+  computeSingleFieldState,
+} from "./bulkEdit";
 import type { BulkEditPreviewBook } from "@/types/BulkEdit";
 
 function book(overrides: Partial<BulkEditPreviewBook> = {}): BulkEditPreviewBook {
   return {
     id: 1,
     authors: [],
+    additionalSeries: [],
     narrators: [],
     genres: [],
     bookName: null,
@@ -224,5 +230,66 @@ describe("computeSharedAuthors", () => {
         book({ id: 2, authors: ["A One"] }),
       ]),
     ).toEqual(["A One"]);
+  });
+});
+
+describe("computeSharedSeries", () => {
+  it("offers a series every book is in, as primary or additional, that is not already primary everywhere", () => {
+    const shared = computeSharedSeries([
+      book({ series: "Main", additionalSeries: ["Spinoff", "Other"] }),
+      book({ id: 2, series: "Spinoff", additionalSeries: ["Main"] }),
+    ]);
+
+    // "Main" is primary on one book only, "Spinoff" on the other: both are real changes for someone.
+    expect(shared).toEqual(["Main", "Spinoff"]);
+  });
+
+  it("leaves out a series that is already the primary of every selected book", () => {
+    const shared = computeSharedSeries([
+      book({ series: "Main", additionalSeries: ["Spinoff"] }),
+      book({ id: 2, series: "Main", additionalSeries: ["Spinoff"] }),
+    ]);
+
+    expect(shared).toEqual(["Spinoff"]);
+  });
+
+  it("is empty when no series is in every book", () => {
+    expect(
+      computeSharedSeries([
+        book({ series: "Main", additionalSeries: [] }),
+        book({ id: 2, series: "Other", additionalSeries: [] }),
+      ]),
+    ).toEqual([]);
+  });
+
+  it("never offers a series a book is not in - the action reorders, it cannot add", () => {
+    expect(
+      computeSharedSeries([
+        book({ series: "Main", additionalSeries: ["Spinoff"] }),
+        book({ id: 2, series: "Main", additionalSeries: [] }),
+      ]),
+    ).toEqual([]);
+  });
+
+  it("matches names ignoring case and surrounding space, keeping the first book's spelling", () => {
+    expect(
+      computeSharedSeries([
+        book({ series: "Main", additionalSeries: ["Spinoff Saga"] }),
+        book({ id: 2, series: "Main", additionalSeries: [" spinoff saga "] }),
+      ]),
+    ).toEqual(["Spinoff Saga"]);
+  });
+
+  it("treats a book with no primary series as having only its additional ones", () => {
+    expect(
+      computeSharedSeries([
+        book({ series: null, additionalSeries: ["Spinoff"] }),
+        book({ id: 2, series: "Main", additionalSeries: ["Spinoff"] }),
+      ]),
+    ).toEqual(["Spinoff"]);
+  });
+
+  it("is empty for no books", () => {
+    expect(computeSharedSeries([])).toEqual([]);
   });
 });
