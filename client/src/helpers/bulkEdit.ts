@@ -87,18 +87,32 @@ function computeSharedValues(
   return shared;
 }
 
+/** One value a bulk "set one value" field can offer, and whether every selected book already has it set. */
+export interface SharedChoiceOption {
+  value: string;
+  /**
+   * True when the value is already what every selected book is set to (the main author, or the primary
+   * series), so choosing it would change nothing. It is still listed - as a disabled row - so a user who
+   * expects to see it learns why it cannot be picked, instead of finding it missing.
+   */
+  alreadySet: boolean;
+}
+
 /**
  * The authors every selected book is credited to - what a bulk "set main author" can offer, because
  * a main author is always one of a book's own authors. Names compare exactly (case-sensitive), the
  * way the backend keys people and checks the main author, so a "Jane Doe" and a "jane doe" are
  * different people here and an offered name never fails on a book.
  */
-export function computeSharedAuthors(books: BulkEditPreviewBook[]): string[] {
+export function computeSharedAuthors(books: BulkEditPreviewBook[]): SharedChoiceOption[] {
   return computeSharedValues(
     books,
     (book) => book.authors,
     (a, b) => a === b,
-  );
+  ).map((value) => ({
+    value,
+    alreadySet: books.every((book) => book.mainAuthor === value),
+  }));
 }
 
 /** Two series names are the same series when trimmed and equal ignoring case (the server's rule). */
@@ -113,12 +127,13 @@ function seriesOf(book: BulkEditPreviewBook): string[] {
 
 /**
  * The series a bulk "make primary" can offer: ones every selected book is in (as its primary or an
- * additional series - the action only reorders a book's own series, it never adds one), leaving out
- * a series that is already the primary of every selected book, since choosing it would change
- * nothing. In the first book's order and spelling.
+ * additional series - the action only reorders a book's own series, it never adds one), in the first
+ * book's order and spelling. One that is already the primary of every selected book is flagged
+ * `alreadySet`, since choosing it would change nothing.
  */
-export function computeSharedSeries(books: BulkEditPreviewBook[]): string[] {
-  return computeSharedValues(books, seriesOf, sameSeries).filter((name) =>
-    books.some((book) => !book.series || !sameSeries(book.series, name)),
-  );
+export function computeSharedSeries(books: BulkEditPreviewBook[]): SharedChoiceOption[] {
+  return computeSharedValues(books, seriesOf, sameSeries).map((value) => ({
+    value,
+    alreadySet: books.every((book) => Boolean(book.series) && sameSeries(book.series!, value)),
+  }));
 }

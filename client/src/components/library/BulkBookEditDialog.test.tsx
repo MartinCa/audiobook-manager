@@ -135,7 +135,9 @@ describe("BulkBookEditDialog", () => {
 
     expect(await screen.findByDisplayValue("The Way of Kings")).toBeInTheDocument();
     expect(await screen.findByDisplayValue("Tor")).toBeInTheDocument();
-    expect(screen.getByDisplayValue("Stormlight Archive")).toBeInTheDocument();
+    // The series is also listed (disabled, as already primary) among the primary-series choices, so
+    // match the series field itself rather than any element carrying that value.
+    expect(screen.getByPlaceholderText("Series name")).toHaveValue("Stormlight Archive");
     expect(screen.getByDisplayValue("2010")).toBeInTheDocument();
   });
 
@@ -247,12 +249,12 @@ describe("BulkBookEditDialog", () => {
 
   it("marks a field clear through its checkbox, disables the input and sends the clear action", async () => {
     renderDialog(identicalBooks());
-    await screen.findByDisplayValue("Stormlight Archive");
+    await screen.findByPlaceholderText("Series name");
 
     fireEvent.click(screen.getByRole("checkbox", { name: "Clear Series" }));
 
     expect(screen.getByText("Will be cleared on all books")).toBeInTheDocument();
-    expect(screen.getByDisplayValue("Stormlight Archive")).toBeDisabled();
+    expect(screen.getByPlaceholderText("Series name")).toBeDisabled();
 
     await submit();
 
@@ -321,6 +323,21 @@ describe("BulkBookEditDialog", () => {
       expect(screen.queryByRole("radio", { name: "A One" })).not.toBeInTheDocument();
       expect(screen.queryByRole("radio", { name: "C Three" })).not.toBeInTheDocument();
       expect(screen.getByRole("radio", { name: "Leave unchanged" })).toBeChecked();
+    });
+
+    it("shows an author who is already the main author of every selected book as disabled", async () => {
+      renderDialog([
+        book({ id: 1, bookName: "One", authors: ["A One", "B Two"], mainAuthor: "B Two" }),
+        book({ id: 2, bookName: "Two", authors: ["A One", "B Two"], mainAuthor: "B Two" }),
+      ]);
+
+      expect(
+        await screen.findByRole("radio", { name: "B Two (already the main author)" }),
+      ).toHaveAttribute("aria-disabled", "true");
+      expect(screen.getByRole("radio", { name: "A One" })).not.toHaveAttribute(
+        "aria-disabled",
+        "true",
+      );
     });
 
     it("says so when the books share no author, and offers nothing to pick", async () => {
@@ -400,27 +417,41 @@ describe("BulkBookEditDialog", () => {
       book({ id: 2, bookName: "Two", series: "Main", additionalSeries: ["Spinoff", "Other"] }),
     ];
 
-    it("offers the series every selected book is in that is not already primary on all of them", async () => {
+    it("offers the series every selected book is in, and shows one already primary on all of them as disabled", async () => {
       renderDialog(withSpinoff());
 
       expect(await screen.findByRole("radio", { name: "Spinoff" })).not.toBeChecked();
-      // Already primary on every book: choosing it would change nothing.
-      expect(screen.queryByRole("radio", { name: "Main" })).not.toBeInTheDocument();
+      // Already primary on every book: still listed so it is not mistaken for missing, but not pickable.
+      expect(screen.getByRole("radio", { name: "Main (already primary)" })).toHaveAttribute(
+        "aria-disabled",
+        "true",
+      );
       // Only one book is in it: the action never adds a series.
       expect(screen.queryByRole("radio", { name: "Other" })).not.toBeInTheDocument();
     });
 
-    it("says so when the books share no series to promote", async () => {
+    it("says the books share no series when they have none in common", async () => {
       renderDialog([
         book({ id: 1, bookName: "One", series: "Main" }),
         book({ id: 2, bookName: "Two", series: "Other" }),
       ]);
 
       expect(
-        await screen.findByText(
-          "The selected books share no series they could be made primary in.",
-        ),
+        await screen.findByText("The selected books share no series, so none can be made primary."),
       ).toBeInTheDocument();
+    });
+
+    it("does not claim there is no shared series when the only one is already primary everywhere", async () => {
+      renderDialog([
+        book({ id: 1, bookName: "One", series: "Main" }),
+        book({ id: 2, bookName: "Two", series: "Main" }),
+      ]);
+
+      expect(await screen.findByRole("radio", { name: "Main (already primary)" })).toHaveAttribute(
+        "aria-disabled",
+        "true",
+      );
+      expect(screen.queryByText(/share no series/)).not.toBeInTheDocument();
     });
 
     it("sends a primarySeries set payload on its own, and nothing else", async () => {

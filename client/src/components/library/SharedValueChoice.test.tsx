@@ -6,7 +6,11 @@ function renderChoice(props: Partial<React.ComponentProps<typeof SharedValueChoi
   const onChange = vi.fn();
   render(
     <SharedValueChoice
-      values={["A One", "B Two"]}
+      options={[
+        { value: "A One", alreadySet: false },
+        { value: "B Two", alreadySet: false },
+      ]}
+      alreadySetLabel="already set"
       value={undefined}
       onChange={onChange}
       emptyText="Nothing shared."
@@ -44,7 +48,7 @@ describe("SharedValueChoice", () => {
   });
 
   it("says so, with no radios, when nothing is shared", () => {
-    renderChoice({ values: [] });
+    renderChoice({ options: [] });
 
     expect(screen.getByText("Nothing shared.")).toBeInTheDocument();
     expect(screen.queryByRole("radio")).not.toBeInTheDocument();
@@ -60,5 +64,34 @@ describe("SharedValueChoice", () => {
     renderChoice();
 
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("lists a value every book is already set to as a disabled row saying so, and cannot pick it", () => {
+    const onChange = renderChoice({
+      options: [
+        { value: "A One", alreadySet: true },
+        { value: "B Two", alreadySet: false },
+      ],
+    });
+
+    const row = screen.getByRole("radio", { name: "A One (already set)" });
+    expect(row).toHaveAttribute("aria-disabled", "true");
+    fireEvent.click(row);
+    expect(onChange).not.toHaveBeenCalled();
+    expect(screen.getByRole("radio", { name: "B Two" })).not.toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+  });
+
+  it("still shows the rows, not the empty text, when every shared value is already set", () => {
+    renderChoice({ options: [{ value: "A One", alreadySet: true }] });
+
+    expect(screen.queryByText("Nothing shared.")).not.toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "A One (already set)" })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+    expect(screen.getByRole("radio", { name: "Leave unchanged" })).toBeChecked();
   });
 });

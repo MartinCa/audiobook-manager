@@ -730,13 +730,15 @@ Audiobookshelf sees exactly what it always did. The other ("additional") series 
   can rename its folder (`Book 02.0` becomes `Book 02`), a `WrongFilePath` issue a bulk resolve fixes.
 - **Bulk edit can make a series the primary one** (`primarySeries` on `POST api/audiobook/bulk-edit`, "set"
   only, never together with a `Series` change). The Edit Metadata dialog offers the series **every** selected
-  book is in, as primary or additional (`computeSharedSeries`, from the preview's `additionalSeries`), minus
-  one that is already primary on all of them, and says so when there is none. `MakePrimarySeries` only
+  book is in, as primary or additional (`computeSharedSeries`, from the preview's `additionalSeries`); one
+  that is already primary on all of them is listed but disabled and marked, never hidden (a hidden one made
+  "no series" read as true when the books did share one), and it says so when nothing is shared at all. `MakePrimarySeries` only
   *reorders* what a book already has: the old primary becomes the first additional series with its part, the
   promoted one brings its own part, and a book that is not in the series fails its own item
   (`BulkEditService` checks the result) rather than gaining the series or reporting a change it did not make.
   It saves through the same per-book `UpdateAudiobook` loop, so the tags and folder follow the new primary.
-  Main author and primary series are the same kind of field (pick one of the values every book already has),
+  Main author and primary series are the same kind of field (pick one of the values every book already has,
+  with one every book is already set to - from the preview's `mainAuthor`/primary series - marked and disabled),
   so they share `SharedValueChoice` and `computeSharedValues`; there is no per-surface bulk button for either.
 - **Qualifiers stay on the primary only.** Additional series are stored clean and never suffixed.
 - **Series-keyed reads return one row per (book, series)**, with the part the book has _in that

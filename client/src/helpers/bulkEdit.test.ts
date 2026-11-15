@@ -185,9 +185,13 @@ describe("computeMultiFieldState", () => {
   });
 });
 
+const authorNames = (books: BulkEditPreviewBook[]) =>
+  computeSharedAuthors(books).map((o) => o.value);
+const seriesNames = (books: BulkEditPreviewBook[]) =>
+  computeSharedSeries(books).map((o) => o.value);
 describe("computeSharedAuthors", () => {
   it("lists the authors every book has, in the first book's order", () => {
-    const shared = computeSharedAuthors([
+    const shared = authorNames([
       book({ authors: ["A One", "B Two", "C Three"] }),
       book({ id: 2, authors: ["C Three", "B Two"] }),
       book({ id: 3, authors: ["B Two", "C Three", "D Four"] }),
@@ -198,44 +202,35 @@ describe("computeSharedAuthors", () => {
 
   it("is empty when no author is in every book", () => {
     expect(
-      computeSharedAuthors([book({ authors: ["A One"] }), book({ id: 2, authors: ["B Two"] })]),
+      authorNames([book({ authors: ["A One"] }), book({ id: 2, authors: ["B Two"] })]),
     ).toEqual([]);
   });
 
   it("offers a single book's whole author list", () => {
-    expect(computeSharedAuthors([book({ authors: ["A One", "B Two"] })])).toEqual([
-      "A One",
-      "B Two",
-    ]);
+    expect(authorNames([book({ authors: ["A One", "B Two"] })])).toEqual(["A One", "B Two"]);
   });
 
   it("is empty for no books, and for books without authors", () => {
-    expect(computeSharedAuthors([])).toEqual([]);
-    expect(computeSharedAuthors([book({ authors: [] }), book({ id: 2, authors: [] })])).toEqual([]);
+    expect(authorNames([])).toEqual([]);
+    expect(authorNames([book({ authors: [] }), book({ id: 2, authors: [] })])).toEqual([]);
   });
 
   it("matches names exactly, since the main author is keyed by exact name", () => {
     expect(
-      computeSharedAuthors([
-        book({ authors: ["Jane Doe"] }),
-        book({ id: 2, authors: ["jane doe"] }),
-      ]),
+      authorNames([book({ authors: ["Jane Doe"] }), book({ id: 2, authors: ["jane doe"] })]),
     ).toEqual([]);
   });
 
   it("lists a name once even if a book repeats it", () => {
     expect(
-      computeSharedAuthors([
-        book({ authors: ["A One", "A One"] }),
-        book({ id: 2, authors: ["A One"] }),
-      ]),
+      authorNames([book({ authors: ["A One", "A One"] }), book({ id: 2, authors: ["A One"] })]),
     ).toEqual(["A One"]);
   });
 });
 
 describe("computeSharedSeries", () => {
-  it("offers a series every book is in, as primary or additional, that is not already primary everywhere", () => {
-    const shared = computeSharedSeries([
+  it("offers a series every book is in, as primary or additional", () => {
+    const shared = seriesNames([
       book({ series: "Main", additionalSeries: ["Spinoff", "Other"] }),
       book({ id: 2, series: "Spinoff", additionalSeries: ["Main"] }),
     ]);
@@ -244,18 +239,39 @@ describe("computeSharedSeries", () => {
     expect(shared).toEqual(["Main", "Spinoff"]);
   });
 
-  it("leaves out a series that is already the primary of every selected book", () => {
-    const shared = computeSharedSeries([
+  it("lists a series that is already the primary of every selected book, flagged as already set", () => {
+    const options = computeSharedSeries([
       book({ series: "Main", additionalSeries: ["Spinoff"] }),
       book({ id: 2, series: "Main", additionalSeries: ["Spinoff"] }),
     ]);
 
-    expect(shared).toEqual(["Spinoff"]);
+    expect(options).toEqual([
+      { value: "Main", alreadySet: true },
+      { value: "Spinoff", alreadySet: false },
+    ]);
+  });
+
+  it("does not flag a series that is primary on only some of the books", () => {
+    const options = computeSharedSeries([
+      book({ series: "Main", additionalSeries: ["Spinoff"] }),
+      book({ id: 2, series: "Spinoff", additionalSeries: ["Main"] }),
+    ]);
+
+    expect(options).toEqual([
+      { value: "Main", alreadySet: false },
+      { value: "Spinoff", alreadySet: false },
+    ]);
+  });
+
+  it("flags a series that is primary everywhere when the spelling differs only by case or space", () => {
+    expect(
+      computeSharedSeries([book({ series: "Main Saga" }), book({ id: 2, series: " main saga " })]),
+    ).toEqual([{ value: "Main Saga", alreadySet: true }]);
   });
 
   it("is empty when no series is in every book", () => {
     expect(
-      computeSharedSeries([
+      seriesNames([
         book({ series: "Main", additionalSeries: [] }),
         book({ id: 2, series: "Other", additionalSeries: [] }),
       ]),
@@ -263,26 +279,27 @@ describe("computeSharedSeries", () => {
   });
 
   it("never offers a series a book is not in - the action reorders, it cannot add", () => {
+    // "Spinoff" is only on one book; "Main" is on both (and primary on both).
     expect(
-      computeSharedSeries([
+      seriesNames([
         book({ series: "Main", additionalSeries: ["Spinoff"] }),
         book({ id: 2, series: "Main", additionalSeries: [] }),
       ]),
-    ).toEqual([]);
+    ).toEqual(["Main"]);
   });
 
   it("matches names ignoring case and surrounding space, keeping the first book's spelling", () => {
     expect(
-      computeSharedSeries([
+      seriesNames([
         book({ series: "Main", additionalSeries: ["Spinoff Saga"] }),
         book({ id: 2, series: "Main", additionalSeries: [" spinoff saga "] }),
       ]),
-    ).toEqual(["Spinoff Saga"]);
+    ).toEqual(["Main", "Spinoff Saga"]);
   });
 
   it("treats a book with no primary series as having only its additional ones", () => {
     expect(
-      computeSharedSeries([
+      seriesNames([
         book({ series: null, additionalSeries: ["Spinoff"] }),
         book({ id: 2, series: "Main", additionalSeries: ["Spinoff"] }),
       ]),
@@ -290,6 +307,32 @@ describe("computeSharedSeries", () => {
   });
 
   it("is empty for no books", () => {
-    expect(computeSharedSeries([])).toEqual([]);
+    expect(seriesNames([])).toEqual([]);
+  });
+});
+
+describe("computeSharedAuthors alreadySet", () => {
+  it("flags an author who is already the main author of every selected book", () => {
+    expect(
+      computeSharedAuthors([
+        book({ authors: ["A One", "B Two"], mainAuthor: "B Two" }),
+        book({ id: 2, authors: ["B Two", "A One"], mainAuthor: "B Two" }),
+      ]),
+    ).toEqual([
+      { value: "A One", alreadySet: false },
+      { value: "B Two", alreadySet: true },
+    ]);
+  });
+
+  it("does not flag an author who is the main author of only some of the books", () => {
+    expect(
+      computeSharedAuthors([
+        book({ authors: ["A One", "B Two"], mainAuthor: "B Two" }),
+        book({ id: 2, authors: ["A One", "B Two"] }),
+      ]),
+    ).toEqual([
+      { value: "A One", alreadySet: false },
+      { value: "B Two", alreadySet: false },
+    ]);
   });
 });

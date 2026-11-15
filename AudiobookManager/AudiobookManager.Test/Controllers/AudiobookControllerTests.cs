@@ -960,6 +960,34 @@ public class AudiobookControllerTests
         CollectionAssert.AreEqual(new List<string>(), dto.Books[1].AdditionalSeries, "a book with none reports an empty list, not null");
     }
 
+    // The dialog marks an author as "already the main author" from this, and a stored main author that is no
+    // longer one of the authors must not be reported, or the dialog would mark someone who is not credited.
+    [TestMethod]
+    public async Task GetBulkEditPreview_CarriesTheEffectiveMainAuthor()
+    {
+        var withMain = new Audiobook(
+            new List<Person> { new Person("A One"), new Person("B Two") },
+            "Title", 2024, new AudiobookFileInfo("/library/a/a.m4b", "a.m4b", 1000))
+        { Id = 7, MainAuthor = "B Two" };
+        var staleMain = new Audiobook(
+            new List<Person> { new Person("A One") },
+            "Other", 2024, new AudiobookFileInfo("/library/a/b.m4b", "b.m4b", 1000))
+        { Id = 8, MainAuthor = "Gone Author" };
+        var noMain = new Audiobook(
+            new List<Person> { new Person("A One") },
+            "Third", 2024, new AudiobookFileInfo("/library/a/c.m4b", "c.m4b", 1000))
+        { Id = 9 };
+        _bulkEditService.Setup(s => s.GetPreviewAsync(new List<long> { 7, 8, 9 }))
+            .ReturnsAsync(new List<Audiobook> { withMain, staleMain, noMain });
+
+        var result = await _controller.GetBulkEditPreview(new BulkSelectionDto { AudiobookIds = new List<long> { 7, 8, 9 } });
+
+        var dto = (BulkEditPreviewResponseDto)((OkObjectResult)result.Result!).Value!;
+        Assert.AreEqual("B Two", dto.Books[0].MainAuthor);
+        Assert.IsNull(dto.Books[1].MainAuthor, "a main author that is not among the authors is not reported");
+        Assert.IsNull(dto.Books[2].MainAuthor);
+    }
+
     [TestMethod]
     public void StartBulkEdit_NoFieldChanges_IsA400_NothingStarts()
     {

@@ -1,12 +1,15 @@
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { cn } from "@/lib/utils";
+import type { SharedChoiceOption } from "@/helpers/bulkEdit";
 
 // The "leave this field alone" choice of the radios; a real value is never called this.
 const UNCHANGED = "__unchanged__";
 
 export interface SharedValueChoiceProps {
   /** The values every selected book has - the only ones that can be offered. */
-  values: string[];
+  options: SharedChoiceOption[];
+  /** Appended, in parentheses, to a value every book is already set to; that row is disabled. */
+  alreadySetLabel: string;
   /** The picked value, or undefined for "Leave unchanged". */
   value: string | undefined;
   onChange: (value: string | undefined) => void;
@@ -27,7 +30,8 @@ export interface SharedValueChoiceProps {
  * "Leave unchanged" is the default: these fields are optional, and an untouched one changes nothing.
  */
 export function SharedValueChoice({
-  values,
+  options,
+  alreadySetLabel,
   value,
   onChange,
   emptyText,
@@ -35,12 +39,17 @@ export function SharedValueChoice({
   idPrefix,
   warning,
 }: SharedValueChoiceProps) {
-  if (values.length === 0) {
+  if (options.length === 0) {
     return <p className="text-muted-foreground text-xs italic">{emptyText}</p>;
   }
   const items = [
-    { label: "Leave unchanged", radio: UNCHANGED, id: `${idPrefix}-unchanged` },
-    ...values.map((name, index) => ({ label: name, radio: name, id: `${idPrefix}-${index}` })),
+    { label: "Leave unchanged", radio: UNCHANGED, id: `${idPrefix}-unchanged`, alreadySet: false },
+    ...options.map((option, index) => ({
+      label: option.value,
+      radio: option.value,
+      id: `${idPrefix}-${index}`,
+      alreadySet: option.alreadySet,
+    })),
   ];
   return (
     <fieldset className="min-w-0 space-y-1">
@@ -52,15 +61,27 @@ export function SharedValueChoice({
       >
         {items.map((item) => (
           <div key={item.id} className="flex items-start gap-2">
-            <RadioGroupItem value={item.radio} id={item.id} className="mt-0.5 shrink-0" />
+            <RadioGroupItem
+              value={item.radio}
+              id={item.id}
+              disabled={item.alreadySet}
+              className="mt-0.5 shrink-0"
+            />
             <label
               htmlFor={item.id}
               className={cn(
                 "min-w-0 cursor-pointer text-xs [overflow-wrap:anywhere]",
                 item.radio === UNCHANGED && "text-muted-foreground italic",
+                item.alreadySet && "text-muted-foreground cursor-default",
               )}
             >
               {item.label}
+              {item.alreadySet && (
+                <>
+                  {" "}
+                  <span className="italic">({alreadySetLabel})</span>
+                </>
+              )}
             </label>
           </div>
         ))}

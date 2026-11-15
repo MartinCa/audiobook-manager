@@ -462,7 +462,8 @@ function BulkEditForm({
 
           <FieldRow label="Main Author">
             <SharedValueChoice
-              values={sharedAuthors}
+              options={sharedAuthors}
+              alreadySetLabel="already the main author"
               value={mainAuthor}
               onChange={setMainAuthor}
               emptyText="The selected books share no author, so a main author cannot be set for all of them."
@@ -562,10 +563,11 @@ function BulkEditForm({
 
           <FieldRow label="Primary Series">
             <SharedValueChoice
-              values={sharedSeries}
+              options={sharedSeries}
+              alreadySetLabel="already primary"
               value={primarySeries}
               onChange={setPrimarySeries}
-              emptyText="The selected books share no series they could be made primary in."
+              emptyText="The selected books share no series, so none can be made primary."
               legend="Primary series for all selected books"
               idPrefix="primary-series"
               warning={

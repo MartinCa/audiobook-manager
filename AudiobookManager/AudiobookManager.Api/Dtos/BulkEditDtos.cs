@@ -95,7 +95,9 @@ public record BulkEditPreviewItemDto(
     string? Asin,
     string? Www,
     /// <summary>The names of the book's non-primary series (the primary is <c>Series</c>), for the shared-series choice.</summary>
-    List<string> AdditionalSeries);
+    List<string> AdditionalSeries,
+    /// <summary>The book's main author when it has one (always one of <c>Authors</c>), so the dialog can mark it as already set.</summary>
+    string? MainAuthor = null);
 
 public class BulkEditPreviewResponseDto
 {
