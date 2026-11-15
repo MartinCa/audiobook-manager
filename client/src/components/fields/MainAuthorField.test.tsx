@@ -55,7 +55,7 @@ describe("MainAuthorField", () => {
     const { onChange } = renderField({ value: "A One" });
 
     await user.click(await screen.findByRole("combobox", { name: "Main author" }));
-    await user.click(screen.getByRole("option", { name: "No main author" }));
+    await user.click(await screen.findByRole("option", { name: "No main author" }));
 
     expect(onChange).toHaveBeenCalledWith("");
   });
