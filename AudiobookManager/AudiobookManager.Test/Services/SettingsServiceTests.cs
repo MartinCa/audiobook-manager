@@ -377,5 +377,82 @@ public class SettingsServiceTests
         _librarySettingsRepository.Verify(r => r.SetMetadataSourceSearchJsonAsync(null), Times.Once);
     }
 
+    #region Metadata choice rules
+
+    private string? _savedChoiceJson;
+
+    private void StoreChoiceJson(string? json)
+    {
+        _savedChoiceJson = json;
+        _librarySettingsRepository.Setup(r => r.GetOrCreateAsync())
+            .ReturnsAsync(() => new DbLibrarySettings { MetadataChoiceRulesJson = _savedChoiceJson });
+        _librarySettingsRepository.Setup(r => r.SetMetadataChoiceRulesJsonAsync(It.IsAny<string?>()))
+            .Callback<string?>(j => _savedChoiceJson = j)
+            .Returns(Task.CompletedTask);
+    }
+
+    [TestMethod]
+    public async Task GetMetadataChoiceRules_NothingStored_IsAllDefaults()
+    {
+        StoreChoiceJson(null);
+
+        var rules = await _service.GetMetadataChoiceRules();
+
+        Assert.AreEqual(MetadataChoiceRuleSet.DefaultRule, rules.Get(MetadataChoiceKinds.MainAuthor));
+        Assert.AreEqual(MetadataChoiceRuleSet.DefaultRule, rules.Get(MetadataChoiceKinds.PrimarySeries));
+    }
+
+    [TestMethod]
+    public async Task UpdateMetadataChoiceRules_KeepsTheRulesOfChoicesLeftOut_AndStoresOnlyNonDefaults()
+    {
+        StoreChoiceJson(null);
+        await _service.UpdateMetadataChoiceRules(new Dictionary<string, ChoiceRule>
+        {
+            [MetadataChoiceKinds.MainAuthor] = new(SourceNamesMainRule.UseSources, SourceSilentRule.FirstListed),
+        });
+
+        var rules = await _service.UpdateMetadataChoiceRules(new Dictionary<string, ChoiceRule>
+        {
+            [MetadataChoiceKinds.PrimarySeries] = new(SourceNamesMainRule.AskMe, SourceSilentRule.KeepCurrent),
+        });
+
+        Assert.AreEqual(new ChoiceRule(SourceNamesMainRule.UseSources, SourceSilentRule.FirstListed), rules.Get(MetadataChoiceKinds.MainAuthor));
+        Assert.AreEqual(new ChoiceRule(SourceNamesMainRule.AskMe, SourceSilentRule.KeepCurrent), rules.Get(MetadataChoiceKinds.PrimarySeries));
+        StringAssert.Contains(_savedChoiceJson!, "UseSources");
+    }
+
+    [TestMethod]
+    public async Task UpdateMetadataChoiceRules_BackToDefaults_StoresNull()
+    {
+        StoreChoiceJson(null);
+        await _service.UpdateMetadataChoiceRules(new Dictionary<string, ChoiceRule>
+        {
+            [MetadataChoiceKinds.MainAuthor] = new(SourceNamesMainRule.UseSources, SourceSilentRule.KeepCurrent),
+        });
+
+        await _service.UpdateMetadataChoiceRules(new Dictionary<string, ChoiceRule>
+        {
+            [MetadataChoiceKinds.MainAuthor] = MetadataChoiceRuleSet.DefaultRule,
+        });
+
+        Assert.IsNull(_savedChoiceJson);
+    }
+
+    [TestMethod]
+    public async Task UpdateMetadataChoiceRules_AForbiddenRule_IsRefusedAndNothingIsWritten()
+    {
+        StoreChoiceJson(null);
+
+        await Assert.ThrowsExactlyAsync<ArgumentException>(() => _service.UpdateMetadataChoiceRules(
+            new Dictionary<string, ChoiceRule>
+            {
+                [MetadataChoiceKinds.PrimarySeries] = new(SourceNamesMainRule.KeepCurrent, SourceSilentRule.None),
+            }));
+
+        _librarySettingsRepository.Verify(r => r.SetMetadataChoiceRulesJsonAsync(It.IsAny<string?>()), Times.Never);
+    }
+
+    #endregion
+
     #endregion
 }

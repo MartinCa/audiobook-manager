@@ -1464,6 +1464,7 @@ public class HardcoverScraper : IScraper
             }
             book_series {
               position
+              featured
               series {
                 name
               }
@@ -1864,9 +1865,10 @@ public class HardcoverScraper : IScraper
         }
 
         IList<MetadataSeriesSearchResult> series = new List<MetadataSeriesSearchResult>();
+        string? mainSeries = null;
         try
         {
-            series = await ParseSeries(bookElement);
+            (series, mainSeries) = await ParseSeries(bookElement);
         }
         catch (Exception ex)
         {
@@ -1959,6 +1961,7 @@ public class HardcoverScraper : IScraper
             Language = language,
             ImageUrl = imageUrl,
             Series = series,
+            MainSeries = mainSeries,
             Description = description,
             Genres = genres,
             Rating = rating,
@@ -2103,14 +2106,21 @@ public class HardcoverScraper : IScraper
             .ToList();
     }
 
-    private async Task<IList<MetadataSeriesSearchResult>> ParseSeries(JsonElement bookElement)
+    /// <summary>
+    /// The book's series (mapped), and the one Hardcover marks <c>featured</c> on the book's own series
+    /// link rows - null unless exactly one row is, since two "featured" is no designation. The mapper is
+    /// a strict 1:1, order-preserving function, so the featured entry is found by index and its mapped
+    /// name read back.
+    /// </summary>
+    private async Task<(IList<MetadataSeriesSearchResult> Series, string? Main)> ParseSeries(JsonElement bookElement)
     {
         var series = new List<MetadataSeriesSearchResult>();
+        var featuredIndexes = new List<int>();
 
         if (!bookElement.TryGetProperty("book_series", out var bookSeriesElement) ||
             bookSeriesElement.ValueKind != JsonValueKind.Array)
         {
-            return series;
+            return (series, null);
         }
 
         foreach (var bs in bookSeriesElement.EnumerateArray())
@@ -2127,6 +2137,11 @@ public class HardcoverScraper : IScraper
                 continue;
             }
 
+            if (bs.TryGetProperty("featured", out var featuredElement) && featuredElement.ValueKind == JsonValueKind.True)
+            {
+                featuredIndexes.Add(series.Count);
+            }
+
             series.Add(new MetadataSeriesSearchResult(seriesName)
             {
                 SeriesPart = FormatSeriesPosition(
@@ -2134,7 +2149,9 @@ public class HardcoverScraper : IScraper
             });
         }
 
-        return await _bookSeriesMapper.MapBookSeries(series);
+        var mapped = await _bookSeriesMapper.MapBookSeries(series);
+        var main = featuredIndexes.Count == 1 && featuredIndexes[0] < mapped.Count ? mapped[featuredIndexes[0]].SeriesName : null;
+        return (mapped, main);
     }
 
     /// <summary>

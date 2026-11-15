@@ -489,6 +489,7 @@ public partial class GoodreadsScraper : IScraper
         return new MetadataSearchResult(bookUrl, bookName ?? string.Empty)
         {
             Authors = authors,
+            MainAuthor = ParsePrimaryAuthorName(bookElement, contributorElements, authors),
             Narrators = narrators,
             Subtitle = subtitle,
             Duration = null,
@@ -677,6 +678,41 @@ public partial class GoodreadsScraper : IScraper
         return persons
             .Where(p => p.Role is null || !_ignoredAuthorRoles.Any(ignoredRole => string.Equals(ignoredRole, p.Role, StringComparison.InvariantCultureIgnoreCase)))
             .ToList();
+    }
+
+    /// <summary>
+    /// The author Goodreads marks as the book's primary contributor (<c>primaryContributorEdge</c>),
+    /// when that person is one of <paramref name="authors"/> - a primary contributor who is a narrator or
+    /// an ignored role (illustrator) is no main author. Null when the page names none.
+    /// </summary>
+    private static string? ParsePrimaryAuthorName(JsonElement bookElement, IList<JsonElement> contributorElements, IList<Person> authors)
+    {
+        try
+        {
+            if (!bookElement.TryGetProperty("primaryContributorEdge", out var edge))
+            {
+                return null;
+            }
+
+            var reference = edge.GetNestedProperty("node", "__ref").GetString();
+            if (reference is null || reference.Length <= 12)
+            {
+                return null;
+            }
+
+            var id = reference.Substring(12);
+            var name = contributorElements
+                .Where(x => x.GetProperty("id").GetString() == id)
+                .Select(x => x.GetPropertyValueOrNull("name"))
+                .FirstOrDefault(n => n is not null);
+
+            return name is not null && authors.Any(a => string.Equals(a.Name, name, StringComparison.Ordinal)) ? name : null;
+        }
+        catch
+        {
+            // A designation is a bonus: a page shape this cannot read is "the source does not say".
+            return null;
+        }
     }
 
     private static IList<Person> ParseJsonPersons(JsonElement bookElement, IList<JsonElement> contributorElements)

@@ -692,6 +692,10 @@ namespace AudiobookManager.Database.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("metadata_apply_rules_json");
 
+                    b.Property<string>("MetadataChoiceRulesJson")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("metadata_choice_rules_json");
+
                     b.Property<int>("MetadataRefreshDelayMs")
                         .HasColumnType("INTEGER")
                         .HasColumnName("metadata_refresh_delay_ms");

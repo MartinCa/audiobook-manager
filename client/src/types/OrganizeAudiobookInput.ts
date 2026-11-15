@@ -7,6 +7,8 @@ export interface OrganizeAudiobookInput {
   cover_mime?: string;
   authors?: string;
   narrators?: string;
+  /** The book's current main author (one of `authors`), for the apply choice's "keep current". */
+  mainAuthor?: string;
   bookName?: string;
   subtitle?: string;
   /** The book is recorded as split at the colon: the tag preview starts with the split on. */

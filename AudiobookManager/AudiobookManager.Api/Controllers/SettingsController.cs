@@ -275,6 +275,77 @@ public class SettingsController : ControllerBase
     }
 
     /// <summary>
+    /// The "which one is the main one" rules for applying online metadata (the main author and the
+    /// primary series, when a source lists several), served with their option lists and warnings so
+    /// the client holds none of them. Each choice has one setting for when the source names a main
+    /// one and one for when it does not.
+    /// </summary>
+    [HttpGet("metadata-choice-rules")]
+    public async Task<ActionResult<MetadataChoiceRulesDto>> GetMetadataChoiceRules() =>
+        Ok(ToDto(await _settingsService.GetMetadataChoiceRules()));
+
+    /// <summary>
+    /// Saves the rules for the choices in the body; a choice left out keeps its stored rules. An
+    /// unknown choice or an option a choice cannot take (a book always has a primary series, so it
+    /// cannot be cleared) is refused.
+    /// </summary>
+    [HttpPut("metadata-choice-rules")]
+    public async Task<ActionResult<MetadataChoiceRulesDto>> UpdateMetadataChoiceRules([FromBody] UpdateMetadataChoiceRulesDto dto)
+    {
+        if (dto?.Rules is null || dto.Rules.Any(r => r is null))
+        {
+            return this.InvalidRequest("Rules must be a list of per-choice rules.");
+        }
+
+        var proposed = new Dictionary<string, ChoiceRule>();
+        foreach (var rule in dto.Rules)
+        {
+            if (!Enum.TryParse<SourceNamesMainRule>(rule.WhenSourceNamesMain, ignoreCase: false, out var named) ||
+                !Enum.IsDefined(named))
+            {
+                return this.InvalidRequest(
+                    $"'{rule.WhenSourceNamesMain}' is not a known rule for when the source names a main one. Use one of: " +
+                    $"{string.Join(", ", Enum.GetNames<SourceNamesMainRule>())}.");
+            }
+
+            if (!Enum.TryParse<SourceSilentRule>(rule.WhenSourceSilent, ignoreCase: false, out var silent) ||
+                !Enum.IsDefined(silent))
+            {
+                return this.InvalidRequest(
+                    $"'{rule.WhenSourceSilent}' is not a known rule for when the source does not name one. Use one of: " +
+                    $"{string.Join(", ", Enum.GetNames<SourceSilentRule>())}.");
+            }
+
+            if (rule.Choice is null || !proposed.TryAdd(rule.Choice, new ChoiceRule(named, silent)))
+            {
+                return this.InvalidRequest($"Each choice may be given once; '{rule.Choice}' is missing or repeated.");
+            }
+        }
+
+        try
+        {
+            return Ok(ToDto(await _settingsService.UpdateMetadataChoiceRules(proposed)));
+        }
+        catch (ArgumentException ex)
+        {
+            // Raised only with messages written for the caller (an unknown choice, a forbidden option).
+            return this.InvalidRequest(ex.Message);
+        }
+    }
+
+    private static MetadataChoiceRulesDto ToDto(MetadataChoiceRuleSet rules) =>
+        new(MetadataChoiceRuleSet.Kinds.Select(k =>
+        {
+            var rule = rules.Get(k.Key);
+            return new MetadataChoiceDto(
+                k.Key, k.Label, k.Description,
+                rule.WhenSourceNamesMain.ToString(), rule.WhenSourceSilent.ToString(),
+                k.NamesMainOptions.Select(o => new MetadataApplyOptionDto(o.Key, o.Label, o.Description)).ToList(),
+                k.SilentOptions.Select(o => new MetadataApplyOptionDto(o.Key, o.Label, o.Description)).ToList(),
+                k.Warning);
+        }).ToList());
+
+    /// <summary>
     /// Saves the preferred order of the online metadata sources. Every place that lists sources
     /// (the source picker, result tabs, pending matches, filter dropdowns) follows it; a source the
     /// list leaves out follows the listed ones alphabetically. The current order, with every

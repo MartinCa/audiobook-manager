@@ -33,8 +33,11 @@ public static class PendingRefreshPayload
     /// Version 6 added <see cref="Snapshot.HasDescription"/>/<see cref="Snapshot.HasGenres"/>, what the
     /// source's search response said about those tags (the online-match candidate list shows them);
     /// a row written earlier deserializes them as null, meaning the response did not say.
+    /// Version 7 added <see cref="Snapshot.MainAuthor"/> and <see cref="SnapshotSeries.IsMain"/>, which author
+    /// and series the source designated as the main one; a row written earlier deserializes them as null,
+    /// meaning the source did not say (see <see cref="MainSeriesOf"/>).
     /// </summary>
-    public const int CurrentVersion = 6;
+    public const int CurrentVersion = 7;
 
     // WhenWritingNull matters beyond payload size: MetadataRefreshService.ReevaluatePendingRefreshesAsync
     // decides whether a row actually changed by comparing this serialized JSON byte-for-byte
@@ -96,10 +99,24 @@ public static class PendingRefreshPayload
         /// <see cref="Genres"/> are the real values.
         /// </summary>
         bool? HasDescription = null,
-        bool? HasGenres = null);
+        bool? HasGenres = null,
+        /// <summary>
+        /// The author the source explicitly designated as the main one, one of <see cref="Authors"/>; null
+        /// on a row written before Version 7 and whenever the source did not say.
+        /// </summary>
+        string? MainAuthor = null);
 
-    /// <summary>One series a source reported for the book.</summary>
-    public sealed record SnapshotSeries(string Name, string? Part, string? OriginalName = null);
+    /// <summary>
+    /// One series a source reported for the book. <paramref name="IsMain"/> is true only for the one the
+    /// source explicitly designated as the main series (null otherwise, so it is omitted from the JSON);
+    /// it lives on the entry rather than as a name so that re-mapping the series
+    /// (<c>RemapSeriesAsync</c>) carries it along entry for entry.
+    /// </summary>
+    public sealed record SnapshotSeries(string Name, string? Part, string? OriginalName = null, bool? IsMain = null);
+
+    /// <summary>The name of the series the source designated as the main one, or null when it did not say.</summary>
+    public static string? MainSeriesOf(Snapshot snapshot) =>
+        snapshot.Series?.FirstOrDefault(s => s.IsMain == true)?.Name;
 
     /// <summary>
     /// The snapshot's series as <see cref="SeriesRelationSet"/> entries: the Version-4 list, or for
@@ -185,9 +202,23 @@ public static class PendingRefreshPayload
         fetched.Series?.FirstOrDefault()?.OriginalSeriesName ?? fetched.Series?.FirstOrDefault()?.SeriesName,
         fetched.NumberOfRatings,
         fetched.Series is { Count: > 0 }
-            ? fetched.Series.Select(s => new SnapshotSeries(s.SeriesName, s.SeriesPart, s.OriginalSeriesName ?? s.SeriesName)).ToList()
+            ? MarkMainSeries(fetched.Series, fetched.MainSeries)
             : null,
         fetched.Qualifiers is { Count: > 0 } ? BookQualifiers.Normalize(fetched.Qualifiers) : null,
         fetched.HasDescription,
-        fetched.HasGenres);
+        fetched.HasGenres,
+        string.IsNullOrWhiteSpace(fetched.MainAuthor) ? null : fetched.MainAuthor.Trim());
+
+    private static List<SnapshotSeries> MarkMainSeries(
+        IList<Scraping.Models.MetadataSeriesSearchResult> series, string? mainSeries)
+    {
+        // Only the first entry of that name is the main one, so a series listed twice cannot be two.
+        var mainIndex = string.IsNullOrWhiteSpace(mainSeries)
+            ? -1
+            : series.ToList().FindIndex(s => string.Equals(s.SeriesName, mainSeries, StringComparison.Ordinal));
+        return series
+            .Select((s, i) => new SnapshotSeries(
+                s.SeriesName, s.SeriesPart, s.OriginalSeriesName ?? s.SeriesName, i == mainIndex ? true : null))
+            .ToList();
+    }
 }

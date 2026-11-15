@@ -91,6 +91,27 @@ public class SettingsService : ISettingsService
         return resolved;
     }
 
+    public async Task<MetadataChoiceRuleSet> GetMetadataChoiceRules() =>
+        MetadataChoiceRuleSet.From(MetadataChoiceRuleSet.Deserialize(
+            (await _librarySettingsRepository.GetOrCreateAsync()).MetadataChoiceRulesJson));
+
+    public async Task<MetadataChoiceRuleSet> UpdateMetadataChoiceRules(IReadOnlyDictionary<string, ChoiceRule> rules)
+    {
+        MetadataChoiceRuleSet.Validate(rules);
+
+        var merged = MetadataChoiceRuleSet.From(MetadataChoiceRuleSet.Deserialize(
+            (await _librarySettingsRepository.GetOrCreateAsync()).MetadataChoiceRulesJson)).ToDictionary()
+            .ToDictionary(r => r.Key, r => r.Value);
+        foreach (var (choice, rule) in rules)
+        {
+            merged[choice] = rule;
+        }
+
+        var resolved = MetadataChoiceRuleSet.From(merged);
+        await _librarySettingsRepository.SetMetadataChoiceRulesJsonAsync(resolved.Serialize());
+        return resolved;
+    }
+
     public async Task<IReadOnlyList<string>> GetMetadataSourceOrder() =>
         MetadataSourceOrder.Deserialize((await _librarySettingsRepository.GetOrCreateAsync()).MetadataSourceOrderJson);
 

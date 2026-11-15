@@ -7,6 +7,14 @@ public class MetadataSearchResult
     public string Url { get; set; }
     public string Source { get; set; } = "";
     public IList<Person> Authors { get; set; }
+
+    /// <summary>
+    /// The author the source explicitly designates as the main one (Goodreads' primary contributor),
+    /// matched to a name in <see cref="Authors"/>; null when the source does not say. The order of
+    /// <see cref="Authors"/> is deliberately NOT a designation - it is often arbitrary - so a scraper
+    /// sets this only from something the source actually marks.
+    /// </summary>
+    public string? MainAuthor { get; set; }
     public IList<Person> Narrators { get; set; }
     public string BookName { get; set; }
     public string? Subtitle { get; set; }
@@ -15,6 +23,13 @@ public class MetadataSearchResult
     public string? Language { get; set; }
     public string? ImageUrl { get; set; }
     public IList<MetadataSeriesSearchResult>? Series { get; set; }
+
+    /// <summary>
+    /// The series (as named in <see cref="Series"/>, after mapping) the source explicitly designates as
+    /// the book's main one (Hardcover's featured series); null when it does not say. The order of
+    /// <see cref="Series"/> is not a designation.
+    /// </summary>
+    public string? MainSeries { get; set; }
     public string? Description { get; set; }
     public IList<string> Genres { get; set; }
 

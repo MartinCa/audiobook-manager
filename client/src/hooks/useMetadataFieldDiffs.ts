@@ -12,6 +12,12 @@ import {
   seriesSetsDiffer,
   sourceSeriesEntries,
 } from "@/helpers/seriesRelations";
+import {
+  DEFAULT_CHOICE_RULES,
+  resolveMetadataChoices,
+  sameName,
+  type ChoiceRules,
+} from "@/helpers/metadataChoice";
 import type { OrganizeAudiobookInput } from "@/types/OrganizeAudiobookInput";
 import type { MetadataSearchResult } from "@/types/MetadataSearchResult";
 import type { LanguageOption } from "@/types/Language";
@@ -120,6 +126,8 @@ export function useMetadataFieldDiffs(
   primarySeriesName?: string,
   qualifierOptions: BookQualifierOption[] = NO_QUALIFIER_OPTIONS,
   defaultLanguage: string = "",
+  choiceRules: ChoiceRules = DEFAULT_CHOICE_RULES,
+  chosenMainAuthor?: string,
 ): FieldDiff[] {
   return useMemo((): FieldDiff[] => {
     const cur = currentInput;
@@ -135,11 +143,30 @@ export function useMetadataFieldDiffs(
     // The book's whole set of series against the source's, as sets (the source's ordering never
     // matters), with the primary the apply would choose - see helpers/seriesRelations.ts.
     const currentSeries = currentSeriesSet(cur.series, cur.seriesPart, cur.additionalSeries);
+    // Which author becomes the main one and which series the primary, per the library's choice
+    // rules and any explicit pick (the same resolution the server runs unattended).
+    const choices = resolveMetadataChoices(
+      choiceRules,
+      cur,
+      res,
+      chosenMainAuthor,
+      primarySeriesName,
+    );
     const proposedSeries = resolveSeriesSet(
       allSeries(currentSeries),
       sourceSeriesEntries(res.series),
-      primarySeriesName,
+      choices.primarySeries,
     );
+    // The main author is applied together with the Authors field. With the same authors but a
+    // different main one, the field is still offered, its two sides spelling the main author out so
+    // the row does not read as two identical lists (the server's differ does the same).
+    const authorsDiffer =
+      comparablePersonNames(cur.authors ?? "") !== comparablePersonNames(newAuthors);
+    const mainAuthorDiffers =
+      !sameName(choices.currentMainAuthor, choices.mainAuthor) &&
+      !(choices.currentMainAuthor === "" && choices.mainAuthor === "");
+    const describeMain = (names: string, main: string) =>
+      `${names} (${main ? `main: ${main}` : "no main author"})`;
     const newGenres = res.genres?.join("/") ?? "";
 
     // Qualifiers only ever add: a source that does not report one is not saying the book lacks
@@ -167,9 +194,15 @@ export function useMetadataFieldDiffs(
       {
         key: "authors",
         label: "Authors",
-        currentValue: cur.authors ?? "",
-        newValue: newAuthors,
-        changed: comparablePersonNames(cur.authors ?? "") !== comparablePersonNames(newAuthors),
+        currentValue:
+          !authorsDiffer && mainAuthorDiffers
+            ? describeMain(cur.authors ?? "", choices.currentMainAuthor)
+            : (cur.authors ?? ""),
+        newValue:
+          !authorsDiffer && mainAuthorDiffers
+            ? describeMain(newAuthors, choices.mainAuthor)
+            : newAuthors,
+        changed: authorsDiffer || mainAuthorDiffers,
       },
       {
         key: "narrators",
@@ -288,5 +321,7 @@ export function useMetadataFieldDiffs(
     primarySeriesName,
     qualifierOptions,
     defaultLanguage,
+    choiceRules,
+    chosenMainAuthor,
   ]);
 }

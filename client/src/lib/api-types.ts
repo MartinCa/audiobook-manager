@@ -5057,6 +5057,70 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/settings/metadata-choice-rules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["MetadataChoiceRulesDto"];
+                        "application/json": components["schemas"]["MetadataChoiceRulesDto"];
+                        "text/json": components["schemas"]["MetadataChoiceRulesDto"];
+                    };
+                };
+            };
+        };
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["UpdateMetadataChoiceRulesDto"];
+                    "text/json": components["schemas"]["UpdateMetadataChoiceRulesDto"];
+                    "application/*+json": components["schemas"]["UpdateMetadataChoiceRulesDto"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["MetadataChoiceRulesDto"];
+                        "application/json": components["schemas"]["MetadataChoiceRulesDto"];
+                        "text/json": components["schemas"]["MetadataChoiceRulesDto"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/settings/metadata-source-order": {
         parameters: {
             query?: never;
@@ -5866,6 +5930,7 @@ export interface components {
             splitTitleOnColon?: boolean;
             primarySeriesName?: string | null;
             replaceExisting?: boolean;
+            mainAuthorName?: string | null;
         };
         ApplySelectedMetadataRefreshDto: {
             audiobookIds?: number[] | null;
@@ -6515,6 +6580,24 @@ export interface components {
             interactiveOptions?: components["schemas"]["MetadataApplyOptionDto"][] | null;
             automatedOptions?: components["schemas"]["MetadataApplyOptionDto"][] | null;
         };
+        MetadataChoiceDto: {
+            choice?: string | null;
+            label?: string | null;
+            description?: string | null;
+            whenSourceNamesMain?: string | null;
+            whenSourceSilent?: string | null;
+            namesMainOptions?: components["schemas"]["MetadataApplyOptionDto"][] | null;
+            silentOptions?: components["schemas"]["MetadataApplyOptionDto"][] | null;
+            warning?: string | null;
+        };
+        MetadataChoiceRuleInputDto: {
+            choice?: string | null;
+            whenSourceNamesMain?: string | null;
+            whenSourceSilent?: string | null;
+        };
+        MetadataChoiceRulesDto: {
+            choices?: components["schemas"]["MetadataChoiceDto"][] | null;
+        };
         MetadataMultiSearchDto: {
             sources?: string[] | null;
             q?: string | null;
@@ -6551,6 +6634,7 @@ export interface components {
             url?: string | null;
             source?: string | null;
             authors?: components["schemas"]["Person"][] | null;
+            mainAuthor?: string | null;
             narrators?: components["schemas"]["Person"][] | null;
             bookName?: string | null;
             subtitle?: string | null;
@@ -6560,6 +6644,7 @@ export interface components {
             language?: string | null;
             imageUrl?: string | null;
             series?: components["schemas"]["MetadataSeriesSearchResult"][] | null;
+            mainSeries?: string | null;
             description?: string | null;
             genres?: string[] | null;
             hasDescription?: boolean | null;
@@ -6703,6 +6788,7 @@ export interface components {
             seriesName?: string | null;
             seriesPart?: string | null;
             originalSeriesName?: string | null;
+            isMain?: boolean | null;
         };
         PendingRefreshSnapshotDto: {
             url?: string | null;
@@ -6728,6 +6814,7 @@ export interface components {
             qualifiers?: string[] | null;
             hasDescription?: boolean | null;
             hasGenres?: boolean | null;
+            mainAuthor?: string | null;
         };
         Person: {
             /** Format: int64 */
@@ -7088,6 +7175,9 @@ export interface components {
         };
         UpdateMetadataApplyRulesDto: {
             rules?: components["schemas"]["MetadataApplyRuleInputDto"][] | null;
+        };
+        UpdateMetadataChoiceRulesDto: {
+            rules?: components["schemas"]["MetadataChoiceRuleInputDto"][] | null;
         };
         UrlCleanupPageDto: {
             items?: components["schemas"]["AudiobookUrlCleanupDto"][] | null;

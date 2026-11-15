@@ -45,10 +45,15 @@ public record PendingRefreshSnapshotDto(
     IReadOnlyList<string>? Qualifiers = null,
     /// <summary>What the source's search response said about a description / genres: true or false as reported, null when it does not say.</summary>
     bool? HasDescription = null,
-    bool? HasGenres = null);
+    bool? HasGenres = null,
+    /// <summary>The author the source itself names as the main one; null when it does not say (which is not "the first author").</summary>
+    string? MainAuthor = null);
 
-/// <summary>One series a source reported for a book: the mapped name, its part, and the name before series mapping.</summary>
-public record PendingRefreshSeriesDto(string SeriesName, string? SeriesPart, string? OriginalSeriesName);
+/// <summary>
+/// One series a source reported for a book: the mapped name, its part, and the name before series mapping.
+/// <paramref name="IsMain"/> is true only for the one series the source itself marks as the main one.
+/// </summary>
+public record PendingRefreshSeriesDto(string SeriesName, string? SeriesPart, string? OriginalSeriesName, bool? IsMain = null);
 
 /// <summary>One row of the pending-refresh list page.</summary>
 public record PendingMetadataRefreshListItemDto(
@@ -86,13 +91,17 @@ public record BulkApplyFilteredMetadataRefreshDto(
 /// <remarks>
 /// <paramref name="PrimarySeriesName"/> optionally picks which of the snapshot's series becomes the
 /// book's primary one (the one in its tags and path). Left out, the primary is chosen the way a
-/// bulk apply chooses it: the book's current primary if the source still lists it.
+/// bulk apply chooses it: by the primary series choice rule (by default the book's current primary if
+/// the source still lists it). <paramref name="MainAuthorName"/> likewise picks the book's main author
+/// among the snapshot's authors when Authors is applied; the empty string means "no main author", and
+/// left out the main author choice rule decides.
 /// <paramref name="ReplaceExisting"/> authorizes overwriting a file that already occupies the path
 /// the apply moves the book to (the user's answer to the duplicate-target dialog); without it such
 /// an apply is refused with a 409.
 /// </remarks>
 public record ApplyPendingRefreshDto(
-    List<string>? Fields, bool SplitTitleOnColon = false, string? PrimarySeriesName = null, bool ReplaceExisting = false);
+    List<string>? Fields, bool SplitTitleOnColon = false, string? PrimarySeriesName = null, bool ReplaceExisting = false,
+    string? MainAuthorName = null);
 
 /// <summary>The body of POST api/metadata-refresh/apply-selected.</summary>
 public record ApplySelectedMetadataRefreshDto(List<long> AudiobookIds, bool SplitTitleOnColon = false);

@@ -27,6 +27,12 @@ public interface ILibrarySettingsRepository
     /// </summary>
     Task SetMetadataApplyRulesJsonAsync(string? json);
 
+    /// <summary>
+    /// Replaces only the metadata choice rules JSON (null = all defaults), leaving every other setting
+    /// untouched, like <see cref="SetMetadataApplyRulesJsonAsync"/>.
+    /// </summary>
+    Task SetMetadataChoiceRulesJsonAsync(string? json);
+
     /// <summary>Replaces just the stored metadata source order, leaving every other setting alone.</summary>
     Task SetMetadataSourceOrderJsonAsync(string? json);
 

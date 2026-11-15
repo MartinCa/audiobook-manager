@@ -299,4 +299,19 @@ public class LibrarySettingsRepositoryTests
         using var freshContext = OpenNewContext();
         Assert.AreEqual("""{"Hardcover":"Spaced"}""", (await freshContext.LibrarySettings.AsNoTracking().SingleAsync()).MetadataSourceSearchJson);
     }
+
+    [TestMethod]
+    public async Task SetMetadataChoiceRulesJsonAsync_ChangesOnlyThatColumn_AndUpdateAsyncLeavesItAlone()
+    {
+        await _repository.UpdateAsync(DbInitialsSpacing.Spaced, DbInitialsPunctuation.Dotted, 2500, true, "0 3 * * *", 50, AudiobookManager.Database.Models.SearchInitialsHandling.Compact, true, 4, true, true);
+
+        await _repository.SetMetadataChoiceRulesJsonAsync("""{"MainAuthor":{"WhenSourceNamesMain":"UseSources"}}""");
+        await _repository.UpdateAsync(DbInitialsSpacing.Unspaced, DbInitialsPunctuation.Dotted, 2500, true, "0 3 * * *", 50, AudiobookManager.Database.Models.SearchInitialsHandling.Compact, true, 4, true, true);
+
+        using var freshContext = OpenNewContext();
+        var row = await freshContext.LibrarySettings.AsNoTracking().SingleAsync();
+        Assert.AreEqual("""{"MainAuthor":{"WhenSourceNamesMain":"UseSources"}}""", row.MetadataChoiceRulesJson);
+        Assert.AreEqual(2500, row.MetadataRefreshDelayMs);
+        Assert.IsTrue(row.MainAuthorOnlyInPath);
+    }
 }

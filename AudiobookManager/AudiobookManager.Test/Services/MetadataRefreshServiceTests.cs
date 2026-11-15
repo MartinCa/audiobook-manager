@@ -1789,6 +1789,55 @@ public class MetadataRefreshServiceTests
             Times.Once);
     }
 
+    // The source's designation of its main series lives on the entry it was made on, so re-mapping the
+    // series names (which re-evaluation does) must carry it along - a designation lost here would make the
+    // rules treat the source as silent after the first re-evaluation.
+    [TestMethod]
+    public async Task ReevaluatePendingRefreshesAsync_RemapKeepsTheSourcesMainSeriesDesignationOnItsEntry()
+    {
+        var book = new Database.Models.Audiobook(
+            405, "Book Five", null, "Old Series Name", "5", 2024,
+            null, null, null, "en", null, null, "https://example.com/book", null, null,
+            "/library/book.m4b", "book.m4b", 1000);
+        book.Authors = new List<Database.Models.Person> { new(default, "Author A") };
+
+        var payload = new PendingRefreshPayload.Snapshot(
+            PendingRefreshPayload.CurrentVersion, "https://example.com/book", "Hardcover",
+            new List<string> { "Author A" }, new List<string>(), "Book Five", null,
+            "Raw One", "5", null, new List<string>(), null, null, null, null, null, null, "Raw One",
+            Series:
+            [
+                new PendingRefreshPayload.SnapshotSeries("Raw One", "5", "Raw One"),
+                new PendingRefreshPayload.SnapshotSeries("Raw Two", "2", "Raw Two", IsMain: true),
+            ]);
+
+        _pendingRepository.Setup(r => r.GetPendingAudiobookIdsAsync()).ReturnsAsync(new List<long> { 405 });
+        _pendingRepository.Setup(r => r.GetByAudiobookIdsAsync(It.IsAny<IReadOnlyCollection<long>>()))
+            .ReturnsAsync(new List<PendingMetadataRefresh> { PendingRow(405, payload, "[\"Series\"]") });
+        _audiobookRepository.Setup(r => r.GetByIdsWithIncludesAsync(It.IsAny<IReadOnlyList<long>>()))
+            .ReturnsAsync(new List<Database.Models.Audiobook> { book });
+        _bookSeriesMapper
+            .Setup(m => m.MapBookSeries(It.IsAny<IList<MetadataSeriesSearchResult>>()))
+            .Returns<IList<MetadataSeriesSearchResult>>(results =>
+                Task.FromResult<IList<MetadataSeriesSearchResult>>(results
+                    .Select(r => new MetadataSeriesSearchResult("Mapped " + r.SeriesName) { SeriesPart = r.SeriesPart })
+                    .ToList()));
+        string? storedJson = null;
+        _pendingRepository
+            .Setup(r => r.UpdatePayloadAndChangedFieldsAsync(405, It.IsAny<string>(), It.IsAny<string>()))
+            .Callback<long, string, string>((_, json, _) => storedJson = json)
+            .Returns(Task.CompletedTask);
+
+        await CreateService().ReevaluatePendingRefreshesAsync();
+
+        var stored = PendingRefreshPayload.TryParse(storedJson);
+        Assert.IsNotNull(stored);
+        CollectionAssert.AreEqual(
+            new[] { "Mapped Raw One", "Mapped Raw Two" }, stored.Series!.Select(x => x.Name).ToArray());
+        CollectionAssert.AreEqual(new bool?[] { null, true }, stored.Series!.Select(x => x.IsMain).ToArray());
+        Assert.AreEqual("Mapped Raw Two", PendingRefreshPayload.MainSeriesOf(stored));
+    }
+
     [TestMethod]
     public async Task ReevaluatePendingRefreshesAsync_BookNoLongerExists_RemovesTheRow()
     {

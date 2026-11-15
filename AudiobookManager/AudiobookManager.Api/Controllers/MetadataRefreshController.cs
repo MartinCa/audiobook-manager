@@ -243,6 +243,7 @@ public class MetadataRefreshController : ControllerBase
         var splitTitleOnColon = dto?.SplitTitleOnColon ?? false;
         var primarySeriesName = dto?.PrimarySeriesName;
         var replaceExisting = dto?.ReplaceExisting ?? false;
+        var mainAuthorName = dto?.MainAuthorName;
 
         _ = Task.Run(async () =>
         {
@@ -251,7 +252,7 @@ public class MetadataRefreshController : ControllerBase
             {
                 using var scope = _serviceScopeFactory.CreateScope();
                 var service = scope.ServiceProvider.GetRequiredService<IMetadataRefreshService>();
-                var applied = await service.ApplyPendingRefreshAsync(id, fields, splitTitleOnColon, primarySeriesName, replaceExisting);
+                var applied = await service.ApplyPendingRefreshAsync(id, fields, splitTitleOnColon, primarySeriesName, replaceExisting, mainAuthorName);
                 outcome = new SingleBookOperationComplete(
                     id, SingleBookOperations.PendingRefreshApply,
                     applied ? SingleBookOperationStatus.Completed : SingleBookOperationStatus.NothingToApply, null);
@@ -292,7 +293,7 @@ public class MetadataRefreshController : ControllerBase
         try
         {
             var result = await _metadataRefreshService.CheckApplyTargetCollisionAsync(
-                id, dto?.Fields, dto?.SplitTitleOnColon ?? false, dto?.PrimarySeriesName);
+                id, dto?.Fields, dto?.SplitTitleOnColon ?? false, dto?.PrimarySeriesName, dto?.MainAuthorName);
             return result is null ? NoContent() : Ok(new TargetPathCheckDto(result));
         }
         catch (InvalidOperationException ex)
@@ -526,7 +527,8 @@ public class MetadataRefreshController : ControllerBase
                 payload.Asin,
                 payload.NumberOfRatings,
                 PendingRefreshPayload.SeriesOf(payload)
-                    .Select(e => new PendingRefreshSeriesDto(e.Name, e.Part, e.OriginalName))
+                    .Select(e => new PendingRefreshSeriesDto(e.Name, e.Part, e.OriginalName, string.Equals(e.Name, PendingRefreshPayload.MainSeriesOf(payload), StringComparison.OrdinalIgnoreCase) ? true : null))
                     .ToList(),
-                payload.Qualifiers?.ToList()));
+                payload.Qualifiers?.ToList(),
+                MainAuthor: payload.MainAuthor));
 }
