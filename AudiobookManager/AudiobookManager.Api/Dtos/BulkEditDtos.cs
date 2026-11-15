@@ -57,6 +57,13 @@ public class BulkEditAudiobooksRequestDto
     public BulkEditMultiValueDto? Authors { get; set; }
     public BulkEditMultiValueDto? Narrators { get; set; }
     public BulkEditMultiValueDto? Genres { get; set; }
+
+    /// <summary>
+    /// Makes one author the main author of every selected book. Action is "set" only (the main author is
+    /// optional per book, but a bulk clear is not offered); Value must name an author each book is credited
+    /// to, or that book's item fails.
+    /// </summary>
+    public BulkEditSingleValueDto? MainAuthor { get; set; }
 }
 
 /// <summary>

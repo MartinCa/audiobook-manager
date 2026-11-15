@@ -60,3 +60,25 @@ export function computeMultiFieldState(
   }
   return { common: null, mixed: true };
 }
+
+/**
+ * The authors every selected book is credited to, in the first book's order - what a bulk "set main
+ * author" can offer, because a main author is always one of a book's own authors. Names compare
+ * exactly (case-sensitive), the way the backend keys people and checks the main author, so a
+ * "Jane Doe" and a "jane doe" are different people here and an offered name never fails on a book.
+ * Empty when there is nothing in common, or nothing selected.
+ */
+export function computeSharedAuthors(books: BulkEditPreviewBook[]): string[] {
+  const [first, ...rest] = books;
+  if (!first) {
+    return [];
+  }
+  const seen = new Set<string>();
+  return first.authors.filter((name) => {
+    if (seen.has(name)) {
+      return false;
+    }
+    seen.add(name);
+    return rest.every((book) => book.authors.includes(name));
+  });
+}

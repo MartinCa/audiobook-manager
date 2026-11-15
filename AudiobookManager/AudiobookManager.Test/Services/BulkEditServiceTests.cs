@@ -289,6 +289,111 @@ public class BulkEditServiceTests
     }
 
     [TestMethod]
+    public void ApplyTo_AMainAuthorChange_SetsOnlyTheMainAuthor()
+    {
+        var book = MakeBook();
+        book.Authors = new List<Person> { new Person("A One"), new Person("B Two") };
+
+        new AudiobookBulkChanges { MainAuthor = new BulkSingleChange(" B Two ", Clear: false) }.ApplyTo(book);
+
+        Assert.AreEqual("B Two", book.MainAuthor);
+        Assert.AreEqual("B Two", book.EffectiveMainAuthor);
+        CollectionAssert.AreEqual(new[] { "A One", "B Two" }, book.Authors.Select(a => a.Name).ToArray());
+    }
+
+    [TestMethod]
+    public void IsEmpty_IsFalseForAMainAuthorChangeAlone()
+    {
+        Assert.IsFalse(new AudiobookBulkChanges { MainAuthor = new BulkSingleChange("A One", Clear: false) }.IsEmpty);
+    }
+
+    // Judged against the list the book ends up with: an "add" that keeps the authors and a new main author
+    // from the added names both work in one edit.
+    [TestMethod]
+    public void ApplyTo_AMainAuthorAndAnAuthorsAdd_JudgesTheMainAuthorAgainstTheMergedList()
+    {
+        var book = MakeBook();
+
+        new AudiobookBulkChanges
+        {
+            Authors = new BulkMultiChange("add", new List<string> { "New Co-Author" }),
+            MainAuthor = new BulkSingleChange("New Co-Author", Clear: false),
+        }.ApplyTo(book);
+
+        Assert.AreEqual("New Co-Author", book.EffectiveMainAuthor);
+    }
+
+    [TestMethod]
+    public async Task ApplyAsync_AMainAuthorChange_ReachesUpdateAudiobookOnTheDomainBook()
+    {
+        var dbBook = MakeDbAudiobook(1, "A Book");
+        dbBook.Authors = new List<DbPerson> { new DbPerson(default, "A One"), new DbPerson(default, "B Two") };
+        _audiobookRepository.Setup(r => r.GetByIdsWithIncludesAsync(new List<long> { 1 }))
+            .ReturnsAsync(new List<DbAudiobook> { dbBook });
+        _libraryConsistencyService.Setup(s => s.RecheckAudiobookAsync(1))
+            .ReturnsAsync(new List<Database.Models.BookConsistencyIssue>());
+        Audiobook? captured = null;
+        _audiobookService.Setup(s => s.UpdateAudiobook(1, It.IsAny<Audiobook>()))
+            .Callback<long, Audiobook, Func<string, int, Task>?>((id, a, _) => captured = a)
+            .ReturnsAsync((long id, Audiobook a, Func<string, int, Task>? progressAction) => a);
+
+        var result = await _service.ApplyAsync(
+            new AudiobookBulkChanges { MainAuthor = new BulkSingleChange("B Two", Clear: false) },
+            new List<long> { 1 },
+            NoOpProgress);
+
+        Assert.AreEqual((1, 1, 0), result);
+        Assert.AreEqual("B Two", captured!.EffectiveMainAuthor);
+    }
+
+    // Regression guard for the silent no-op: a book that does not credit the chosen name would be saved
+    // with no main author (EffectiveMainAuthor drops it) and the batch would report success. It fails its
+    // own item instead, and the books that do credit the name still succeed.
+    [TestMethod]
+    public async Task ApplyAsync_AMainAuthorTheBookIsNotCreditedTo_FailsJustThatItem()
+    {
+        var credited = MakeDbAudiobook(1, "Credited");
+        credited.Authors = new List<DbPerson> { new DbPerson(default, "A One"), new DbPerson(default, "B Two") };
+        var notCredited = MakeDbAudiobook(2, "Not Credited");
+        notCredited.Authors = new List<DbPerson> { new DbPerson(default, "A One") };
+        _audiobookRepository.Setup(r => r.GetByIdsWithIncludesAsync(new List<long> { 1, 2 }))
+            .ReturnsAsync(new List<DbAudiobook> { credited, notCredited });
+        _libraryConsistencyService.Setup(s => s.RecheckAudiobookAsync(It.IsAny<long>()))
+            .ReturnsAsync(new List<Database.Models.BookConsistencyIssue>());
+        _audiobookService.Setup(s => s.UpdateAudiobook(It.IsAny<long>(), It.IsAny<Audiobook>()))
+            .ReturnsAsync((long id, Audiobook a, Func<string, int, Task>? progressAction) => a);
+
+        var result = await _service.ApplyAsync(
+            new AudiobookBulkChanges { MainAuthor = new BulkSingleChange("B Two", Clear: false) },
+            new List<long> { 1, 2 },
+            NoOpProgress);
+
+        Assert.AreEqual((2, 1, 1), result);
+        _audiobookService.Verify(s => s.UpdateAudiobook(1, It.IsAny<Audiobook>()), Times.Once);
+        _audiobookService.Verify(s => s.UpdateAudiobook(2, It.IsAny<Audiobook>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task ApplyAsync_AMainAuthorChange_DoesNotInvalidateTheDetectionCache()
+    {
+        // The author names do not change, so the grouping of similar names is still right.
+        var dbBook = MakeDbAudiobook(1, "A Book");
+        _audiobookRepository.Setup(r => r.GetByIdsWithIncludesAsync(new List<long> { 1 }))
+            .ReturnsAsync(new List<DbAudiobook> { dbBook });
+        _libraryConsistencyService.Setup(s => s.RecheckAudiobookAsync(1))
+            .ReturnsAsync(new List<Database.Models.BookConsistencyIssue>());
+        _audiobookService.Setup(s => s.UpdateAudiobook(1, It.IsAny<Audiobook>()))
+            .ReturnsAsync((long id, Audiobook a, Func<string, int, Task>? progressAction) => a);
+
+        await _service.ApplyAsync(
+            new AudiobookBulkChanges { MainAuthor = new BulkSingleChange("Test Author", Clear: false) },
+            new List<long> { 1 },
+            NoOpProgress);
+
+        _detectionCache.Verify(c => c.Invalidate(), Times.Never);
+    }
+
+    [TestMethod]
     public async Task GetPreviewAsync_MapsTheLoadedBooksWithTheirCurrentValues()
     {
         var dbBook = MakeDbAudiobook(7, "A Book");

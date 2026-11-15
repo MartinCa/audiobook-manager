@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computeMultiFieldState, computeSingleFieldState } from "./bulkEdit";
+import { computeMultiFieldState, computeSharedAuthors, computeSingleFieldState } from "./bulkEdit";
 import type { BulkEditPreviewBook } from "@/types/BulkEdit";
 
 function book(overrides: Partial<BulkEditPreviewBook> = {}): BulkEditPreviewBook {
@@ -176,5 +176,53 @@ describe("computeMultiFieldState", () => {
       common: null,
       mixed: false,
     });
+  });
+});
+
+describe("computeSharedAuthors", () => {
+  it("lists the authors every book has, in the first book's order", () => {
+    const shared = computeSharedAuthors([
+      book({ authors: ["A One", "B Two", "C Three"] }),
+      book({ id: 2, authors: ["C Three", "B Two"] }),
+      book({ id: 3, authors: ["B Two", "C Three", "D Four"] }),
+    ]);
+
+    expect(shared).toEqual(["B Two", "C Three"]);
+  });
+
+  it("is empty when no author is in every book", () => {
+    expect(
+      computeSharedAuthors([book({ authors: ["A One"] }), book({ id: 2, authors: ["B Two"] })]),
+    ).toEqual([]);
+  });
+
+  it("offers a single book's whole author list", () => {
+    expect(computeSharedAuthors([book({ authors: ["A One", "B Two"] })])).toEqual([
+      "A One",
+      "B Two",
+    ]);
+  });
+
+  it("is empty for no books, and for books without authors", () => {
+    expect(computeSharedAuthors([])).toEqual([]);
+    expect(computeSharedAuthors([book({ authors: [] }), book({ id: 2, authors: [] })])).toEqual([]);
+  });
+
+  it("matches names exactly, since the main author is keyed by exact name", () => {
+    expect(
+      computeSharedAuthors([
+        book({ authors: ["Jane Doe"] }),
+        book({ id: 2, authors: ["jane doe"] }),
+      ]),
+    ).toEqual([]);
+  });
+
+  it("lists a name once even if a book repeats it", () => {
+    expect(
+      computeSharedAuthors([
+        book({ authors: ["A One", "A One"] }),
+        book({ id: 2, authors: ["A One"] }),
+      ]),
+    ).toEqual(["A One"]);
   });
 });

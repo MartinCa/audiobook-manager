@@ -1125,6 +1125,13 @@ person can never delete a book. On the domain `Audiobook` it is `MainAuthor`, th
   **This changes the folder naming for those books relative to what Audiobookshelf's own docs describe
   (a folder per author); it is opt-in and was requested explicitly, but any further change to how the
   folder is derived needs the confirmation the Audiobookshelf-compatibility rule above asks for.**
+- **Bulk edit can set it** (`mainAuthor` on `POST api/audiobook/bulk-edit`, "set" only - no bulk clear). The
+  dialog offers only the authors **every** selected book shares (`computeSharedAuthors`, exact names) and says
+  so when there are none; it rides the same per-book `UpdateAudiobook` loop as every other bulk field. It is
+  applied after `Authors`, and `BulkEditService` fails a book's own item when the result's `EffectiveMainAuthor`
+  is not the chosen name (otherwise the book would save with none and the batch would report success); the
+  controller refuses an authors "replace" whose list drops the chosen name, and the dialog blocks that
+  combination before sending.
 - **The consistency check reads it from the database row, because the file cannot supply it.**
   `AudiobookIssueDetectionService` sets `parsed.MainAuthor = audiobook.MainAuthorName` before the detectors
   run (same idea as `BookQualifiers.ApplyExpected`); without it `PathMismatchDetector` would expect the

@@ -25,7 +25,11 @@ import { SeriesField } from "@/components/fields/SeriesField";
 import { LanguageField } from "@/components/fields/LanguageField";
 import { bulkEditApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
-import { computeMultiFieldState, computeSingleFieldState } from "@/helpers/bulkEdit";
+import {
+  computeMultiFieldState,
+  computeSharedAuthors,
+  computeSingleFieldState,
+} from "@/helpers/bulkEdit";
 import { handleApiError } from "@/lib/api";
 import { notifications } from "@/lib/notifications";
 import { cn } from "@/lib/utils";
@@ -129,6 +133,9 @@ const bulkEditFormSchema = z.object({
 
 type BuiltChanges = Omit<BulkEditAudiobooksRequest, "audiobookIds">;
 
+// The "leave the main author alone" choice of the main-author radios; a real author is never called this.
+const MAIN_AUTHOR_UNCHANGED = "__unchanged__";
+
 // The payload contract riders, re-checked against the backend's MapBulkChanges:
 //  - a single field that is not dirty, or whose typed value trims to empty, is absent: leaving a
 //    field empty must never clear it — the explicit "Clear" checkbox is the only way to clear,
@@ -141,6 +148,7 @@ function buildChanges(
   dirtyFields: FieldNamesMarkedBoolean<BulkEditFormValues>,
   cleared: ReadonlySet<ClearableFieldKey>,
   modes: MultiFieldModes,
+  mainAuthor: string | undefined,
 ): BuiltChanges {
   const changes: BuiltChanges = {};
 
@@ -162,6 +170,9 @@ function buildChanges(
 
   if (dirtyFields.authors && values.authors.length > 0) {
     changes.authors = { action: modes.authors, values: values.authors };
+  }
+  if (mainAuthor) {
+    changes.mainAuthor = { action: "set", value: mainAuthor };
   }
   for (const field of CLEARABLE_MULTI_FIELDS) {
     if (cleared.has(field)) {
@@ -309,7 +320,10 @@ function BulkEditForm({
     narrators: "replace",
     genres: "replace",
   });
+  // The author to make every book's main author; undefined = leave each book's main author alone.
+  const [mainAuthor, setMainAuthor] = useState<string | undefined>(undefined);
   const [submitting, setSubmitting] = useState(false);
+  const sharedAuthors = useMemo(() => computeSharedAuthors(books), [books]);
 
   const toggleCleared = (field: ClearableFieldKey, nowCleared: boolean) => {
     setCleared((prev) => {
@@ -352,11 +366,17 @@ function BulkEditForm({
     mixed ? "Different values" : fallback;
 
   const changes = useMemo(
-    () => buildChanges(watchedValues, form.formState.dirtyFields, cleared, modes),
-    [watchedValues, form.formState.dirtyFields, cleared, modes],
+    () => buildChanges(watchedValues, form.formState.dirtyFields, cleared, modes, mainAuthor),
+    [watchedValues, form.formState.dirtyFields, cleared, modes, mainAuthor],
   );
+  // Replacing the authors in the same edit rewrites every book's list: a main author that is not in
+  // the new list would be dropped, and the server refuses that request, so say so before it is sent.
+  const mainAuthorDropped =
+    mainAuthor !== undefined &&
+    changes.authors?.action === "replace" &&
+    !(changes.authors.values ?? []).includes(mainAuthor);
   const { setCount, clearedCount } = useMemo(() => countActions(changes), [changes]);
-  const hasChanges = setCount > 0 || clearedCount > 0;
+  const hasChanges = (setCount > 0 || clearedCount > 0) && !mainAuthorDropped;
 
   const handleValidSubmit = async () => {
     if (!hasChanges) return;
@@ -419,6 +439,15 @@ function BulkEditForm({
               groupId="authors"
               value={modes.authors}
               onValueChange={(mode) => setMode("authors", mode)}
+            />
+          </FieldRow>
+
+          <FieldRow label="Main Author">
+            <MainAuthorChoice
+              sharedAuthors={sharedAuthors}
+              value={mainAuthor}
+              onChange={setMainAuthor}
+              dropped={mainAuthorDropped}
             />
           </FieldRow>
 
@@ -724,6 +753,73 @@ function FieldRow({
         </p>
       )}
     </div>
+  );
+}
+
+/**
+ * Sets one author as every selected book's main author. Only an author all the books share can be
+ * offered (a main author is always one of the book's own authors), so with none in common there is
+ * nothing to pick and the field says so. "Leave unchanged" is the default: the main author is optional,
+ * and an untouched field changes nothing.
+ */
+function MainAuthorChoice({
+  sharedAuthors,
+  value,
+  onChange,
+  dropped,
+}: {
+  sharedAuthors: string[];
+  value: string | undefined;
+  onChange: (author: string | undefined) => void;
+  dropped: boolean;
+}) {
+  if (sharedAuthors.length === 0) {
+    return (
+      <p className="text-muted-foreground text-xs italic">
+        The selected books share no author, so a main author cannot be set for all of them.
+      </p>
+    );
+  }
+  const items = [
+    { label: "Leave unchanged", radio: MAIN_AUTHOR_UNCHANGED, id: "main-author-unchanged" },
+    ...sharedAuthors.map((name, index) => ({
+      label: name,
+      radio: name,
+      id: `main-author-${index}`,
+    })),
+  ];
+  return (
+    <fieldset className="min-w-0 space-y-1">
+      <legend className="sr-only">Main author for all selected books</legend>
+      <RadioGroup
+        value={value ?? MAIN_AUTHOR_UNCHANGED}
+        onValueChange={(next: string) =>
+          onChange(next === MAIN_AUTHOR_UNCHANGED ? undefined : next)
+        }
+        className="space-y-1"
+      >
+        {items.map((item) => (
+          <div key={item.id} className="flex items-start gap-2">
+            <RadioGroupItem value={item.radio} id={item.id} className="mt-0.5 shrink-0" />
+            <label
+              htmlFor={item.id}
+              className={cn(
+                "min-w-0 cursor-pointer text-xs [overflow-wrap:anywhere]",
+                item.radio === MAIN_AUTHOR_UNCHANGED && "text-muted-foreground italic",
+              )}
+            >
+              {item.label}
+            </label>
+          </div>
+        ))}
+      </RadioGroup>
+      {dropped && (
+        <p role="alert" className="text-destructive text-[11px]">
+          The new author list does not include {value}. Add them to the authors or pick another main
+          author.
+        </p>
+      )}
+    </fieldset>
   );
 }
 

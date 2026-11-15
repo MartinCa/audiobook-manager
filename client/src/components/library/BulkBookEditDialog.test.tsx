@@ -307,6 +307,92 @@ describe("BulkBookEditDialog", () => {
     });
   });
 
+  describe("main author", () => {
+    const coAuthored = () => [
+      book({ id: 1, bookName: "One", authors: ["A One", "B Two"] }),
+      book({ id: 2, bookName: "Two", authors: ["B Two", "C Three"] }),
+    ];
+
+    it("offers only the authors every selected book shares, with Leave unchanged selected", async () => {
+      renderDialog(coAuthored());
+
+      expect(await screen.findByRole("radio", { name: "B Two" })).not.toBeChecked();
+      expect(screen.queryByRole("radio", { name: "A One" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("radio", { name: "C Three" })).not.toBeInTheDocument();
+      expect(screen.getByRole("radio", { name: "Leave unchanged" })).toBeChecked();
+    });
+
+    it("says so when the books share no author, and offers nothing to pick", async () => {
+      renderDialog([
+        book({ id: 1, bookName: "One", authors: ["A One"] }),
+        book({ id: 2, bookName: "Two", authors: ["B Two"] }),
+      ]);
+
+      expect(
+        await screen.findByText(
+          "The selected books share no author, so a main author cannot be set for all of them.",
+        ),
+      ).toBeInTheDocument();
+      expect(screen.queryByRole("radio", { name: "Leave unchanged" })).not.toBeInTheDocument();
+    });
+
+    it("sends a main author set payload on its own, and nothing else", async () => {
+      renderDialog(coAuthored());
+
+      fireEvent.click(await screen.findByRole("radio", { name: "B Two" }));
+      await submit();
+
+      await waitFor(() => {
+        expect(bulkEditApi.apply).toHaveBeenCalledWith([1, 2], {
+          mainAuthor: { action: "set", value: "B Two" },
+          audiobookIds: [1, 2],
+        });
+      });
+    });
+
+    it("keeps Apply disabled until an author is picked, and again after going back to Leave unchanged", async () => {
+      renderDialog(coAuthored());
+      const apply = await screen.findByRole("button", { name: "Apply" });
+      expect(apply).toBeDisabled();
+
+      fireEvent.click(screen.getByRole("radio", { name: "B Two" }));
+      expect(apply).toBeEnabled();
+      fireEvent.click(screen.getByRole("radio", { name: "Leave unchanged" }));
+      expect(apply).toBeDisabled();
+    });
+
+    it("goes out in the same request as other bulk edits", async () => {
+      renderDialog(coAuthored());
+      const user = userEvent.setup();
+
+      fireEvent.click(await screen.findByRole("radio", { name: "B Two" }));
+      await user.type(screen.getByPlaceholderText("Publisher"), "Tor");
+      await submit();
+
+      await waitFor(() => {
+        expect(bulkEditApi.apply).toHaveBeenCalledWith([1, 2], {
+          publisher: { action: "set", value: "Tor" },
+          mainAuthor: { action: "set", value: "B Two" },
+          audiobookIds: [1, 2],
+        });
+      });
+    });
+
+    // The server refuses this request, so the dialog says why and blocks it instead of sending it.
+    it("blocks Apply and says why when replacing the authors would drop the chosen main author", async () => {
+      renderDialog(coAuthored());
+      const user = userEvent.setup();
+
+      fireEvent.click(await screen.findByRole("radio", { name: "B Two" }));
+      await user.type(screen.getAllByLabelText("Different values")[0]!, "New Author{enter}");
+
+      expect(await screen.findByRole("alert")).toHaveTextContent(
+        "The new author list does not include B Two.",
+      );
+      expect(screen.getByRole("button", { name: "Apply" })).toBeDisabled();
+    });
+  });
+
   it("renders a clear control on every non-critical field, narrators and genres included", async () => {
     renderDialog(identicalBooks());
     await screen.findByDisplayValue("The Way of Kings");
