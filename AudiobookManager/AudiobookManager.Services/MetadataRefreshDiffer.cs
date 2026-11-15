@@ -26,14 +26,17 @@ public static class MetadataRefreshDiffer
     public static IEnumerable<MetadataRefreshDiff> Diff(
         Database.Models.Audiobook book, MetadataSearchResult fetched,
         Domain.InitialsSpacing spacing, Domain.InitialsPunctuation punctuation,
-        bool assumeTitleSplit = false)
+        bool assumeTitleSplit = false, MetadataChoiceRuleSet? choiceRules = null)
     {
         var diffs = new List<MetadataRefreshDiff>();
         var add = MakeAdd(diffs);
+        var rules = choiceRules ?? MetadataChoiceRuleSet.Defaults;
+        var choiceSource = MetadataChoiceRuleSet.ChoiceSource.From(fetched);
 
         add(MetadataRefreshFields.Authors,
             JoinNames(book.Authors.Select(a => a.Name), spacing, punctuation),
             JoinNames(SplitCombinedNames(fetched.Authors.Select(a => a.Name)), spacing, punctuation));
+        AddMainAuthorOnlyChange(diffs, book, choiceSource, rules, spacing, punctuation);
         add(MetadataRefreshFields.Narrators,
             JoinNames(book.Narrators.Select(n => n.Name), spacing, punctuation),
             JoinNames(SplitCombinedNames(fetched.Narrators.Select(n => n.Name)), spacing, punctuation));
@@ -43,7 +46,8 @@ public static class MetadataRefreshDiffer
         add(MetadataRefreshFields.BookName, book.BookName, sourceBookName);
         add(MetadataRefreshFields.Subtitle, book.Subtitle, sourceSubtitle);
         AddSeries(diffs, book, (fetched.Series ?? new List<MetadataSeriesSearchResult>())
-            .Select(s => new SeriesRelationSet.Entry(s.SeriesName, s.SeriesPart, s.OriginalSeriesName)));
+            .Select(s => new SeriesRelationSet.Entry(s.SeriesName, s.SeriesPart, s.OriginalSeriesName)).ToList(),
+            choiceSource, rules);
 
         // Year is non-nullable on the DB model; a source that reports no year must not offer
         // blanking it, so a null source year never becomes a diff.
@@ -88,21 +92,25 @@ public static class MetadataRefreshDiffer
     /// </summary>
     public static IEnumerable<MetadataRefreshDiff> DiffSnapshot(
         Database.Models.Audiobook book, PendingRefreshPayload.Snapshot snapshot,
-        Domain.InitialsSpacing spacing, Domain.InitialsPunctuation punctuation)
+        Domain.InitialsSpacing spacing, Domain.InitialsPunctuation punctuation,
+        MetadataChoiceRuleSet? choiceRules = null)
     {
         var diffs = new List<MetadataRefreshDiff>();
         var add = MakeAdd(diffs);
+        var rules = choiceRules ?? MetadataChoiceRuleSet.Defaults;
+        var choiceSource = MetadataChoiceRuleSet.ChoiceSource.From(snapshot);
 
         add(MetadataRefreshFields.Authors,
             JoinNames(book.Authors.Select(a => a.Name), spacing, punctuation),
             JoinNames(SplitCombinedNames(snapshot.Authors), spacing, punctuation));
+        AddMainAuthorOnlyChange(diffs, book, choiceSource, rules, spacing, punctuation);
         add(MetadataRefreshFields.Narrators,
             JoinNames(book.Narrators.Select(n => n.Name), spacing, punctuation),
             JoinNames(SplitCombinedNames(snapshot.Narrators), spacing, punctuation));
         var (sourceBookName, sourceSubtitle) = TitleSplitter.Apply(snapshot.BookName, snapshot.Subtitle, book.SplitTitleOnColon);
         add(MetadataRefreshFields.BookName, book.BookName, sourceBookName);
         add(MetadataRefreshFields.Subtitle, book.Subtitle, sourceSubtitle);
-        AddSeries(diffs, book, PendingRefreshPayload.SeriesOf(snapshot));
+        AddSeries(diffs, book, PendingRefreshPayload.SeriesOf(snapshot).ToList(), choiceSource, rules);
 
         if (snapshot.Year.HasValue)
         {
@@ -130,16 +138,51 @@ public static class MetadataRefreshDiffer
     }
 
     /// <summary>
+    /// A change of main author with no change of authors. The main author is applied together with the
+    /// Authors field, so when the names are the same but the main author the rules would pick differs
+    /// from the book's, the Authors field is offered as a change - its two sides spell out the main
+    /// author so the row does not read as two identical lists. (When the names do differ the ordinary
+    /// diff already offers the field, and the picker shows the main author.)
+    /// </summary>
+    private static void AddMainAuthorOnlyChange(
+        List<MetadataRefreshDiff> diffs, Database.Models.Audiobook book, MetadataChoiceRuleSet.ChoiceSource source,
+        MetadataChoiceRuleSet rules, Domain.InitialsSpacing spacing, Domain.InitialsPunctuation punctuation)
+    {
+        if (diffs.Any(d => d.Field == MetadataRefreshFields.Authors))
+        {
+            return;
+        }
+
+        var currentMain = MetadataChoiceRuleSet.CurrentMainAuthor(book);
+        var proposedMain = rules.ResolveMainAuthor(book, source).Value;
+        if (MetadataChoiceRuleSet.SameName(currentMain, proposedMain) || (currentMain is null && proposedMain is null))
+        {
+            return;
+        }
+
+        string Describe(IEnumerable<string?> names, string? main) =>
+            $"{JoinNames(names, spacing, punctuation)} ({(main is null ? "no main author" : $"main: {main}")})";
+
+        diffs.Add(new MetadataRefreshDiff(
+            MetadataRefreshFields.Authors,
+            Describe(book.Authors.Select(a => a.Name), currentMain),
+            Describe(SplitCombinedNames(source.Authors), proposedMain)));
+    }
+
+    /// <summary>
     /// The book's series against the source's, as sets (see <see cref="SeriesRelationSet"/>): one
     /// <see cref="MetadataRefreshFields.Series"/> diff when a series is added or removed, a part
     /// differs, or the primary the refresh would choose is not the book's current one - and never
     /// for the source merely listing them in another order.
     /// </summary>
     private static void AddSeries(
-        List<MetadataRefreshDiff> diffs, Database.Models.Audiobook book, IEnumerable<SeriesRelationSet.Entry> source)
+        List<MetadataRefreshDiff> diffs, Database.Models.Audiobook book, IReadOnlyList<SeriesRelationSet.Entry> source,
+        MetadataChoiceRuleSet.ChoiceSource choiceSource, MetadataChoiceRuleSet rules)
     {
         var current = SeriesRelationSet.OfBook(book);
-        var proposed = SeriesRelationSet.Resolve(current.All.ToList(), source);
+        // The primary the rules would pick (null = the default: keep the book's own when still listed).
+        var primary = rules.ResolvePrimarySeries(book, choiceSource).Value;
+        var proposed = SeriesRelationSet.Resolve(current.All.ToList(), source, primary);
         if (SeriesRelationSet.Differs(current, proposed))
         {
             diffs.Add(new MetadataRefreshDiff(

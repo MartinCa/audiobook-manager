@@ -4,6 +4,7 @@ import {
   PrimarySeriesChooser,
   type PrimarySeriesChooserProps,
 } from "@/components/PrimarySeriesChooser";
+import { MainAuthorChooser, type MainAuthorChooserProps } from "@/components/MainAuthorChooser";
 import type { FieldDiff } from "@/hooks/useMetadataFieldDiffs";
 
 interface MetadataFieldDiffTableProps {
@@ -17,6 +18,11 @@ interface MetadataFieldDiffTableProps {
    * primary-series choice (a radio per series) instead of plain text. Omit for a single series.
    */
   seriesChoice?: PrimarySeriesChooserProps;
+  /**
+   * When the source reports several authors, the Authors row's "New Value" cell gains the
+   * main-author choice under the names. Omit for a single author.
+   */
+  authorsChoice?: MainAuthorChooserProps;
 }
 
 /**
@@ -31,6 +37,7 @@ export function MetadataFieldDiffTable({
   onToggleAll,
   changedFieldKeys,
   seriesChoice,
+  authorsChoice,
 }: MetadataFieldDiffTableProps) {
   return (
     <div className="space-y-2">
@@ -115,6 +122,13 @@ export function MetadataFieldDiffTable({
                         {field.newValue || <span className="text-muted-foreground italic">—</span>}
                       </span>
                     )}
+                    {field.key === "authors" &&
+                      authorsChoice &&
+                      authorsChoice.options.length > 1 && (
+                        <div className="mt-2">
+                          <MainAuthorChooser {...authorsChoice} />
+                        </div>
+                      )}
                   </td>
                 </tr>
               );

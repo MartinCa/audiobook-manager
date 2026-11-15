@@ -255,11 +255,12 @@ public class PendingOnlineMatchController : ControllerBase
                 s.Asin,
                 s.NumberOfRatings,
                 PendingRefreshPayload.SeriesOf(s)
-                    .Select(e => new PendingRefreshSeriesDto(e.Name, e.Part, e.OriginalName))
+                    .Select(e => new PendingRefreshSeriesDto(e.Name, e.Part, e.OriginalName, string.Equals(e.Name, PendingRefreshPayload.MainSeriesOf(s), StringComparison.OrdinalIgnoreCase) ? true : null))
                     .ToList(),
                 s.Qualifiers?.ToList(),
                 s.HasDescription,
-                s.HasGenres))
+                s.HasGenres,
+                s.MainAuthor))
             .ToList(),
         QualifierColumn.Parse(row.Audiobook.Qualifiers));
 }

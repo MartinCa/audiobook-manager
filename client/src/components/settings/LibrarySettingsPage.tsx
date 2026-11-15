@@ -18,6 +18,7 @@ import { queryKeys } from "@/lib/queryKeys";
 import { handleApiError } from "@/lib/api";
 import { notifications } from "@/lib/notifications";
 import { MetadataApplyRulesCard } from "@/components/settings/MetadataApplyRulesCard";
+import { MetadataChoiceRulesCard } from "@/components/settings/MetadataChoiceRulesCard";
 import { MetadataSourceOrderCard } from "@/components/settings/MetadataSourceOrderCard";
 import { QualifierIndicatorsCard } from "@/components/settings/QualifierIndicatorsCard";
 import { SourceSearchInitialsField } from "@/components/settings/SourceSearchInitialsField";
@@ -457,6 +458,8 @@ export function LibrarySettingsPage() {
       <MetadataSourceOrderCard />
 
       <MetadataApplyRulesCard />
+
+      <MetadataChoiceRulesCard />
 
       <QualifierIndicatorsCard />
 

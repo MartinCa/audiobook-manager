@@ -25,11 +25,23 @@ public static class MetadataRefreshApplier
         PendingRefreshPayload.Snapshot snapshot,
         IReadOnlySet<string> fields,
         bool splitTitleOnColon = false,
-        string? primarySeriesName = null)
+        string? primarySeriesName = null,
+        MetadataChoiceRuleSet? choiceRules = null,
+        string? mainAuthorName = null)
     {
+        var rules = choiceRules ?? MetadataChoiceRuleSet.Defaults;
+        var choiceSource = MetadataChoiceRuleSet.ChoiceSource.From(snapshot);
+
         if (fields.Contains(MetadataRefreshFields.Authors))
         {
+            var currentMain = book.MainAuthor;
             book.Authors = AudiobookTagHandler.SplitCommaJoinedNames(snapshot.Authors.Select(name => new Person(name)));
+
+            // The main author goes with the authors: a person's pick (empty = none), else what the choice
+            // rule says, else - when that rule is Ask me and nobody was asked, as in a bulk apply - the
+            // book's own, as long as the source still credits them. Never a name that is not an author.
+            book.MainAuthor = rules.ResolveMainAuthor(
+                book.Authors.Select(a => a.Name), choiceSource.MainAuthor, currentMain, mainAuthorName).Value;
         }
 
         if (fields.Contains(MetadataRefreshFields.Narrators))
@@ -96,9 +108,12 @@ public static class MetadataRefreshApplier
         if (fields.Contains(MetadataRefreshFields.Series) || fields.Contains(MetadataRefreshFields.SeriesPart))
         {
             var current = SeriesRelationSet.OfBook(book);
+            // The caller's explicit pick, else what the choice rule says (null = the default above).
+            var primary = rules.ResolvePrimarySeries(
+                choiceSource.Series, choiceSource.MainSeries, current.All.Select(e => e.Name).ToList(), primarySeriesName).Value;
             SeriesRelationSet.ApplyTo(
                 book,
-                SeriesRelationSet.Resolve(current.All.ToList(), PendingRefreshPayload.SeriesOf(snapshot), primarySeriesName));
+                SeriesRelationSet.Resolve(current.All.ToList(), PendingRefreshPayload.SeriesOf(snapshot), primary));
         }
 
         // Same "never blank a missing source year" rule the differ applies: an absent snapshot

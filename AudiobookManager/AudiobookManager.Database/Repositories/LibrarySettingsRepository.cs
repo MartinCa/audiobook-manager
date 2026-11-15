@@ -124,6 +124,12 @@ public class LibrarySettingsRepository : ILibrarySettingsRepository
         await _db.LibrarySettings.ExecuteUpdateAsync(s => s.SetProperty(x => x.MetadataApplyRulesJson, json));
     }
 
+    public async Task SetMetadataChoiceRulesJsonAsync(string? json)
+    {
+        await GetOrCreateAsync();
+        await _db.LibrarySettings.ExecuteUpdateAsync(s => s.SetProperty(x => x.MetadataChoiceRulesJson, json));
+    }
+
     public async Task SetMetadataSourceOrderJsonAsync(string? json)
     {
         await GetOrCreateAsync();

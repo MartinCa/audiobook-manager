@@ -88,6 +88,14 @@ public class LibrarySettings
     public string? MetadataApplyRulesJson { get; set; }
 
     /// <summary>
+    /// The "which one is the main one" rules for applying online metadata (main author, primary
+    /// series) as a JSON object keyed by choice, or null for "all defaults". Owned (parsed, validated,
+    /// resolved) by <c>MetadataChoiceRuleSet</c>.
+    /// </summary>
+    [Column("metadata_choice_rules_json")]
+    public string? MetadataChoiceRulesJson { get; set; }
+
+    /// <summary>
     /// The preferred order of the online metadata sources as a JSON array of source names, or null
     /// for "none chosen". Owned (parsed, validated, applied) by <c>MetadataSourceOrder</c>.
     /// </summary>

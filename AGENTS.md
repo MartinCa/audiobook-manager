@@ -835,6 +835,64 @@ only to a field that actually differs. "Empty" is no text (a year of 0 included)
   has no rule and stays selected when it changed. With the rules unloaded or unreachable a review
   ticks everything that changed.
 
+### Choosing the main author and primary series when a source lists several
+
+**Invariant: which of a source's several authors becomes the book's main author, and which of its several
+series becomes the primary one, is decided by `MetadataChoiceRuleSet` (`AudiobookManager.Services`) -
+nothing else.** It is separate from the per-field apply rules above (those say whether the Authors/Series
+*field* is applied; these say which author/series is *the main one* once it is). Each choice
+(`MetadataChoiceKinds.MainAuthor`, `.PrimarySeries`) has **two** rules, because a source that names a main
+one itself and one that is silent are different situations: `SourceNamesMainRule` (Keep current / Use the
+source's / Ask me) and `SourceSilentRule` (Keep current / First listed / No main author / Ask me; "No main
+author" is refused for the primary series, a book always has one - `Validate` -> 400, `From` coerces).
+Defaults are Keep current for both, i.e. exactly the behaviour from before the rules existed.
+
+- **A source's own designation is data, scraper order is not.** `MetadataSearchResult.MainAuthor` /
+  `MainSeries` are set only when the source says so itself: Goodreads' primary contributor
+  (`ParsePrimaryAuthorName`, JSON-page result only) and Hardcover's `featured` series. Audible designates
+  nothing. A scraper must never fill them from list order - "silent" has to stay distinguishable from "the
+  first one". The snapshot keeps them (`PendingRefreshPayload` **version 7**: `Snapshot.MainAuthor`,
+  `SnapshotSeries.IsMain`, null-omitted so older rows re-serialize identically); the designation lives on
+  the series *entry* so `RemapSeriesAsync` carries it through a re-mapping entry for entry (regression
+  test `..._RemapKeepsTheSourcesMainSeriesDesignationOnItsEntry`). `PendingRefreshSnapshotDto` /
+  `PendingRefreshSeriesDto` serve it so the review UI preselects from the same fact.
+- **Resolution** (`ResolveMainAuthor`, `ResolvePrimarySeries`, both returning `ChoiceOutcome(Value,
+  NeedsAsk)`): an explicit pick beats every rule (for authors `""` = deliberately no main author; a name the
+  source does not list is ignored); fewer than two distinct candidates means nothing to choose (the current
+  main author is kept only if the source still credits them; a sole author is never promoted); otherwise
+  the rule for "source names one" or "source silent" applies. Names compare through `NameNormalizer`
+  (case, dots, initials spacing folded) and the **source's spelling** is returned, because applying Authors
+  stores the source's names. **Series are compared differently**: trimmed and equal ignoring case (`SameSeries`, the
+  `SeriesRelationSet` rule), never through the normalizer, or an explicit pick of `Saga` could resolve to the
+  distinct series `Saga.`; the client twin mirrors both. **First listed fills a gap only** - it never replaces a main author the source
+  still credits; for the series it uses the source's order (not the canonical alphabetical one) and only
+  acts when none of the book's series survives. Primary-series outcomes are an *explicit primary or null*:
+  null leaves it to `SeriesRelationSet.ChoosePrimary`, which is what keeps Keep current byte-identical to
+  the old behaviour.
+- **"Ask me" only matters where a real decision exists and its field is being applied.** `AsksFor(book,
+  source, fieldsToApply)` is consulted by every unattended apply (`TryApplyAutomaticallyAsync`, settle by
+  rules, the re-evaluate "settleable" count): an Ask-me choice with `NeedsAsk` parks the book for review and
+  applies nothing for it, like an Ask-me field. Bulk/explicit applies that nobody reviews use the preselect
+  fallback (keep current) instead of blocking. The differ never creates a diff for Ask me alone.
+- **There is no new diff field.** The main author rides the **Authors** diff: when the names are equal but
+  the resolved main author differs from the book's, `AddMainAuthorOnlyChange` still reports Authors, its
+  two sides spelling out `(main: X)` / `(no main author)`. The Series diff uses the rule-resolved primary.
+  `MetadataRefreshApplier.ApplyFields(..., choiceRules, mainAuthorName)` writes the main author together with
+  the Authors field and the primary through the same `UpdateAudiobook` as always (binding invariant holds).
+- **Storage and API:** own column `library_settings.metadata_choice_rules_json` (null = all defaults),
+  written only through `SetMetadataChoiceRulesJsonAsync`; served and saved over `GET`/`PUT
+  api/settings/metadata-choice-rules` with the option lists, explanations and warnings (the frontend holds no
+  list of its own; a PUT leaves out-of-body choices alone). The explicit pick travels as
+  `ApplyPendingRefreshDto.MainAuthorName` (apply and check-target) and `primarySeriesName`.
+- **The client twin is `helpers/metadataChoice.ts`** (`resolveMainAuthor`/`resolvePrimarySeries`,
+  `resolveMetadataChoices`, a `normalizeName` mirroring `NameNormalizer`), because the review dialogs
+  compute their own diffs; `metadataChoice.test.ts` pins the same cases as `MetadataChoiceRuleSetTests`, so
+  change them in step. `TagPreviewDialog` and `PendingRefreshRowPanel` show `MainAuthorChooser` inside the
+  Authors row (and the primary-series chooser in the Series row) preselected from the rules; the dialog
+  hands the *resolved* main author to `BookEditForm` on the result (`mainAuthor`, `""` = none) and the form
+  applies it only with the Authors field. The panel lists changed fields only, so the picker appears when
+  Authors changed - including a main-author-only change the rules would make. The Authors row stays on screen once a main-author-only proposal put it there (choosing the book's own author must not remove the Apply buttons), and picking a different main author in the dialog ticks Authors.
+
 ### The "Queue status" filter and saved filter presets
 
 Working through a large backlog ("every book with no online source") only works if the items already

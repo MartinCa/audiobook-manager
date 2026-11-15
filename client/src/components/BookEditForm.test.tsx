@@ -27,6 +27,7 @@ vi.mock("@/services/api", () => ({
     getMetadataApplyRules: vi
       .fn()
       .mockResolvedValue({ fields: [], interactiveOptions: [], automatedOptions: [] }),
+    getMetadataChoiceRules: vi.fn().mockResolvedValue({ choices: [] }),
     getBookQualifiers: vi.fn().mockResolvedValue({
       qualifiers: [
         { key: "abridged", label: "Abridged", suffix: " (Abridged)" },
@@ -2439,6 +2440,71 @@ describe("BookEditForm additional series", () => {
           expect.objectContaining({ mainAuthor: "B Two" }),
         ),
       );
+    });
+
+    describe("applying a source's authors", () => {
+      async function applySourceAuthors(
+        onSave: ReturnType<typeof vi.fn>,
+        pick?: "B Two" | "No main author",
+      ) {
+        const { metadataSearchApi } = await import("@/services/api");
+        vi.mocked(metadataSearchApi.searchMultiple).mockResolvedValueOnce({
+          results: [
+            {
+              url: "https://goodreads.com/book/1",
+              cleanUrl: "https://goodreads.com/book/1",
+              source: "Goodreads",
+              bookName: "Original Title",
+              authors: [{ name: "A One" }, { name: "B Two" }, { name: "C Three" }],
+              narrators: [],
+              series: [],
+              genres: [],
+            },
+          ],
+          sourceStatuses: [],
+        });
+        renderWithProviders(
+          <BookEditForm
+            initialBook={{ ...twoAuthors, mainAuthor: "A One" }}
+            onSave={onSave as (book: Audiobook) => Promise<void>}
+          />,
+        );
+        fireEvent.click(screen.getByText("Search Online Metadata"));
+        const searchInput = await screen.findByPlaceholderText(
+          "Search title, author, or paste URL...",
+        );
+        fireEvent.change(searchInput, { target: { value: "Original" } });
+        fireEvent.submit(searchInput.closest("form")!);
+        fireEvent.click(await screen.findByRole("button", { name: "Apply" }));
+        if (pick) fireEvent.click(await screen.findByRole("radio", { name: pick }));
+        fireEvent.click(await screen.findByRole("checkbox", { name: "Don't save automatically" }));
+        fireEvent.click(screen.getByRole("button", { name: "Apply All" }));
+        fireEvent.click(await screen.findByText("Save Audiobook"));
+        await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+        return onSave.mock.calls[0]?.[0] as Audiobook;
+      }
+
+      it("keeps the book's main author while the source still credits them", async () => {
+        const saved = await applySourceAuthors(vi.fn().mockResolvedValue(undefined));
+
+        expect(saved.authors.map((a) => a.name)).toEqual(["A One", "B Two", "C Three"]);
+        expect(saved.mainAuthor).toBe("A One");
+      });
+
+      it("makes the author picked in the preview the main author", async () => {
+        const saved = await applySourceAuthors(vi.fn().mockResolvedValue(undefined), "B Two");
+
+        expect(saved.mainAuthor).toBe("B Two");
+      });
+
+      it("clears the main author when No main author is picked in the preview", async () => {
+        const saved = await applySourceAuthors(
+          vi.fn().mockResolvedValue(undefined),
+          "No main author",
+        );
+
+        expect(saved.mainAuthor).toBeUndefined();
+      });
     });
 
     it("seeds the online search with the main author alone", async () => {

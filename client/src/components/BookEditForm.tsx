@@ -578,6 +578,7 @@ export function BookEditForm({
     });
     return {
       authors: joinList(watchedValues.authors),
+      mainAuthor: mainAuthorOf(watchedValues),
       narrators: joinList(watchedValues.narrators),
       bookName: watchedValues.bookName,
       subtitle: watchedValues.subtitle,
@@ -639,11 +640,16 @@ export function BookEditForm({
     if (selectedFields.has("authors") && result.authors) {
       const appliedAuthors = result.authors.map((a) => a.name);
       form.setValue("authors", appliedAuthors, { shouldDirty: true, shouldValidate: true });
-      // The source's author list replaces the book's: the main author stays only if the source
-      // still credits that exact name, otherwise the book is back to having none.
+      // The dialog resolves the main author per the library's choice rules and the user's pick
+      // ("" = none); a result that arrives unresolved keeps the book's own main author only while
+      // the source still credits that exact name, otherwise the book is back to having none.
       const main = form.getValues("mainAuthor");
-      if (main && keepMainAuthor(main, appliedAuthors) !== main) {
-        form.setValue("mainAuthor", "", { shouldDirty: true });
+      const nextMain =
+        result.mainAuthor !== undefined
+          ? keepMainAuthor(result.mainAuthor, appliedAuthors)
+          : keepMainAuthor(main, appliedAuthors);
+      if (nextMain !== main) {
+        form.setValue("mainAuthor", nextMain, { shouldDirty: true });
       }
     }
     if (selectedFields.has("narrators") && result.narrators) {

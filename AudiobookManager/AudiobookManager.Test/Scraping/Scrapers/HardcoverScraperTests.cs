@@ -43,7 +43,8 @@ public class HardcoverScraperTests
         }
     }
 
-    private static HardcoverScraper CreateScraper(string responseJson, out FakeHardcoverHandler handler, string? apiKey = "test-api-key")
+    private static HardcoverScraper CreateScraper(
+        string responseJson, out FakeHardcoverHandler handler, string? apiKey = "test-api-key", Func<string, string>? mapSeries = null)
     {
         handler = new FakeHardcoverHandler(responseJson);
         var httpClient = new HttpClient(handler);
@@ -54,7 +55,10 @@ public class HardcoverScraperTests
         var bookSeriesMapper = new Mock<IBookSeriesMapper>();
         bookSeriesMapper
             .Setup(x => x.MapBookSeries(It.IsAny<IList<MetadataSeriesSearchResult>>()))
-            .Returns<IList<MetadataSeriesSearchResult>>(x => Task.FromResult(x));
+            .Returns<IList<MetadataSeriesSearchResult>>(x => Task.FromResult<IList<MetadataSeriesSearchResult>>(
+                mapSeries is null
+                    ? x
+                    : x.Select(e => new MetadataSeriesSearchResult(mapSeries(e.SeriesName)) { SeriesPart = e.SeriesPart, OriginalSeriesName = e.SeriesName }).ToList()));
 
         var logger = new Mock<ILogger<HardcoverScraper>>();
         var settings = Options.Create(new AudiobookManagerSettings { HardcoverApiKey = apiKey });
@@ -786,6 +790,114 @@ public class HardcoverScraperTests
         Assert.AreEqual("B0PHYSICALASIN", result.Asin);
         Assert.AreEqual("9781234567890", result.Isbn);
         Assert.AreEqual("Physical Publisher", result.Publisher);
+    }
+
+    // Hardcover marks one of a book's series links "featured": that is the series it designates as the
+    // main one. The order of book_series is not a designation, so only the flag counts.
+    [TestMethod]
+    public async Task GetBookDetails_ASeriesLinkMarkedFeatured_IsTheMainSeries()
+    {
+        var json = """
+            { "data": { "books": [ {
+              "id": 1, "title": "Mistborn", "slug": "mistborn", "release_date": "2006-07-17",
+              "contributions": [ { "contribution": null, "author": { "name": "Brandon Sanderson" } } ],
+              "book_series": [
+                { "position": 1, "featured": false, "series": { "name": "Cosmere" } },
+                { "position": 1, "featured": true, "series": { "name": "Mistborn" } }
+              ],
+              "default_audio_edition": null, "default_physical_edition": null
+            } ] } }
+            """;
+        var target = CreateScraper(json, out _);
+
+        var result = await target.GetBookDetails("https://hardcover.app/books/mistborn");
+
+        Assert.AreEqual("Mistborn", result.MainSeries);
+        CollectionAssert.AreEqual(new[] { "Cosmere", "Mistborn" }, result.Series!.Select(s => s.SeriesName).ToArray());
+    }
+
+    [TestMethod]
+    public async Task GetBookDetails_NoSeriesLinkFeatured_SourceDoesNotNameAMainSeries()
+    {
+        var json = """
+            { "data": { "books": [ {
+              "id": 1, "title": "Mistborn", "slug": "mistborn", "release_date": "2006-07-17",
+              "contributions": [ { "contribution": null, "author": { "name": "Brandon Sanderson" } } ],
+              "book_series": [
+                { "position": 1, "featured": false, "series": { "name": "Cosmere" } },
+                { "position": 1, "featured": false, "series": { "name": "Mistborn" } }
+              ],
+              "default_audio_edition": null, "default_physical_edition": null
+            } ] } }
+            """;
+        var target = CreateScraper(json, out _);
+
+        var result = await target.GetBookDetails("https://hardcover.app/books/mistborn");
+
+        Assert.IsNull(result.MainSeries);
+    }
+
+    [TestMethod]
+    public async Task GetBookDetails_TwoSeriesLinksFeatured_IsNoDesignationAtAll()
+    {
+        var json = """
+            { "data": { "books": [ {
+              "id": 1, "title": "Mistborn", "slug": "mistborn", "release_date": "2006-07-17",
+              "contributions": [ { "contribution": null, "author": { "name": "Brandon Sanderson" } } ],
+              "book_series": [
+                { "position": 1, "featured": true, "series": { "name": "Cosmere" } },
+                { "position": 1, "featured": true, "series": { "name": "Mistborn" } }
+              ],
+              "default_audio_edition": null, "default_physical_edition": null
+            } ] } }
+            """;
+        var target = CreateScraper(json, out _);
+
+        var result = await target.GetBookDetails("https://hardcover.app/books/mistborn");
+
+        Assert.IsNull(result.MainSeries);
+    }
+
+    [TestMethod]
+    public async Task GetBookDetails_TheMainSeriesIsTheMappedName_FoundByPositionThroughTheMapper()
+    {
+        var json = """
+            { "data": { "books": [ {
+              "id": 1, "title": "Mistborn", "slug": "mistborn", "release_date": "2006-07-17",
+              "contributions": [ { "contribution": null, "author": { "name": "Brandon Sanderson" } } ],
+              "book_series": [
+                { "position": 1, "featured": false, "series": { "name": "Cosmere" } },
+                { "position": 1, "featured": true, "series": { "name": "Mistborn Saga" } }
+              ],
+              "default_audio_edition": null, "default_physical_edition": null
+            } ] } }
+            """;
+        var target = CreateScraper(json, out _, mapSeries: n => n == "Mistborn Saga" ? "Mistborn" : n);
+
+        var result = await target.GetBookDetails("https://hardcover.app/books/mistborn");
+
+        // The mapper renamed it; the designation follows the entry, not the original spelling.
+        Assert.AreEqual("Mistborn", result.MainSeries);
+    }
+
+    [TestMethod]
+    public async Task GetBookDetails_HardcoverNeverDesignatesAMainAuthor()
+    {
+        var target = CreateScraper(_bookDetailsBySlugResponseJson, out _);
+
+        var result = await target.GetBookDetails("https://hardcover.app/books/the-hobbit");
+
+        Assert.IsNull(result.MainAuthor);
+    }
+
+    [TestMethod]
+    public async Task GetBookDetails_AsksHardcoverWhichSeriesLinkIsFeatured()
+    {
+        var target = CreateScraper(_bookDetailsBySlugResponseJson, out var handler);
+
+        await target.GetBookDetails("https://hardcover.app/books/the-hobbit");
+
+        StringAssert.Contains(handler.CapturedRequestBodies.Single(), "featured");
     }
 
     /// <summary>

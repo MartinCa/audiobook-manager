@@ -118,7 +118,7 @@ public class MetadataRefreshService : IMetadataRefreshService
         {
             var fetched = await _scrapingService.GetBookDetails(book.Www!);
             var (spacing, punctuation) = await GetInitialsSettingsAsync();
-            var differences = MetadataRefreshDiffer.Diff(book, fetched, spacing, punctuation).ToList();
+            var differences = MetadataRefreshDiffer.Diff(book, fetched, spacing, punctuation, choiceRules: await GetChoiceRuleSetAsync()).ToList();
 
             var settledAutomatically = automated
                 && await TryApplyAutomaticallyAsync(book, fetched, differences);
@@ -177,7 +177,7 @@ public class MetadataRefreshService : IMetadataRefreshService
         }
 
         var (spacing, punctuation) = await GetInitialsSettingsAsync();
-        var differences = MetadataRefreshDiffer.Diff(book, fetched, spacing, punctuation).ToList();
+        var differences = MetadataRefreshDiffer.Diff(book, fetched, spacing, punctuation, choiceRules: await GetChoiceRuleSetAsync()).ToList();
 
         // Picking a candidate is not itself the review: the automated rules settle what they can,
         // and only a changeset with an Ask me field is left pending for a person.
@@ -230,6 +230,19 @@ public class MetadataRefreshService : IMetadataRefreshService
 
             applyWithSplit = true;
             fieldsToApply = splitOutcome;
+        }
+
+        // The choice rules (main author, primary series) are the other thing that can want a person: an
+        // Ask me with a real decision among the fields about to be applied sends the book to review,
+        // whatever the field rules said - nothing is applied for it, like an Ask me field.
+        var choiceAsks = (await GetChoiceRuleSetAsync()).AsksFor(
+            book, MetadataChoiceRuleSet.ChoiceSource.From(fetched), fieldsToApply);
+        if (choiceAsks.Count > 0)
+        {
+            _logger.LogInformation(
+                "Metadata refresh for audiobook {AudiobookId} ('{Title}') needs review: the {Choices} choice is set to Ask me",
+                book.Id, book.BookName, string.Join(", ", choiceAsks));
+            return false;
         }
 
         if (fieldsToApply.Count == 0)
@@ -300,7 +313,8 @@ public class MetadataRefreshService : IMetadataRefreshService
         }
 
         var (spacing, punctuation) = await GetInitialsSettingsAsync();
-        var splitDifferences = MetadataRefreshDiffer.Diff(book, fetched, spacing, punctuation, assumeTitleSplit: true).ToList();
+        var splitDifferences = MetadataRefreshDiffer.Diff(
+            book, fetched, spacing, punctuation, assumeTitleSplit: true, choiceRules: await GetChoiceRuleSetAsync()).ToList();
         var splitDecision = rules.Decide(splitDifferences);
         if (splitDecision.RequiresReview)
         {
@@ -546,6 +560,7 @@ public class MetadataRefreshService : IMetadataRefreshService
         }
 
         var (spacing, punctuation) = await GetInitialsSettingsAsync();
+        var choiceRules = await GetChoiceRuleSetAsync();
 
         foreach (var audiobookId in missingIds)
         {
@@ -569,7 +584,7 @@ public class MetadataRefreshService : IMetadataRefreshService
                 continue;
             }
 
-            var changedFields = MetadataRefreshDiffer.DiffSnapshot(book, payload, spacing, punctuation).Select(d => d.Field).ToList();
+            var changedFields = MetadataRefreshDiffer.DiffSnapshot(book, payload, spacing, punctuation, choiceRules).Select(d => d.Field).ToList();
             if (changedFields.Count == 0)
             {
                 await _pendingRepository.DeleteByAudiobookIdAsync(audiobookId);
@@ -608,7 +623,7 @@ public class MetadataRefreshService : IMetadataRefreshService
 
     public async Task<bool> ApplyPendingRefreshAsync(
         long audiobookId, IReadOnlyCollection<string>? fields = null, bool splitTitleOnColon = false,
-        string? primarySeriesName = null, bool replaceExisting = false)
+        string? primarySeriesName = null, bool replaceExisting = false, string? mainAuthorName = null)
     {
         var row = await _pendingRepository.GetByAudiobookIdAsync(audiobookId);
         if (row is null)
@@ -616,12 +631,12 @@ public class MetadataRefreshService : IMetadataRefreshService
             return false;
         }
 
-        return await ApplyOneAsync(row, fields, splitTitleOnColon, primarySeriesName, replaceExisting);
+        return await ApplyOneAsync(row, fields, splitTitleOnColon, primarySeriesName, replaceExisting, mainAuthorName);
     }
 
     public async Task<TargetPathCollisionResult?> CheckApplyTargetCollisionAsync(
         long audiobookId, IReadOnlyCollection<string>? fields = null, bool splitTitleOnColon = false,
-        string? primarySeriesName = null)
+        string? primarySeriesName = null, string? mainAuthorName = null)
     {
         var row = await _pendingRepository.GetByAudiobookIdAsync(audiobookId);
         if (row is null)
@@ -642,7 +657,8 @@ public class MetadataRefreshService : IMetadataRefreshService
             return null;
         }
 
-        var domain = BuildAppliedDomain(dbBook, payload, fieldsToApply, splitTitleOnColon, primarySeriesName);
+        var domain = BuildAppliedDomain(
+            dbBook, payload, fieldsToApply, splitTitleOnColon, primarySeriesName, await GetChoiceRuleSetAsync(), mainAuthorName);
         var collision = await _audiobookService.CheckTargetPathCollision(domain);
 
         // The book's own file is not a collision: a field that doesn't move the file leaves the
@@ -717,7 +733,7 @@ public class MetadataRefreshService : IMetadataRefreshService
     /// </summary>
     private async Task<bool> ApplyOneAsync(
         PendingMetadataRefresh row, IReadOnlyCollection<string>? fields, bool splitTitleOnColon = false,
-        string? primarySeriesName = null, bool replaceExisting = false)
+        string? primarySeriesName = null, bool replaceExisting = false, string? mainAuthorName = null)
     {
         var payload = ParsePayloadOrThrow(row);
 
@@ -741,7 +757,8 @@ public class MetadataRefreshService : IMetadataRefreshService
 
         using var lease = _saveGate.Acquire(dbBook.Id);
 
-        var domain = BuildAppliedDomain(dbBook, payload, fieldsToApply, splitTitleOnColon, primarySeriesName);
+        var domain = BuildAppliedDomain(
+            dbBook, payload, fieldsToApply, splitTitleOnColon, primarySeriesName, await GetChoiceRuleSetAsync(), mainAuthorName);
         domain.ReplaceExisting = replaceExisting;
 
         await _audiobookService.UpdateAudiobook(dbBook.Id, domain);
@@ -809,7 +826,8 @@ public class MetadataRefreshService : IMetadataRefreshService
         if ((fields is null || fields.Count == 0) && dbBook is not null)
         {
             var (spacing, punctuation) = await GetInitialsSettingsAsync();
-            storedChangedFields = MetadataRefreshDiffer.DiffSnapshot(dbBook, payload, spacing, punctuation).Select(d => d.Field).ToList();
+            storedChangedFields = MetadataRefreshDiffer.DiffSnapshot(dbBook, payload, spacing, punctuation, await GetChoiceRuleSetAsync())
+                .Select(d => d.Field).ToList();
         }
 
         return new HashSet<string>(fields is { Count: > 0 } ? fields : storedChangedFields);
@@ -821,11 +839,11 @@ public class MetadataRefreshService : IMetadataRefreshService
     /// </summary>
     private static Domain.Audiobook BuildAppliedDomain(
         Database.Models.Audiobook dbBook, PendingRefreshPayload.Snapshot payload, IReadOnlySet<string> fieldsToApply,
-        bool splitTitleOnColon, string? primarySeriesName)
+        bool splitTitleOnColon, string? primarySeriesName, MetadataChoiceRuleSet choiceRules, string? mainAuthorName)
     {
         var domain = AudiobookService.FromDb(dbBook);
         domain.Id = dbBook.Id;
-        MetadataRefreshApplier.ApplyFields(domain, payload, fieldsToApply, splitTitleOnColon, primarySeriesName);
+        MetadataRefreshApplier.ApplyFields(domain, payload, fieldsToApply, splitTitleOnColon, primarySeriesName, choiceRules, mainAuthorName);
 
         // The save promotes an additional series to primary before it derives the path; doing the
         // same here keeps the collision preview and the apply on the same path by construction
@@ -954,6 +972,7 @@ public class MetadataRefreshService : IMetadataRefreshService
         var booksById = books.ToDictionary(b => b.Id);
         var (spacing, punctuation) = await GetInitialsSettingsAsync();
         var rules = await GetApplyRuleSetAsync();
+        var choiceRules = await GetChoiceRuleSetAsync();
 
         var processed = 0;
         var updated = 0;
@@ -981,7 +1000,7 @@ public class MetadataRefreshService : IMetadataRefreshService
 
             var remapped = await RemapSeriesAsync(payload);
 
-            var diffs = MetadataRefreshDiffer.DiffSnapshot(book, remapped, spacing, punctuation).ToList();
+            var diffs = MetadataRefreshDiffer.DiffSnapshot(book, remapped, spacing, punctuation, choiceRules).ToList();
             if (diffs.Count == 0)
             {
                 await _pendingRepository.DeleteByAudiobookIdAsync(row.AudiobookId);
@@ -999,7 +1018,9 @@ public class MetadataRefreshService : IMetadataRefreshService
                 updated++;
             }
 
-            if (!rules.Decide(diffs).RequiresReview)
+            var reevaluated = rules.Decide(diffs);
+            if (!reevaluated.RequiresReview
+                && choiceRules.AsksFor(book, MetadataChoiceRuleSet.ChoiceSource.From(remapped), reevaluated.FieldsToApply).Count == 0)
             {
                 settleable++;
             }
@@ -1010,6 +1031,11 @@ public class MetadataRefreshService : IMetadataRefreshService
 
     private async Task<MetadataApplyRuleSet> GetApplyRuleSetAsync() =>
         MetadataApplyRuleSet.From((await _librarySettingsRepository.GetOrCreateAsync()).ToDomain().MetadataApplyRules);
+
+    /// <summary>The "which one is the main one" rules (main author, primary series), as stored now.</summary>
+    private async Task<MetadataChoiceRuleSet> GetChoiceRuleSetAsync() =>
+        MetadataChoiceRuleSet.From(MetadataChoiceRuleSet.Deserialize(
+            (await _librarySettingsRepository.GetOrCreateAsync()).MetadataChoiceRulesJson));
 
     /// <summary>
     /// The pending rows the automated apply rules can settle as they stand now, with the fields each
@@ -1031,6 +1057,7 @@ public class MetadataRefreshService : IMetadataRefreshService
         }
 
         var rules = await GetApplyRuleSetAsync();
+        var choiceRules = await GetChoiceRuleSetAsync();
         var rows = await _pendingRepository.GetByAudiobookIdsAsync(ids);
         var books = (await _audiobookRepository.GetByIdsWithIncludesAsync(ids)).ToDictionary(b => b.Id);
         var (spacing, punctuation) = await GetInitialsSettingsAsync();
@@ -1044,7 +1071,7 @@ public class MetadataRefreshService : IMetadataRefreshService
             }
 
             var remapped = await RemapSeriesAsync(payload);
-            var diffs = MetadataRefreshDiffer.DiffSnapshot(book, remapped, spacing, punctuation).ToList();
+            var diffs = MetadataRefreshDiffer.DiffSnapshot(book, remapped, spacing, punctuation, choiceRules).ToList();
             if (diffs.Count == 0)
             {
                 continue;
@@ -1052,6 +1079,12 @@ public class MetadataRefreshService : IMetadataRefreshService
 
             var decision = rules.Decide(diffs);
             if (decision.RequiresReview)
+            {
+                continue;
+            }
+
+            // A choice rule set to Ask me, with a real decision among the fields to apply, also waits for a person.
+            if (choiceRules.AsksFor(book, MetadataChoiceRuleSet.ChoiceSource.From(remapped), decision.FieldsToApply).Count > 0)
             {
                 continue;
             }
@@ -1143,7 +1176,10 @@ public class MetadataRefreshService : IMetadataRefreshService
             .ToList());
 
         var remapped = entries
-            .Select((e, i) => new PendingRefreshPayload.SnapshotSeries(mapped[i].SeriesName, e.Part, e.OriginalName ?? e.Name))
+            .Select((e, i) => new PendingRefreshPayload.SnapshotSeries(
+                mapped[i].SeriesName, e.Part, e.OriginalName ?? e.Name,
+                // The source's designation follows the entry it was made on through the re-mapping.
+                payload.Series?.ElementAtOrDefault(i)?.IsMain))
             .ToList();
 
         return remapped.Select(r => r.Name).SequenceEqual(entries.Select(e => e.Name), StringComparer.Ordinal)

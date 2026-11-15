@@ -197,6 +197,36 @@ public class GoodreadsScraperTests
         Assert.AreEqual("B0DN8P5BQF", result.Asin);
     }
 
+    // Goodreads marks one contributor as the book's primary one: that is the main author. The Hobbit lists
+    // Tolkien as primary, with an editor and an illustrator as secondary contributors.
+    [TestMethod]
+    public async Task ParseNewBookJson_ThePrimaryContributorIsTheMainAuthor()
+    {
+        var target = CreateScraper();
+        var jsonText = await File.ReadAllTextAsync("Scraping/TestData/hobbit.json");
+
+        var result = await target.ParseNewBookJson(jsonText, "https://www.goodreads.com/book/show/5907.The_Hobbit_or_There_and_Back_Again");
+
+        Assert.AreEqual("J.R.R. Tolkien", result.MainAuthor);
+        Assert.IsTrue(result.Authors.Any(a => a.Name == "Douglas A. Anderson"), "the editor is still an author, just not the main one");
+    }
+
+    [TestMethod]
+    public async Task ParseNewBookJson_APrimaryContributorWhoIsNotAnAuthor_IsNoMainAuthor()
+    {
+        // Take the Hobbit page and make its primary contributor a narrator: a narrator is not an author,
+        // so the designation does not apply.
+        var target = CreateScraper();
+        var jsonText = await File.ReadAllTextAsync("Scraping/TestData/hobbit.json");
+        var edited = System.Text.RegularExpressions.Regex.Replace(
+            jsonText, "(\"primaryContributorEdge\":\\{.*?\"role\":\")Author(\")", "$1Narrator$2");
+        Assert.AreNotEqual(jsonText, edited, "the fixture must contain the primary edge this test rewrites");
+
+        var result = await target.ParseNewBookJson(edited, "https://www.goodreads.com/book/show/5907.The_Hobbit_or_There_and_Back_Again");
+
+        Assert.IsNull(result.MainAuthor);
+    }
+
     [TestMethod]
     public async Task ParseNewBookJson_TheShining()
     {

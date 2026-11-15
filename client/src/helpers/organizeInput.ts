@@ -12,6 +12,7 @@ export function audiobookToOrganizeInput(book: Audiobook): OrganizeAudiobookInpu
   return {
     authors: joinPersons(book.authors),
     narrators: joinPersons(book.narrators),
+    mainAuthor: book.mainAuthor,
     bookName: book.bookName,
     subtitle: book.subtitle,
     splitTitleOnColon: book.splitTitleOnColon,

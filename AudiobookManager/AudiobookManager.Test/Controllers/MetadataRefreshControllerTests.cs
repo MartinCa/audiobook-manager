@@ -536,6 +536,52 @@ public class MetadataRefreshControllerTests
     }
 
     [TestMethod]
+    public async Task GetPendingForAudiobook_CarriesTheSourcesMainAuthorAndMainSeriesDesignation()
+    {
+        // The review UI preselects from what the source itself designated, so the stored designation
+        // has to reach the client: the author by name, the series as a flag on its entry.
+        var snapshot = new PendingRefreshPayload.Snapshot(
+            PendingRefreshPayload.CurrentVersion, "https://example.com/b", "Goodreads",
+            ["A One", "B Two"], [], "Title", null, "Saga", "1", 2020, [], null, null, null, null, null, null,
+            Series:
+            [
+                new PendingRefreshPayload.SnapshotSeries("Saga", "1"),
+                new PendingRefreshPayload.SnapshotSeries("Cosmere", "2", null, IsMain: true),
+            ],
+            MainAuthor: "B Two");
+        _metadataRefreshService.Setup(s => s.GetPendingRefreshAsync(7))
+            .ReturnsAsync(((PendingMetadataRefresh, PendingRefreshPayload.Snapshot)?)(
+                new PendingMetadataRefresh { AudiobookId = 7, SourceName = "Goodreads", SourceUrl = "https://example.com/b" }, snapshot));
+
+        var result = await _controller.GetPendingForAudiobook(7);
+
+        var dto = (result.Result as OkObjectResult)?.Value as PendingMetadataRefreshDto;
+        Assert.IsNotNull(dto);
+        Assert.AreEqual("B Two", dto.Payload.MainAuthor);
+        CollectionAssert.AreEqual(
+            new bool?[] { null, true }, dto.Payload.Series!.Select(s => s.IsMain).ToArray());
+    }
+
+    [TestMethod]
+    public async Task GetPendingForAudiobook_SourceThatNamesNoMain_LeavesTheDesignationEmpty()
+    {
+        var snapshot = new PendingRefreshPayload.Snapshot(
+            PendingRefreshPayload.CurrentVersion, "https://example.com/b", "Audible",
+            ["A One", "B Two"], [], "Title", null, null, null, 2020, [], null, null, null, null, null, null,
+            Series: [new PendingRefreshPayload.SnapshotSeries("Saga", "1"), new PendingRefreshPayload.SnapshotSeries("Cosmere", "2")]);
+        _metadataRefreshService.Setup(s => s.GetPendingRefreshAsync(7))
+            .ReturnsAsync(((PendingMetadataRefresh, PendingRefreshPayload.Snapshot)?)(
+                new PendingMetadataRefresh { AudiobookId = 7, SourceName = "Audible", SourceUrl = "https://example.com/b" }, snapshot));
+
+        var result = await _controller.GetPendingForAudiobook(7);
+
+        var dto = (result.Result as OkObjectResult)?.Value as PendingMetadataRefreshDto;
+        Assert.IsNotNull(dto);
+        Assert.IsNull(dto.Payload.MainAuthor);
+        Assert.IsTrue(dto.Payload.Series!.All(s => s.IsMain is null));
+    }
+
+    [TestMethod]
     public async Task ReevaluatePending_ReturnsTheServiceResultAsDto()
     {
         _metadataRefreshService.Setup(s => s.ReevaluatePendingRefreshesAsync())

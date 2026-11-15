@@ -73,6 +73,29 @@ public record MetadataApplyRuleInputDto(string Field, string Interactive, string
 public record UpdateMetadataApplyRulesDto(IReadOnlyList<MetadataApplyRuleInputDto> Rules);
 
 /// <summary>
+/// One "which one is the main one" choice with its two settings, the options each can take and the
+/// warning to show: the client renders the tile from this and holds none of the lists.
+/// </summary>
+public record MetadataChoiceDto(
+    string Choice,
+    string Label,
+    string Description,
+    string WhenSourceNamesMain,
+    string WhenSourceSilent,
+    IReadOnlyList<MetadataApplyOptionDto> NamesMainOptions,
+    IReadOnlyList<MetadataApplyOptionDto> SilentOptions,
+    string? Warning);
+
+/// <summary>The main author / primary series rules together with their option lists.</summary>
+public record MetadataChoiceRulesDto(IReadOnlyList<MetadataChoiceDto> Choices);
+
+/// <summary>One choice's rules in a PUT.</summary>
+public record MetadataChoiceRuleInputDto(string Choice, string WhenSourceNamesMain, string WhenSourceSilent);
+
+/// <summary>The body of PUT api/settings/metadata-choice-rules. A choice left out keeps its stored rules.</summary>
+public record UpdateMetadataChoiceRulesDto(IReadOnlyList<MetadataChoiceRuleInputDto> Rules);
+
+/// <summary>
 /// The preferred order of the online metadata sources, as source names, first to last. Used as the
 /// body of PUT api/settings/metadata-source-order and as its response (the order that was saved).
 /// </summary>

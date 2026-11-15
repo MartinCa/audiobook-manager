@@ -13,6 +13,8 @@ import { useBookQualifiers } from "@/hooks/useBookQualifiers";
 import { pendingSnapshotToSearchResult } from "@/helpers/pendingMetadataRefresh";
 import { useMetadataFieldDiffs } from "@/hooks/useMetadataFieldDiffs";
 import { useMetadataApplyRules } from "@/hooks/useMetadataApplyRules";
+import { useMetadataChoiceRules } from "@/hooks/useMetadataChoiceRules";
+import { resolveMetadataChoices } from "@/helpers/metadataChoice";
 import { CLIENT_KEY_TO_BACKEND_FIELDS, defaultSelectedKeys } from "@/helpers/metadataApplyRules";
 import {
   allSeries,
@@ -23,6 +25,7 @@ import {
 } from "@/helpers/seriesRelations";
 import { handleApiError } from "@/lib/api";
 import { notifications } from "@/lib/notifications";
+import type { MetadataSearchResult } from "@/types/MetadataSearchResult";
 import type { TargetPathCheckResult } from "@/types/TargetPathCheck";
 
 /** The automated rules that write the source's value when nothing needs a person. */
@@ -31,6 +34,18 @@ const APPLYING_AUTOMATED_RULES: ReadonlySet<string> = new Set([
   "FillBlanksOnly",
   "OverwriteUnlessSourceEmpty",
 ]);
+
+// A stable stand-in while the snapshot loads: a fresh object per render would defeat the diff memo.
+const EMPTY_RESULT: MetadataSearchResult = {
+  url: "",
+  cleanUrl: "",
+  source: "",
+  authors: [],
+  narrators: [],
+  bookName: "",
+  genres: [],
+  series: [],
+};
 
 interface PendingRefreshRowPanelProps {
   audiobookId: number;
@@ -63,6 +78,10 @@ export function PendingRefreshRowPanel({ audiobookId, start }: PendingRefreshRow
   // Which of the source's series becomes the book's primary one; undefined = the default the
   // server would pick (the book's current primary when the source still lists it).
   const [chosenPrimarySeries, setChosenPrimarySeries] = useState<string | undefined>(undefined);
+  // The explicit main-author pick ("" = no main author); undefined = what the library's choice
+  // rules resolve to (by default, keep the book's current one).
+  const [chosenMainAuthor, setChosenMainAuthor] = useState<string | undefined>(undefined);
+  const { rules: choiceRules, ready: choiceRulesReady } = useMetadataChoiceRules();
 
   const { data: bookDetail, isLoading: loadingBook } = useQuery({
     queryKey: queryKeys.bookDetailRecord(audiobookId),
@@ -100,21 +119,21 @@ export function PendingRefreshRowPanel({ audiobookId, start }: PendingRefreshRow
 
   const allFields = useMetadataFieldDiffs(
     currentInput,
-    searchResult ?? {
-      url: "",
-      cleanUrl: "",
-      source: "",
-      authors: [],
-      narrators: [],
-      bookName: "",
-      genres: [],
-      series: [],
-    },
+    searchResult ?? EMPTY_RESULT,
     languages,
     splitTitleOnColonEnabled,
     chosenPrimarySeries,
     qualifierOptions,
     langData?.defaultCode,
+    choiceRules,
+    chosenMainAuthor,
+  );
+  const choices = resolveMetadataChoices(
+    choiceRules,
+    currentInput,
+    searchResult ?? { authors: [], series: [] },
+    chosenMainAuthor,
+    chosenPrimarySeries,
   );
 
   const sourceSeries = useMemo(
@@ -126,20 +145,42 @@ export function PendingRefreshRowPanel({ audiobookId, start }: PendingRefreshRow
       currentSeriesSet(currentInput.series, currentInput.seriesPart, currentInput.additionalSeries),
     ),
     sourceSeries,
-    chosenPrimarySeries,
+    choices.primarySeries,
   )?.name;
 
   // Only fields the backend can actually apply, and only the ones that changed - "cover" has no
   // backend counterpart in the stored snapshot (see MetadataRefreshApplier), and an unchanged
   // field has nothing to offer here regardless.
+  // What the review would propose with no manual pick: a main-author-only proposal puts Authors on
+  // screen, and choosing the book's own author must not make that row (and with it the Apply
+  // buttons) vanish while the review is open, so the row stays whenever the unpicked diff has it.
+  const unpickedFields = useMetadataFieldDiffs(
+    currentInput,
+    searchResult ?? EMPTY_RESULT,
+    languages,
+    splitTitleOnColonEnabled,
+    chosenPrimarySeries,
+    qualifierOptions,
+    langData?.defaultCode,
+    choiceRules,
+    undefined,
+  );
+  const authorsProposed = unpickedFields.some((f) => f.key === "authors" && f.changed);
   const changedFields = useMemo(
-    () => allFields.filter((f) => f.changed && CLIENT_KEY_TO_BACKEND_FIELDS[f.key]),
-    [allFields],
+    () =>
+      allFields.filter(
+        (f) =>
+          (f.changed || (f.key === "authors" && authorsProposed)) &&
+          CLIENT_KEY_TO_BACKEND_FIELDS[f.key],
+      ),
+    [allFields, authorsProposed],
   );
   const changedFieldKeys = useMemo(() => changedFields.map((f) => f.key), [changedFields]);
   // What a review starts with ticked: the changed fields, narrowed by each one's "when reviewing"
   // rule (Library Settings). Apply All still applies every changed field.
-  const { rules: applyRules, ready: applyRulesReady } = useMetadataApplyRules();
+  const { rules: applyRules, ready: applyRulesFetched } = useMetadataApplyRules();
+  // The choice rules shape the Authors/Series diffs, so the review waits for them as well.
+  const applyRulesReady = applyRulesFetched && choiceRulesReady;
   const defaultKeys = useMemo(
     () => defaultSelectedKeys(changedFields, applyRules),
     [changedFields, applyRules],
@@ -210,6 +251,7 @@ export function PendingRefreshRowPanel({ audiobookId, start }: PendingRefreshRow
         fields,
         splitTitleOnColonEnabled,
         chosenPrimarySeries,
+        chosenMainAuthor,
       );
       return check?.exists ? check : null;
     } catch {
@@ -234,6 +276,7 @@ export function PendingRefreshRowPanel({ audiobookId, start }: PendingRefreshRow
           splitTitleOnColonEnabled,
           chosenPrimarySeries,
           replaceExisting,
+          chosenMainAuthor,
         ),
       );
     } catch (err: unknown) {
@@ -296,6 +339,15 @@ export function PendingRefreshRowPanel({ audiobookId, start }: PendingRefreshRow
           value: effectivePrimarySeries ?? "",
           onChange: setChosenPrimarySeries,
           idPrefix: `pending-refresh-${audiobookId}`,
+        }}
+        authorsChoice={{
+          options: choices.authorOptions,
+          value: choices.mainAuthor,
+          onChange: setChosenMainAuthor,
+          idPrefix: `pending-refresh-${audiobookId}`,
+          askNote: choices.mainAuthorNeedsAsk
+            ? "Your library settings ask you to confirm the main author for this source."
+            : undefined,
         }}
       />
       {

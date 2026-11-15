@@ -23,6 +23,7 @@ import type { FailedOrganizeTask } from "@/types/FailedOrganizeTask";
 import type { BookQualifierOptions } from "@/types/BookQualifier";
 import type { QualifierIndicators } from "@/types/QualifierIndicator";
 import type { MetadataApplyRules, UpdateMetadataApplyRules } from "@/types/MetadataApplyRules";
+import type { MetadataChoiceRules, UpdateMetadataChoiceRules } from "@/types/MetadataChoiceRules";
 import type { MetadataSourceOrder } from "@/types/MetadataSourceOrder";
 import type { LanguageOptions } from "@/types/Language";
 import type { LibrarySearchResult, LibrarySeriesHit } from "@/types/LibrarySearchResult";
@@ -637,6 +638,8 @@ export const metadataRefreshApi = {
   // `primarySeriesName` picks which of the snapshot's series becomes the book's primary one when
   // the Series field is applied; left out, the server keeps the book's current primary if the
   // source still lists it (the same choice a bulk apply makes).
+  // `mainAuthorName` is the explicit main-author pick when the Authors field is applied: a name, or
+  // "" for "no main author"; left out, the library's choice rules decide (default: keep the current).
   // `replaceExisting` is the user's answer to the duplicate-target dialog: without it, an apply
   // whose new library path is already occupied is reported as a `targetExists` outcome.
   applyPending: (
@@ -645,12 +648,14 @@ export const metadataRefreshApi = {
     splitTitleOnColon: boolean = false,
     primarySeriesName?: string,
     replaceExisting: boolean = false,
+    mainAuthorName?: string,
   ) =>
     api.post<void>(`/metadata-refresh/${id}/apply`, {
       fields: fields && fields.length > 0 ? fields : undefined,
       splitTitleOnColon,
       primarySeriesName,
       replaceExisting,
+      mainAuthorName,
     }),
 
   // Read-only preview of where the same apply would file the book, and whether another file
@@ -662,11 +667,13 @@ export const metadataRefreshApi = {
     fields?: readonly string[],
     splitTitleOnColon: boolean = false,
     primarySeriesName?: string,
+    mainAuthorName?: string,
   ) =>
     api.post<TargetPathCheckResult | undefined>(`/metadata-refresh/${id}/apply/check-target`, {
       fields: fields && fields.length > 0 ? fields : undefined,
       splitTitleOnColon,
       primarySeriesName,
+      mainAuthorName,
     }),
 
   // Fire-and-forget: applies the full pending snapshot to every explicitly selected book.
@@ -1071,6 +1078,12 @@ export const settingsApi = {
   // A field left out keeps its stored rules.
   updateMetadataApplyRules: (body: UpdateMetadataApplyRules) =>
     api.put<MetadataApplyRules>("/settings/metadata-apply-rules", body),
+
+  getMetadataChoiceRules: () => api.get<MetadataChoiceRules>("/settings/metadata-choice-rules"),
+
+  // A choice left out keeps its stored rules.
+  updateMetadataChoiceRules: (body: UpdateMetadataChoiceRules) =>
+    api.put<MetadataChoiceRules>("/settings/metadata-choice-rules", body),
 
   // Saves the preferred order of the online metadata sources. The order (with every registered
   // source) is read back through metadataSearchApi.getServices().

@@ -46,6 +46,13 @@ export interface MetadataSearchResult {
    * rules) and sets this; the diff offers them as an additive, optional "Qualifiers" field.
    */
   qualifiers?: string[];
+  /**
+   * The author the source itself names as the main one (Goodreads' primary contributor); absent when
+   * it does not say - which is not the same as "the first author".
+   */
+  mainAuthor?: string;
+  /** The series the source itself marks as the main one (Hardcover's featured series); absent when it does not say. */
+  mainSeries?: string;
 }
 
 export type { MetadataSearchResult as default };

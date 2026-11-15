@@ -21,6 +21,7 @@ vi.mock("@/services/api", () => ({
   settingsApi: {
     getLanguages: vi.fn().mockResolvedValue({ languages: [] }),
     getMetadataApplyRules: vi.fn(),
+    getMetadataChoiceRules: vi.fn().mockResolvedValue({ choices: [] }),
   },
 }));
 
@@ -161,6 +162,7 @@ describe("PendingRefreshRowPanel", () => {
       false,
       undefined,
       false,
+      undefined,
     );
   });
 
@@ -194,6 +196,7 @@ describe("PendingRefreshRowPanel", () => {
       false,
       undefined,
       false,
+      undefined,
     );
   });
 
@@ -218,6 +221,7 @@ describe("PendingRefreshRowPanel", () => {
       false,
       undefined,
       false,
+      undefined,
     );
 
     const toggle = screen.getByRole("checkbox", {
@@ -233,6 +237,7 @@ describe("PendingRefreshRowPanel", () => {
       true,
       undefined,
       false,
+      undefined,
     );
   });
 
@@ -354,6 +359,7 @@ describe("PendingRefreshRowPanel", () => {
         ["Rating"],
         false,
         undefined,
+        undefined,
       );
       expect(metadataRefreshApi.applyPending).not.toHaveBeenCalled();
       // Nothing was started, so the book must not be marked busy while the user decides.
@@ -376,6 +382,7 @@ describe("PendingRefreshRowPanel", () => {
         false,
         undefined,
         true,
+        undefined,
       );
       await waitFor(() => expect(start).toHaveBeenCalledTimes(1));
     });
@@ -422,6 +429,7 @@ describe("PendingRefreshRowPanel", () => {
         false,
         undefined,
         false,
+        undefined,
       );
     });
   });
@@ -487,6 +495,7 @@ describe("PendingRefreshRowPanel", () => {
           false,
           undefined,
           false,
+          undefined,
         ),
       );
     });
@@ -513,6 +522,7 @@ describe("PendingRefreshRowPanel", () => {
           false,
           "Spinoff",
           false,
+          undefined,
         ),
       );
     });
@@ -556,6 +566,7 @@ describe("PendingRefreshRowPanel", () => {
         false,
         undefined,
         false,
+        undefined,
       );
     });
 
@@ -626,6 +637,152 @@ describe("PendingRefreshRowPanel", () => {
       await renderWithRules(ratingRules("AlwaysSelect"));
 
       expect(screen.queryByText(/would hold this book for review/i)).not.toBeInTheDocument();
+    });
+  });
+  describe("main author choice", () => {
+    // The panel lists changed fields only, so the source adds an author - that is what puts the
+    // Authors row (and the main-author choice inside it) on screen.
+    const book: AudiobookDetail = {
+      ...bookDetailWithOnlyRatingDiffering,
+      authors: ["A One"],
+      mainAuthor: "A One",
+    };
+    const pendingWith = (mainAuthor?: string): PendingMetadataRefresh => ({
+      ...pendingWithOnlyRatingDiffering,
+      payload: {
+        ...pendingWithOnlyRatingDiffering.payload,
+        authors: ["A One", "B Two"],
+        mainAuthor,
+      },
+    });
+    const useSourcesRules = {
+      choices: [
+        {
+          choice: "MainAuthor",
+          label: "Main author",
+          description: "",
+          whenSourceNamesMain: "UseSources" as const,
+          whenSourceSilent: "KeepCurrent" as const,
+          namesMainOptions: [],
+          silentOptions: [],
+        },
+      ],
+    };
+
+    it("offers the source's authors, preselecting the book's own main author by default", async () => {
+      vi.mocked(browseApi.getAudiobookDetail).mockResolvedValue(book);
+      vi.mocked(metadataRefreshApi.getPendingForAudiobook).mockResolvedValue(pendingWith("B Two"));
+
+      renderPanel();
+
+      // Default rules keep the current one even though the source names another.
+      expect(await screen.findByRole("radio", { name: "A One" })).toBeChecked();
+      expect(screen.getByRole("radio", { name: "B Two" })).not.toBeChecked();
+      expect(screen.getByRole("radio", { name: "No main author" })).not.toBeChecked();
+    });
+
+    it("preselects the source's own main author when the rules say to use it", async () => {
+      vi.mocked(settingsApi.getMetadataChoiceRules).mockResolvedValueOnce(useSourcesRules);
+      vi.mocked(browseApi.getAudiobookDetail).mockResolvedValue(book);
+      vi.mocked(metadataRefreshApi.getPendingForAudiobook).mockResolvedValue(pendingWith("B Two"));
+
+      renderPanel();
+
+      expect(await screen.findByRole("radio", { name: "B Two" })).toBeChecked();
+    });
+
+    it("sends the picked main author with the apply", async () => {
+      vi.mocked(browseApi.getAudiobookDetail).mockResolvedValue(book);
+      vi.mocked(metadataRefreshApi.getPendingForAudiobook).mockResolvedValue(pendingWith());
+
+      renderPanel();
+
+      fireEvent.click(await screen.findByRole("radio", { name: "B Two" }));
+      fireEvent.click(screen.getByRole("button", { name: /apply all/i }));
+      await waitFor(() => expect(metadataRefreshApi.applyPending).toHaveBeenCalledTimes(1));
+      expect(metadataRefreshApi.applyPending).toHaveBeenLastCalledWith(
+        42,
+        ["Authors", "Rating"],
+        false,
+        undefined,
+        false,
+        "B Two",
+      );
+    });
+
+    it("sends an empty string for No main author, which clears the book's main author", async () => {
+      vi.mocked(browseApi.getAudiobookDetail).mockResolvedValue(book);
+      vi.mocked(metadataRefreshApi.getPendingForAudiobook).mockResolvedValue(pendingWith());
+
+      renderPanel();
+
+      fireEvent.click(await screen.findByRole("radio", { name: "No main author" }));
+      fireEvent.click(screen.getByRole("button", { name: /apply all/i }));
+      await waitFor(() => expect(metadataRefreshApi.applyPending).toHaveBeenCalledTimes(1));
+      expect(vi.mocked(metadataRefreshApi.applyPending).mock.lastCall?.[5]).toBe("");
+    });
+
+    it("sends no main author when none is picked, so the library's rules decide", async () => {
+      vi.mocked(browseApi.getAudiobookDetail).mockResolvedValue(book);
+      vi.mocked(metadataRefreshApi.getPendingForAudiobook).mockResolvedValue(pendingWith());
+
+      renderPanel();
+
+      await screen.findByRole("radio", { name: "A One" });
+      fireEvent.click(screen.getByRole("button", { name: /apply all/i }));
+      await waitFor(() => expect(metadataRefreshApi.applyPending).toHaveBeenCalledTimes(1));
+      expect(vi.mocked(metadataRefreshApi.applyPending).mock.lastCall?.[5]).toBeUndefined();
+    });
+
+    it("offers a main-author-only change when the rules would pick a different one", async () => {
+      // Same authors on both sides: the Authors row exists only because the rules would change the main one.
+      vi.mocked(settingsApi.getMetadataChoiceRules).mockResolvedValueOnce(useSourcesRules);
+      vi.mocked(browseApi.getAudiobookDetail).mockResolvedValue({
+        ...book,
+        authors: ["A One", "B Two"],
+      });
+      vi.mocked(metadataRefreshApi.getPendingForAudiobook).mockResolvedValue(pendingWith("B Two"));
+
+      renderPanel();
+
+      expect(await screen.findByText("A One, B Two (main: A One)")).toBeInTheDocument();
+      expect(screen.getByText("A One, B Two (main: B Two)")).toBeInTheDocument();
+    });
+
+    it("keeps the review row and Apply buttons when the book's own main author is chosen on a main-author-only proposal", async () => {
+      // Same authors, the rules propose the source's B Two over the book's A One. Choosing A One makes
+      // the proposal a no-op, but the row must stay so the choice can still be confirmed or revised.
+      vi.mocked(settingsApi.getMetadataChoiceRules).mockResolvedValueOnce(useSourcesRules);
+      vi.mocked(browseApi.getAudiobookDetail).mockResolvedValue({
+        ...book,
+        authors: ["A One", "B Two"],
+        rating: "4.5",
+      });
+      vi.mocked(metadataRefreshApi.getPendingForAudiobook).mockResolvedValue(pendingWith("B Two"));
+
+      renderPanel();
+
+      fireEvent.click(await screen.findByRole("radio", { name: "A One" }));
+
+      expect(screen.getByRole("radio", { name: "B Two" })).not.toBeChecked();
+      expect(screen.getByRole("radio", { name: "A One" })).toBeChecked();
+      expect(screen.queryByText(/no applicable pending changes/i)).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /apply all/i })).toBeInTheDocument();
+      // ...and it can be revised again.
+      fireEvent.click(screen.getByRole("radio", { name: "B Two" }));
+      expect(screen.getByRole("radio", { name: "B Two" })).toBeChecked();
+    });
+
+    it("shows no main author choice for a single-author source", async () => {
+      vi.mocked(browseApi.getAudiobookDetail).mockResolvedValue(bookDetailWithOnlyRatingDiffering);
+      vi.mocked(metadataRefreshApi.getPendingForAudiobook).mockResolvedValue(
+        pendingWithOnlyRatingDiffering,
+      );
+
+      renderPanel();
+
+      await screen.findByRole("button", { name: /apply selected/i });
+      expect(screen.queryByRole("radio", { name: "No main author" })).not.toBeInTheDocument();
     });
   });
 });

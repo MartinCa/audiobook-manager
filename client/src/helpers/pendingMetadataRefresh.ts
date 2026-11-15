@@ -39,6 +39,8 @@ export function pendingSnapshotToSearchResult(snapshot: SnapshotWireShape): Meta
     publisher: snapshot.publisher ?? undefined,
     asin: snapshot.asin ?? undefined,
     qualifiers: snapshot.qualifiers ?? undefined,
+    mainAuthor: snapshot.mainAuthor ?? undefined,
+    mainSeries: snapshot.series?.find((s) => s.isMain === true)?.seriesName ?? undefined,
     // Every series the source reported; a row stored before the list existed carries only the
     // first (seriesName/seriesPart), which is then the one series.
     series:

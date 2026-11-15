@@ -8,6 +8,8 @@ import { settingsApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { useMetadataFieldDiffs } from "@/hooks/useMetadataFieldDiffs";
 import { useMetadataApplyRules } from "@/hooks/useMetadataApplyRules";
+import { useMetadataChoiceRules } from "@/hooks/useMetadataChoiceRules";
+import { resolveMetadataChoices } from "@/helpers/metadataChoice";
 import { defaultSelectedKeys } from "@/helpers/metadataApplyRules";
 import { useBookQualifiers } from "@/hooks/useBookQualifiers";
 import { splitTitleOnColon } from "@/helpers/titleSplitter";
@@ -98,6 +100,10 @@ export function TagPreviewDialog({
   // apply would pick (the book's current primary when the source still lists it); reset with the
   // rest of the per-flow state below.
   const [chosenPrimarySeries, setChosenPrimarySeries] = useState<string | undefined>(undefined);
+  // The explicit main-author pick ("" = no main author); undefined = what the library's choice
+  // rules resolve to (by default, keep the book's current one).
+  const [chosenMainAuthor, setChosenMainAuthor] = useState<string | undefined>(undefined);
+  const { rules: choiceRules, ready: choiceRulesReady } = useMetadataChoiceRules();
   const currentSeriesEntries = useMemo(
     () =>
       allSeries(
@@ -113,10 +119,17 @@ export function TagPreviewDialog({
     () => canonicalizeSeries(sourceSeriesEntries(searchResult.series)),
     [searchResult.series],
   );
+  const choices = resolveMetadataChoices(
+    choiceRules,
+    currentInput,
+    searchResult,
+    chosenMainAuthor,
+    chosenPrimarySeries,
+  );
   const effectivePrimarySeries = chooseSeriesPrimary(
     currentSeriesEntries,
     sourceSeries,
-    chosenPrimarySeries,
+    choices.primarySeries,
   )?.name;
 
   const fields = useMetadataFieldDiffs(
@@ -127,6 +140,8 @@ export function TagPreviewDialog({
     chosenPrimarySeries,
     qualifierOptions,
     langData?.defaultCode,
+    choiceRules,
+    chosenMainAuthor,
   );
 
   const changedFieldKeys = useMemo(
@@ -136,7 +151,9 @@ export function TagPreviewDialog({
   // What the review starts with ticked: the changed fields, narrowed by each one's "when
   // reviewing" rule (Library Settings). "Select All Changed" and "Apply All" still cover every
   // changed field.
-  const { rules: applyRules, ready: applyRulesReady } = useMetadataApplyRules();
+  const { rules: applyRules, ready: applyRulesFetched } = useMetadataApplyRules();
+  // The choice rules shape the Authors/Series diffs, so the review waits for them as well.
+  const applyRulesReady = applyRulesFetched && choiceRulesReady;
   const defaultKeys = useMemo(
     () =>
       defaultSelectedKeys(
@@ -178,6 +195,7 @@ export function TagPreviewDialog({
     setDontSaveAutomatically(false);
     setSplitTitleOnColonEnabled(recordedSplit);
     setChosenPrimarySeries(undefined);
+    setChosenMainAuthor(undefined);
   }
 
   // Belt-and-suspenders reset alongside the identity check above: that check assumes every new
@@ -192,6 +210,7 @@ export function TagPreviewDialog({
       setDontSaveAutomatically(false);
       setSplitTitleOnColonEnabled(recordedSplit);
       setChosenPrimarySeries(undefined);
+      setChosenMainAuthor(undefined);
     }
   }
 
@@ -233,6 +252,17 @@ export function TagPreviewDialog({
     }
   };
 
+  // Picking a main author other than the book's own is a decision to apply it, and it is applied
+  // with the Authors field: tick that field, or Apply Selected would drop the pick (and stay
+  // disabled when nothing else changed). Picking the book's own author asks for no change.
+  const pickMainAuthor = (name: string) => {
+    setChosenMainAuthor(name);
+    if (name !== choices.currentMainAuthor) {
+      setSelectionTouched(true);
+      setSelected((prev) => new Set(prev).add("authors"));
+    }
+  };
+
   const saveImmediately = !dontSaveAutomatically;
 
   // The consumer (BookEditForm's handleApplyPreviewedTags) reads bookName/subtitle straight off
@@ -262,9 +292,16 @@ export function TagPreviewDialog({
     // "first = primary, the others = additional" without a signature of its own for the choice.
     return {
       result: withPrimarySeriesFirst(
-        { ...searchResult, bookName, subtitle: effectiveSubtitle ?? undefined },
+        {
+          ...searchResult,
+          bookName,
+          subtitle: effectiveSubtitle ?? undefined,
+          // Resolved, not the source's own designation: the consumer sets the form's main author
+          // to this when the Authors field is applied ("" = none).
+          mainAuthor: choices.mainAuthor,
+        },
         currentSeriesEntries,
-        chosenPrimarySeries,
+        choices.primarySeries,
       ),
       titleSplit: titleSplitOutcome({
         bookNameApplied: keys.has("bookName"),
@@ -312,6 +349,15 @@ export function TagPreviewDialog({
               value: effectivePrimarySeries ?? "",
               onChange: setChosenPrimarySeries,
               idPrefix: "tag-preview",
+            }}
+            authorsChoice={{
+              options: choices.authorOptions,
+              value: choices.mainAuthor,
+              onChange: pickMainAuthor,
+              idPrefix: "tag-preview",
+              askNote: choices.mainAuthorNeedsAsk
+                ? "Your library settings ask you to confirm the main author for this source."
+                : undefined,
             }}
           />
         </div>

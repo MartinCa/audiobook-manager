@@ -18,6 +18,16 @@ public interface ISettingsService
     /// <exception cref="ArgumentException">A field is unknown or a rule is not allowed for it.</exception>
     Task<MetadataApplyRuleSet> UpdateMetadataApplyRules(IReadOnlyDictionary<string, Domain.FieldApplyRule> rules);
 
+    /// <summary>The "which one is the main one" rules (main author, primary series), resolved against the defaults.</summary>
+    Task<MetadataChoiceRuleSet> GetMetadataChoiceRules();
+
+    /// <summary>
+    /// Saves the rules for the choices named in <paramref name="rules"/> (the rest keep their stored
+    /// rule) and returns the resulting set.
+    /// </summary>
+    /// <exception cref="ArgumentException">A choice is unknown or a rule is not allowed for it.</exception>
+    Task<MetadataChoiceRuleSet> UpdateMetadataChoiceRules(IReadOnlyDictionary<string, Domain.ChoiceRule> rules);
+
     /// <summary>
     /// The saved order of the online metadata sources, by name (empty when none was chosen). Apply
     /// it with <see cref="Domain.MetadataSourceOrder.Sort{T}"/> wherever sources are listed.

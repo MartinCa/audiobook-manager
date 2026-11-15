@@ -24,6 +24,7 @@ export const queryKeys = {
 
   // Per-field rules for applying online metadata (select-by-default / automated handling).
   metadataApplyRules: () => ["metadataApplyRules"] as const,
+  metadataChoiceRules: () => ["metadataChoiceRules"] as const,
 
   // The book/author/series source filter dropdown options (registered scrapers) plus the book
   // list's genre/language filter options - see BrowseController.GetFilterOptions.

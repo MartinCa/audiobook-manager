@@ -106,11 +106,14 @@ public interface IMetadataRefreshService
     /// <see cref="TitleSplitter"/> on the snapshot's BookName/Subtitle - off by default (see that
     /// class's remarks for why the split is never assumed). <paramref name="primarySeriesName"/>
     /// picks which of the snapshot's series becomes the primary one when the Series field is
-    /// applied; without it the book keeps its current primary if the source still lists it.
+    /// applied; without it the primary series choice rule decides (by default the book keeps its
+    /// current primary if the source still lists it). <paramref name="mainAuthorName"/> is a
+    /// person's pick of the book's main author when the Authors field is applied (the empty string
+    /// is "no main author"); without it the main author choice rule decides.
     /// </summary>
     Task<bool> ApplyPendingRefreshAsync(
         long audiobookId, IReadOnlyCollection<string>? fields = null, bool splitTitleOnColon = false,
-        string? primarySeriesName = null, bool replaceExisting = false);
+        string? primarySeriesName = null, bool replaceExisting = false, string? mainAuthorName = null);
 
     /// <summary>
     /// Previews the library path <see cref="ApplyPendingRefreshAsync"/> would move the book to with
@@ -123,7 +126,7 @@ public interface IMetadataRefreshService
     /// </summary>
     Task<TargetPathCollisionResult?> CheckApplyTargetCollisionAsync(
         long audiobookId, IReadOnlyCollection<string>? fields = null, bool splitTitleOnColon = false,
-        string? primarySeriesName = null);
+        string? primarySeriesName = null, string? mainAuthorName = null);
 
     /// <summary>
     /// Applies every explicitly selected book's full pending snapshot and dismisses it, tolerating
