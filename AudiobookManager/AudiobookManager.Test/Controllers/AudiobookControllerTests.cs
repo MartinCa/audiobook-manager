@@ -926,6 +926,68 @@ public class AudiobookControllerTests
         CollectionAssert.AreEqual(new List<string> { "Fantasy" }, dto.Books[0].Genres);
     }
 
+    // The dialog works out which series every selected book is in from this, so the additional ones have to
+    // be on the preview or only each book's primary could ever be offered.
+    [TestMethod]
+    public async Task GetBulkEditPreview_CarriesTheAdditionalSeriesNames()
+    {
+        var book = new Audiobook(
+            new List<Person> { new Person("Test Author") },
+            "Current Title",
+            2024,
+            new AudiobookFileInfo("/library/author/current.m4b", "current.m4b", 1000))
+        {
+            Id = 7,
+            Series = "Main",
+            AdditionalSeries = new List<SeriesRelation> { new("Spinoff", "3"), new("Other", null) },
+        };
+        var standalone = new Audiobook(
+            new List<Person> { new Person("Test Author") },
+            "Other Title",
+            2024,
+            new AudiobookFileInfo("/library/author/other.m4b", "other.m4b", 1000))
+        {
+            Id = 8,
+            AdditionalSeries = null,
+        };
+        _bulkEditService.Setup(s => s.GetPreviewAsync(new List<long> { 7, 8 }))
+            .ReturnsAsync(new List<Audiobook> { book, standalone });
+
+        var result = await _controller.GetBulkEditPreview(new BulkSelectionDto { AudiobookIds = new List<long> { 7, 8 } });
+
+        var dto = (BulkEditPreviewResponseDto)((OkObjectResult)result.Result!).Value!;
+        CollectionAssert.AreEqual(new List<string> { "Spinoff", "Other" }, dto.Books[0].AdditionalSeries);
+        CollectionAssert.AreEqual(new List<string>(), dto.Books[1].AdditionalSeries, "a book with none reports an empty list, not null");
+    }
+
+    // The dialog marks an author as "already the main author" from this, and a stored main author that is no
+    // longer one of the authors must not be reported, or the dialog would mark someone who is not credited.
+    [TestMethod]
+    public async Task GetBulkEditPreview_CarriesTheEffectiveMainAuthor()
+    {
+        var withMain = new Audiobook(
+            new List<Person> { new Person("A One"), new Person("B Two") },
+            "Title", 2024, new AudiobookFileInfo("/library/a/a.m4b", "a.m4b", 1000))
+        { Id = 7, MainAuthor = "B Two" };
+        var staleMain = new Audiobook(
+            new List<Person> { new Person("A One") },
+            "Other", 2024, new AudiobookFileInfo("/library/a/b.m4b", "b.m4b", 1000))
+        { Id = 8, MainAuthor = "Gone Author" };
+        var noMain = new Audiobook(
+            new List<Person> { new Person("A One") },
+            "Third", 2024, new AudiobookFileInfo("/library/a/c.m4b", "c.m4b", 1000))
+        { Id = 9 };
+        _bulkEditService.Setup(s => s.GetPreviewAsync(new List<long> { 7, 8, 9 }))
+            .ReturnsAsync(new List<Audiobook> { withMain, staleMain, noMain });
+
+        var result = await _controller.GetBulkEditPreview(new BulkSelectionDto { AudiobookIds = new List<long> { 7, 8, 9 } });
+
+        var dto = (BulkEditPreviewResponseDto)((OkObjectResult)result.Result!).Value!;
+        Assert.AreEqual("B Two", dto.Books[0].MainAuthor);
+        Assert.IsNull(dto.Books[1].MainAuthor, "a main author that is not among the authors is not reported");
+        Assert.IsNull(dto.Books[2].MainAuthor);
+    }
+
     [TestMethod]
     public void StartBulkEdit_NoFieldChanges_IsA400_NothingStarts()
     {
@@ -1033,6 +1095,143 @@ public class AudiobookControllerTests
                     && c.Narrators.Values.Count == 0),
             new List<long> { 1, 2 },
             It.IsAny<Func<int, int, int, int, Task>>()), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task StartBulkEdit_SetMainAuthor_IsAcceptedAndMapsToATrimmedSetChange()
+    {
+        _bulkEditService.Setup(s => s.ApplyAsync(
+                It.IsAny<AudiobookBulkChanges>(), It.IsAny<List<long>>(), It.IsAny<Func<int, int, int, int, Task>>()))
+            .ReturnsAsync((1, 1, 0));
+
+        var dto = MakeBulkEditRequest();
+        dto.MainAuthor = new BulkEditSingleValueDto { Action = "set", Value = "  Shared Author " };
+
+        var result = _controller.StartBulkEdit(dto);
+
+        Assert.IsInstanceOfType<OkResult>(result);
+        await OperationGate.WaitUntilReleasedAsync(typeof(AudiobookController));
+        _bulkEditService.Verify(s => s.ApplyAsync(
+            It.Is<AudiobookBulkChanges>(c =>
+                c.MainAuthor != null && !c.MainAuthor.Clear && c.MainAuthor.Value == "Shared Author"),
+            new List<long> { 1, 2 },
+            It.IsAny<Func<int, int, int, int, Task>>()), Times.Once);
+    }
+
+    [TestMethod]
+    [DataRow("clear", "Shared Author", "MainAuthor action must be 'set'; the main author cannot be cleared in bulk.")]
+    [DataRow("bogus", "Shared Author", "MainAuthor action must be 'set'; the main author cannot be cleared in bulk.")]
+    [DataRow("set", "   ", "MainAuthor must name an author to set.")]
+    [DataRow("set", null, "MainAuthor must name an author to set.")]
+    public void StartBulkEdit_AMainAuthorRejection_IsA400_NothingStarts(string action, string? value, string expectedMessage)
+    {
+        var dto = MakeBulkEditRequest();
+        dto.MainAuthor = new BulkEditSingleValueDto { Action = action, Value = value };
+
+        var result = _controller.StartBulkEdit(dto);
+
+        ProblemAssert.HasDetail(result, StatusCodes.Status400BadRequest, expectedMessage);
+        _bulkEditService.Verify(s => s.ApplyAsync(It.IsAny<AudiobookBulkChanges>(), It.IsAny<List<long>>(), It.IsAny<Func<int, int, int, int, Task>>()), Times.Never);
+    }
+
+    // A replace that drops the chosen name would leave every book without a main author while the edit
+    // reads as applied, so it is refused up front; "add" keeps the existing authors and is fine.
+    [TestMethod]
+    public void StartBulkEdit_MainAuthorMissingFromAReplacedAuthorList_IsA400_NothingStarts()
+    {
+        var dto = MakeBulkEditRequest();
+        dto.MainAuthor = new BulkEditSingleValueDto { Action = "set", Value = "Old Author" };
+        dto.Authors = new BulkEditMultiValueDto { Action = "replace", Values = new List<string> { "New Author" } };
+
+        var result = _controller.StartBulkEdit(dto);
+
+        ProblemAssert.HasDetail(
+            result, StatusCodes.Status400BadRequest,
+            "The new author list does not include the chosen main author; add them to the authors or pick another main author.");
+        _bulkEditService.Verify(s => s.ApplyAsync(It.IsAny<AudiobookBulkChanges>(), It.IsAny<List<long>>(), It.IsAny<Func<int, int, int, int, Task>>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task StartBulkEdit_MainAuthorWithAReplacedListThatKeepsThem_IsAccepted()
+    {
+        _bulkEditService.Setup(s => s.ApplyAsync(
+                It.IsAny<AudiobookBulkChanges>(), It.IsAny<List<long>>(), It.IsAny<Func<int, int, int, int, Task>>()))
+            .ReturnsAsync((1, 1, 0));
+
+        var dto = MakeBulkEditRequest();
+        dto.MainAuthor = new BulkEditSingleValueDto { Action = "set", Value = "Kept Author" };
+        dto.Authors = new BulkEditMultiValueDto { Action = "replace", Values = new List<string> { "Kept Author", "Another" } };
+
+        var result = _controller.StartBulkEdit(dto);
+
+        Assert.IsInstanceOfType<OkResult>(result);
+        await OperationGate.WaitUntilReleasedAsync(typeof(AudiobookController));
+    }
+
+    [TestMethod]
+    public async Task StartBulkEdit_MainAuthorAloneIsAChange_SoItDoesNotAnswerNothingToApply()
+    {
+        _bulkEditService.Setup(s => s.ApplyAsync(
+                It.IsAny<AudiobookBulkChanges>(), It.IsAny<List<long>>(), It.IsAny<Func<int, int, int, int, Task>>()))
+            .ReturnsAsync((1, 1, 0));
+
+        var dto = MakeBulkEditRequest();
+        dto.MainAuthor = new BulkEditSingleValueDto { Action = "set", Value = "Test Author" };
+
+        var result = _controller.StartBulkEdit(dto);
+
+        Assert.IsInstanceOfType<OkResult>(result);
+        await OperationGate.WaitUntilReleasedAsync(typeof(AudiobookController));
+    }
+
+    [TestMethod]
+    public async Task StartBulkEdit_SetPrimarySeries_IsAcceptedAndMapsToATrimmedSetChange()
+    {
+        _bulkEditService.Setup(s => s.ApplyAsync(
+                It.IsAny<AudiobookBulkChanges>(), It.IsAny<List<long>>(), It.IsAny<Func<int, int, int, int, Task>>()))
+            .ReturnsAsync((1, 1, 0));
+
+        var dto = MakeBulkEditRequest();
+        dto.PrimarySeries = new BulkEditSingleValueDto { Action = "set", Value = " Sword Art Online / Progressive " };
+
+        var result = _controller.StartBulkEdit(dto);
+
+        Assert.IsInstanceOfType<OkResult>(result);
+        await OperationGate.WaitUntilReleasedAsync(typeof(AudiobookController));
+        _bulkEditService.Verify(s => s.ApplyAsync(
+            It.Is<AudiobookBulkChanges>(c =>
+                c.PrimarySeries != null && !c.PrimarySeries.Clear && c.PrimarySeries.Value == "Sword Art Online / Progressive"),
+            new List<long> { 1, 2 },
+            It.IsAny<Func<int, int, int, int, Task>>()), Times.Once);
+    }
+
+    [TestMethod]
+    [DataRow("clear", "Saga", "PrimarySeries action must be 'set'.")]
+    [DataRow("bogus", "Saga", "PrimarySeries action must be 'set'.")]
+    [DataRow("set", "  ", "PrimarySeries must name a series to set.")]
+    [DataRow("set", null, "PrimarySeries must name a series to set.")]
+    public void StartBulkEdit_APrimarySeriesRejection_IsA400_NothingStarts(string action, string? value, string expectedMessage)
+    {
+        var dto = MakeBulkEditRequest();
+        dto.PrimarySeries = new BulkEditSingleValueDto { Action = action, Value = value };
+
+        var result = _controller.StartBulkEdit(dto);
+
+        ProblemAssert.HasDetail(result, StatusCodes.Status400BadRequest, expectedMessage);
+        _bulkEditService.Verify(s => s.ApplyAsync(It.IsAny<AudiobookBulkChanges>(), It.IsAny<List<long>>(), It.IsAny<Func<int, int, int, int, Task>>()), Times.Never);
+    }
+
+    [TestMethod]
+    public void StartBulkEdit_PrimarySeriesTogetherWithASeriesChange_IsA400_NothingStarts()
+    {
+        var dto = MakeBulkEditRequest();
+        dto.PrimarySeries = new BulkEditSingleValueDto { Action = "set", Value = "Saga" };
+        dto.Series = new BulkEditSingleValueDto { Action = "set", Value = "Other" };
+
+        var result = _controller.StartBulkEdit(dto);
+
+        ProblemAssert.HasDetail(result, StatusCodes.Status400BadRequest, "PrimarySeries cannot be combined with a Series change.");
+        _bulkEditService.Verify(s => s.ApplyAsync(It.IsAny<AudiobookBulkChanges>(), It.IsAny<List<long>>(), It.IsAny<Func<int, int, int, int, Task>>()), Times.Never);
     }
 
     [TestMethod]

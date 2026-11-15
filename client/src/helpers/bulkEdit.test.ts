@@ -1,11 +1,17 @@
 import { describe, it, expect } from "vitest";
-import { computeMultiFieldState, computeSingleFieldState } from "./bulkEdit";
+import {
+  computeMultiFieldState,
+  computeSharedAuthors,
+  computeSharedSeries,
+  computeSingleFieldState,
+} from "./bulkEdit";
 import type { BulkEditPreviewBook } from "@/types/BulkEdit";
 
 function book(overrides: Partial<BulkEditPreviewBook> = {}): BulkEditPreviewBook {
   return {
     id: 1,
     authors: [],
+    additionalSeries: [],
     narrators: [],
     genres: [],
     bookName: null,
@@ -176,5 +182,157 @@ describe("computeMultiFieldState", () => {
       common: null,
       mixed: false,
     });
+  });
+});
+
+const authorNames = (books: BulkEditPreviewBook[]) =>
+  computeSharedAuthors(books).map((o) => o.value);
+const seriesNames = (books: BulkEditPreviewBook[]) =>
+  computeSharedSeries(books).map((o) => o.value);
+describe("computeSharedAuthors", () => {
+  it("lists the authors every book has, in the first book's order", () => {
+    const shared = authorNames([
+      book({ authors: ["A One", "B Two", "C Three"] }),
+      book({ id: 2, authors: ["C Three", "B Two"] }),
+      book({ id: 3, authors: ["B Two", "C Three", "D Four"] }),
+    ]);
+
+    expect(shared).toEqual(["B Two", "C Three"]);
+  });
+
+  it("is empty when no author is in every book", () => {
+    expect(
+      authorNames([book({ authors: ["A One"] }), book({ id: 2, authors: ["B Two"] })]),
+    ).toEqual([]);
+  });
+
+  it("offers a single book's whole author list", () => {
+    expect(authorNames([book({ authors: ["A One", "B Two"] })])).toEqual(["A One", "B Two"]);
+  });
+
+  it("is empty for no books, and for books without authors", () => {
+    expect(authorNames([])).toEqual([]);
+    expect(authorNames([book({ authors: [] }), book({ id: 2, authors: [] })])).toEqual([]);
+  });
+
+  it("matches names exactly, since the main author is keyed by exact name", () => {
+    expect(
+      authorNames([book({ authors: ["Jane Doe"] }), book({ id: 2, authors: ["jane doe"] })]),
+    ).toEqual([]);
+  });
+
+  it("lists a name once even if a book repeats it", () => {
+    expect(
+      authorNames([book({ authors: ["A One", "A One"] }), book({ id: 2, authors: ["A One"] })]),
+    ).toEqual(["A One"]);
+  });
+});
+
+describe("computeSharedSeries", () => {
+  it("offers a series every book is in, as primary or additional", () => {
+    const shared = seriesNames([
+      book({ series: "Main", additionalSeries: ["Spinoff", "Other"] }),
+      book({ id: 2, series: "Spinoff", additionalSeries: ["Main"] }),
+    ]);
+
+    // "Main" is primary on one book only, "Spinoff" on the other: both are real changes for someone.
+    expect(shared).toEqual(["Main", "Spinoff"]);
+  });
+
+  it("lists a series that is already the primary of every selected book, flagged as already set", () => {
+    const options = computeSharedSeries([
+      book({ series: "Main", additionalSeries: ["Spinoff"] }),
+      book({ id: 2, series: "Main", additionalSeries: ["Spinoff"] }),
+    ]);
+
+    expect(options).toEqual([
+      { value: "Main", alreadySet: true },
+      { value: "Spinoff", alreadySet: false },
+    ]);
+  });
+
+  it("does not flag a series that is primary on only some of the books", () => {
+    const options = computeSharedSeries([
+      book({ series: "Main", additionalSeries: ["Spinoff"] }),
+      book({ id: 2, series: "Spinoff", additionalSeries: ["Main"] }),
+    ]);
+
+    expect(options).toEqual([
+      { value: "Main", alreadySet: false },
+      { value: "Spinoff", alreadySet: false },
+    ]);
+  });
+
+  it("flags a series that is primary everywhere when the spelling differs only by case or space", () => {
+    expect(
+      computeSharedSeries([book({ series: "Main Saga" }), book({ id: 2, series: " main saga " })]),
+    ).toEqual([{ value: "Main Saga", alreadySet: true }]);
+  });
+
+  it("is empty when no series is in every book", () => {
+    expect(
+      seriesNames([
+        book({ series: "Main", additionalSeries: [] }),
+        book({ id: 2, series: "Other", additionalSeries: [] }),
+      ]),
+    ).toEqual([]);
+  });
+
+  it("never offers a series a book is not in - the action reorders, it cannot add", () => {
+    // "Spinoff" is only on one book; "Main" is on both (and primary on both).
+    expect(
+      seriesNames([
+        book({ series: "Main", additionalSeries: ["Spinoff"] }),
+        book({ id: 2, series: "Main", additionalSeries: [] }),
+      ]),
+    ).toEqual(["Main"]);
+  });
+
+  it("matches names ignoring case and surrounding space, keeping the first book's spelling", () => {
+    expect(
+      seriesNames([
+        book({ series: "Main", additionalSeries: ["Spinoff Saga"] }),
+        book({ id: 2, series: "Main", additionalSeries: [" spinoff saga "] }),
+      ]),
+    ).toEqual(["Main", "Spinoff Saga"]);
+  });
+
+  it("treats a book with no primary series as having only its additional ones", () => {
+    expect(
+      seriesNames([
+        book({ series: null, additionalSeries: ["Spinoff"] }),
+        book({ id: 2, series: "Main", additionalSeries: ["Spinoff"] }),
+      ]),
+    ).toEqual(["Spinoff"]);
+  });
+
+  it("is empty for no books", () => {
+    expect(seriesNames([])).toEqual([]);
+  });
+});
+
+describe("computeSharedAuthors alreadySet", () => {
+  it("flags an author who is already the main author of every selected book", () => {
+    expect(
+      computeSharedAuthors([
+        book({ authors: ["A One", "B Two"], mainAuthor: "B Two" }),
+        book({ id: 2, authors: ["B Two", "A One"], mainAuthor: "B Two" }),
+      ]),
+    ).toEqual([
+      { value: "A One", alreadySet: false },
+      { value: "B Two", alreadySet: true },
+    ]);
+  });
+
+  it("does not flag an author who is the main author of only some of the books", () => {
+    expect(
+      computeSharedAuthors([
+        book({ authors: ["A One", "B Two"], mainAuthor: "B Two" }),
+        book({ id: 2, authors: ["A One", "B Two"] }),
+      ]),
+    ).toEqual([
+      { value: "A One", alreadySet: false },
+      { value: "B Two", alreadySet: false },
+    ]);
   });
 });

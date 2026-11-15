@@ -25,7 +25,13 @@ import { SeriesField } from "@/components/fields/SeriesField";
 import { LanguageField } from "@/components/fields/LanguageField";
 import { bulkEditApi } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
-import { computeMultiFieldState, computeSingleFieldState } from "@/helpers/bulkEdit";
+import {
+  computeMultiFieldState,
+  computeSharedAuthors,
+  computeSharedSeries,
+  computeSingleFieldState,
+} from "@/helpers/bulkEdit";
+import { SharedValueChoice } from "./SharedValueChoice";
 import { handleApiError } from "@/lib/api";
 import { notifications } from "@/lib/notifications";
 import { cn } from "@/lib/utils";
@@ -141,6 +147,8 @@ function buildChanges(
   dirtyFields: FieldNamesMarkedBoolean<BulkEditFormValues>,
   cleared: ReadonlySet<ClearableFieldKey>,
   modes: MultiFieldModes,
+  mainAuthor: string | undefined,
+  primarySeries: string | undefined,
 ): BuiltChanges {
   const changes: BuiltChanges = {};
 
@@ -162,6 +170,12 @@ function buildChanges(
 
   if (dirtyFields.authors && values.authors.length > 0) {
     changes.authors = { action: modes.authors, values: values.authors };
+  }
+  if (mainAuthor) {
+    changes.mainAuthor = { action: "set", value: mainAuthor };
+  }
+  if (primarySeries) {
+    changes.primarySeries = { action: "set", value: primarySeries };
   }
   for (const field of CLEARABLE_MULTI_FIELDS) {
     if (cleared.has(field)) {
@@ -309,7 +323,13 @@ function BulkEditForm({
     narrators: "replace",
     genres: "replace",
   });
+  // The author to make every book's main author; undefined = leave each book's main author alone.
+  const [mainAuthor, setMainAuthor] = useState<string | undefined>(undefined);
+  // The series to make every book's primary one; undefined = leave each book's series alone.
+  const [primarySeries, setPrimarySeries] = useState<string | undefined>(undefined);
   const [submitting, setSubmitting] = useState(false);
+  const sharedAuthors = useMemo(() => computeSharedAuthors(books), [books]);
+  const sharedSeries = useMemo(() => computeSharedSeries(books), [books]);
 
   const toggleCleared = (field: ClearableFieldKey, nowCleared: boolean) => {
     setCleared((prev) => {
@@ -352,11 +372,29 @@ function BulkEditForm({
     mixed ? "Different values" : fallback;
 
   const changes = useMemo(
-    () => buildChanges(watchedValues, form.formState.dirtyFields, cleared, modes),
-    [watchedValues, form.formState.dirtyFields, cleared, modes],
+    () =>
+      buildChanges(
+        watchedValues,
+        form.formState.dirtyFields,
+        cleared,
+        modes,
+        mainAuthor,
+        primarySeries,
+      ),
+    [watchedValues, form.formState.dirtyFields, cleared, modes, mainAuthor, primarySeries],
   );
+  // Replacing the authors in the same edit rewrites every book's list: a main author that is not in
+  // the new list would be dropped, and the server refuses that request, so say so before it is sent.
+  const mainAuthorDropped =
+    mainAuthor !== undefined &&
+    changes.authors?.action === "replace" &&
+    !(changes.authors.values ?? []).includes(mainAuthor);
   const { setCount, clearedCount } = useMemo(() => countActions(changes), [changes]);
-  const hasChanges = setCount > 0 || clearedCount > 0;
+  // A Series change also decides each book's primary series, so the server refuses the pair
+  // rather than let the order they are applied in pick a winner; say so before it is sent.
+  const primarySeriesConflicts = primarySeries !== undefined && changes.series !== undefined;
+  const hasChanges =
+    (setCount > 0 || clearedCount > 0) && !mainAuthorDropped && !primarySeriesConflicts;
 
   const handleValidSubmit = async () => {
     if (!hasChanges) return;
@@ -419,6 +457,23 @@ function BulkEditForm({
               groupId="authors"
               value={modes.authors}
               onValueChange={(mode) => setMode("authors", mode)}
+            />
+          </FieldRow>
+
+          <FieldRow label="Main Author">
+            <SharedValueChoice
+              options={sharedAuthors}
+              alreadySetLabel="already the main author"
+              value={mainAuthor}
+              onChange={setMainAuthor}
+              emptyText="The selected books share no author, so a main author cannot be set for all of them."
+              legend="Main author for all selected books"
+              idPrefix="main-author"
+              warning={
+                mainAuthorDropped
+                  ? `The new author list does not include ${mainAuthor}. Add them to the authors or pick another main author.`
+                  : undefined
+              }
             />
           </FieldRow>
 
@@ -503,6 +558,23 @@ function BulkEditForm({
               {...form.register("seriesPart")}
               placeholder={singlePlaceholder(states.seriesPart.mixed, "e.g. 1 or 2.5")}
               disabled={cleared.has("seriesPart")}
+            />
+          </FieldRow>
+
+          <FieldRow label="Primary Series">
+            <SharedValueChoice
+              options={sharedSeries}
+              alreadySetLabel="already primary"
+              value={primarySeries}
+              onChange={setPrimarySeries}
+              emptyText="The selected books share no series, so none can be made primary."
+              legend="Primary series for all selected books"
+              idPrefix="primary-series"
+              warning={
+                primarySeriesConflicts
+                  ? "A new primary series cannot be combined with a change to the Series field. Leave one of them unchanged."
+                  : undefined
+              }
             />
           </FieldRow>
 

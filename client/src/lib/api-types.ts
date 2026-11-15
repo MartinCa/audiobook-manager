@@ -6295,6 +6295,8 @@ export interface components {
             authors?: components["schemas"]["BulkEditMultiValueDto"];
             narrators?: components["schemas"]["BulkEditMultiValueDto"];
             genres?: components["schemas"]["BulkEditMultiValueDto"];
+            mainAuthor?: components["schemas"]["BulkEditSingleValueDto"];
+            primarySeries?: components["schemas"]["BulkEditSingleValueDto"];
         };
         BulkEditMultiValueDto: {
             action?: string | null;
@@ -6319,6 +6321,8 @@ export interface components {
             rating?: string | null;
             asin?: string | null;
             www?: string | null;
+            additionalSeries?: string[] | null;
+            mainAuthor?: string | null;
         };
         BulkEditPreviewResponseDto: {
             books?: components["schemas"]["BulkEditPreviewItemDto"][] | null;

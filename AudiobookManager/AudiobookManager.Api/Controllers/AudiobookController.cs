@@ -247,6 +247,10 @@ public class AudiobookController : ControllerBase
             dto.Authors, "Authors", allowClear: false,
             "Replacing authors with an empty list would leave the books without an author.", c => changes.Authors = c);
         if (error != null) return error;
+        error = ParseMainAuthorChange(dto, changes);
+        if (error != null) return error;
+        error = ParsePrimarySeriesChange(dto, changes);
+        if (error != null) return error;
         error = ParseMultiValueChange(
             dto.Narrators, "Narrators", allowClear: true,
             "Replacing narrators with an empty list would remove every narrator.", c => changes.Narrators = c);
@@ -256,6 +260,70 @@ public class AudiobookController : ControllerBase
             "Replacing genres with an empty list would remove every genre.", c => changes.Genres = c);
         if (error != null) return error;
 
+        return null;
+    }
+
+    /// <summary>
+    /// "set" only: a bulk clear of the main author is not offered. When the same request replaces the
+    /// authors, the new list has to still contain the chosen name, or every book would lose it.
+    /// </summary>
+    private ObjectResult? ParseMainAuthorChange(BulkEditAudiobooksRequestDto dto, AudiobookBulkChanges changes)
+    {
+        if (dto.MainAuthor == null)
+        {
+            return null;
+        }
+
+        if (dto.MainAuthor.Action != "set")
+        {
+            return this.InvalidRequest("MainAuthor action must be 'set'; the main author cannot be cleared in bulk.");
+        }
+
+        var name = dto.MainAuthor.Value?.Trim();
+        if (string.IsNullOrEmpty(name))
+        {
+            return this.InvalidRequest("MainAuthor must name an author to set.");
+        }
+
+        if (dto.Authors is { Action: "replace" }
+            && !CleanNames(dto.Authors.Values).Contains(name, StringComparer.Ordinal))
+        {
+            return this.InvalidRequest(
+                "The new author list does not include the chosen main author; add them to the authors or pick another main author.");
+        }
+
+        changes.MainAuthor = new BulkSingleChange(name, Clear: false);
+        return null;
+    }
+
+    /// <summary>
+    /// "set" only. A Series change in the same request would also decide the primary, so the two are not
+    /// accepted together rather than letting the order they happen to be applied in pick a winner.
+    /// </summary>
+    private ObjectResult? ParsePrimarySeriesChange(BulkEditAudiobooksRequestDto dto, AudiobookBulkChanges changes)
+    {
+        if (dto.PrimarySeries == null)
+        {
+            return null;
+        }
+
+        if (dto.PrimarySeries.Action != "set")
+        {
+            return this.InvalidRequest("PrimarySeries action must be 'set'.");
+        }
+
+        var name = dto.PrimarySeries.Value?.Trim();
+        if (string.IsNullOrEmpty(name))
+        {
+            return this.InvalidRequest("PrimarySeries must name a series to set.");
+        }
+
+        if (dto.Series != null)
+        {
+            return this.InvalidRequest("PrimarySeries cannot be combined with a Series change.");
+        }
+
+        changes.PrimarySeries = new BulkSingleChange(name, Clear: false);
         return null;
     }
 
@@ -365,7 +433,9 @@ public class AudiobookController : ControllerBase
         book.Language,
         book.Rating,
         book.Asin,
-        book.Www);
+        book.Www,
+        (book.AdditionalSeries ?? new List<SeriesRelation>()).Select(r => r.Name).ToList(),
+        book.EffectiveMainAuthor);
 
     [HttpPut("{id}")]
     public IActionResult UpdateAudiobook(long id, [FromBody] OrganizeAudiobookDto dto)

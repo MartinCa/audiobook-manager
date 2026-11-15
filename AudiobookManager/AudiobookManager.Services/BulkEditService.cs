@@ -40,10 +40,24 @@ public sealed class AudiobookBulkChanges
     public BulkMultiChange? Narrators;
     public BulkMultiChange? Genres;
 
+    /// <summary>
+    /// The author to make every selected book's main author (set only - there is no bulk clear).
+    /// Applied after <see cref="Authors"/>, and a book whose resulting authors do not include the
+    /// name fails its own item rather than silently ending up with none.
+    /// </summary>
+    public BulkSingleChange? MainAuthor;
+
+    /// <summary>
+    /// A series every selected book is already in, to make each book's primary one (set only). It only
+    /// reorders the books' own series - the old primary becomes an additional series - and a book that is
+    /// not in the series fails its own item rather than gaining it.
+    /// </summary>
+    public BulkSingleChange? PrimarySeries;
+
     public bool IsEmpty =>
         BookName is null && Subtitle is null && Series is null && SeriesPart is null && Description is null
         && Copyright is null && Publisher is null && Language is null && Rating is null && Asin is null && Www is null
-        && Year is null && Authors is null && Narrators is null && Genres is null;
+        && Year is null && Authors is null && Narrators is null && Genres is null && MainAuthor is null && PrimarySeries is null;
 
     /// <summary>
     /// Applies every present change to <paramref name="book"/>. An absent change leaves the
@@ -51,6 +65,14 @@ public sealed class AudiobookBulkChanges
     /// </summary>
     public void ApplyTo(Audiobook book)
     {
+        // First, before the Series Part change below: that edits the book's primary series' part, and
+        // the primary is the promoted series once this has run. Applied after, a part typed for the new
+        // primary would land on the demoted one (and a cleared part would clear the wrong series).
+        if (PrimarySeries is { Clear: false, Value: { } primary })
+        {
+            book.MakePrimarySeries(primary);
+        }
+
         if (BookName != null) book.BookName = ApplySingle(BookName);
         if (Subtitle != null) book.Subtitle = ApplySingle(Subtitle);
         if (Series != null) book.Series = ApplySingle(Series);
@@ -77,6 +99,12 @@ public sealed class AudiobookBulkChanges
         if (Genres != null)
         {
             book.Genres = MergeNames(book.Genres, Genres);
+        }
+
+        // After the authors, so the name is judged against the list the book will end up with.
+        if (MainAuthor != null)
+        {
+            book.MainAuthor = ApplySingle(MainAuthor);
         }
     }
 
@@ -195,6 +223,25 @@ public class BulkEditService : IBulkEditService
                 {
                     throw new Exception(
                         $"Bulk edit would leave audiobook {dbBook.Id} without an author or a title; the edit was refused.");
+                }
+
+                // A main author is always one of the authors (EffectiveMainAuthor drops one that is not),
+                // so a book that does not credit the chosen name would be saved with none and the
+                // edit would look applied. Fail that item instead.
+                if (changes.MainAuthor is { Clear: false } requested
+                    && !string.Equals(domain.EffectiveMainAuthor, requested.Value?.Trim(), StringComparison.Ordinal))
+                {
+                    throw new Exception(
+                        $"Audiobook {dbBook.Id} is not credited to the chosen main author; the edit was refused.");
+                }
+
+                // The series is only reordered, never added: a book that is not in it keeps its series as
+                // they were and fails its own item, instead of the batch reporting a change it did not make.
+                if (changes.PrimarySeries is { Clear: false } wanted
+                    && !string.Equals(domain.Series?.Trim(), wanted.Value?.Trim(), StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new Exception(
+                        $"Audiobook {dbBook.Id} is not in the chosen series; the edit was refused.");
                 }
 
                 await _audiobookService.UpdateAudiobook(dbBook.Id, domain);

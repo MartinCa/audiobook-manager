@@ -728,6 +728,18 @@ Audiobookshelf sees exactly what it always did. The other ("additional") series 
   number (`SeriesPartSortKey`) and is never equivalent to a single part. A part stored before this
   existed (`2.0`, `Book 2`) is left as it is until the book is next saved, and then rewritten - which
   can rename its folder (`Book 02.0` becomes `Book 02`), a `WrongFilePath` issue a bulk resolve fixes.
+- **Bulk edit can make a series the primary one** (`primarySeries` on `POST api/audiobook/bulk-edit`, "set"
+  only, never together with a `Series` change). The Edit Metadata dialog offers the series **every** selected
+  book is in, as primary or additional (`computeSharedSeries`, from the preview's `additionalSeries`); one
+  that is already primary on all of them is listed but disabled and marked, never hidden (a hidden one made
+  "no series" read as true when the books did share one), and it says so when nothing is shared at all. `MakePrimarySeries` only
+  *reorders* what a book already has: the old primary becomes the first additional series with its part, the
+  promoted one brings its own part, and a book that is not in the series fails its own item
+  (`BulkEditService` checks the result) rather than gaining the series or reporting a change it did not make.
+  It saves through the same per-book `UpdateAudiobook` loop, so the tags and folder follow the new primary.
+  Main author and primary series are the same kind of field (pick one of the values every book already has,
+  with one every book is already set to - from the preview's `mainAuthor`/primary series - marked and disabled),
+  so they share `SharedValueChoice` and `computeSharedValues`; there is no per-surface bulk button for either.
 - **Qualifiers stay on the primary only.** Additional series are stored clean and never suffixed.
 - **Series-keyed reads return one row per (book, series)**, with the part the book has _in that
   series_ - `SeriesOwnedKey`/`AuthorOwnedKey` are per pair, a standalone book (no relation rows)
@@ -1125,6 +1137,13 @@ person can never delete a book. On the domain `Audiobook` it is `MainAuthor`, th
   **This changes the folder naming for those books relative to what Audiobookshelf's own docs describe
   (a folder per author); it is opt-in and was requested explicitly, but any further change to how the
   folder is derived needs the confirmation the Audiobookshelf-compatibility rule above asks for.**
+- **Bulk edit can set it** (`mainAuthor` on `POST api/audiobook/bulk-edit`, "set" only - no bulk clear). The
+  dialog offers only the authors **every** selected book shares (`computeSharedAuthors`, exact names) and says
+  so when there are none; it rides the same per-book `UpdateAudiobook` loop as every other bulk field. It is
+  applied after `Authors`, and `BulkEditService` fails a book's own item when the result's `EffectiveMainAuthor`
+  is not the chosen name (otherwise the book would save with none and the batch would report success); the
+  controller refuses an authors "replace" whose list drops the chosen name, and the dialog blocks that
+  combination before sending.
 - **The consistency check reads it from the database row, because the file cannot supply it.**
   `AudiobookIssueDetectionService` sets `parsed.MainAuthor = audiobook.MainAuthorName` before the detectors
   run (same idea as `BookQualifiers.ApplyExpected`); without it `PathMismatchDetector` would expect the

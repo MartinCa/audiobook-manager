@@ -57,6 +57,20 @@ public class BulkEditAudiobooksRequestDto
     public BulkEditMultiValueDto? Authors { get; set; }
     public BulkEditMultiValueDto? Narrators { get; set; }
     public BulkEditMultiValueDto? Genres { get; set; }
+
+    /// <summary>
+    /// Makes one author the main author of every selected book. Action is "set" only (the main author is
+    /// optional per book, but a bulk clear is not offered); Value must name an author each book is credited
+    /// to, or that book's item fails.
+    /// </summary>
+    public BulkEditSingleValueDto? MainAuthor { get; set; }
+
+    /// <summary>
+    /// Makes one series the primary series of every selected book (the series page's "make primary"). Action
+    /// is "set" only. Each book must already be in the series - its previous primary becomes an additional
+    /// series - or that book's item fails. Cannot be combined with a <see cref="Series"/> change.
+    /// </summary>
+    public BulkEditSingleValueDto? PrimarySeries { get; set; }
 }
 
 /// <summary>
@@ -79,7 +93,11 @@ public record BulkEditPreviewItemDto(
     string? Language,
     string? Rating,
     string? Asin,
-    string? Www);
+    string? Www,
+    /// <summary>The names of the book's non-primary series (the primary is <c>Series</c>), for the shared-series choice.</summary>
+    List<string> AdditionalSeries,
+    /// <summary>The book's main author when it has one (always one of <c>Authors</c>), so the dialog can mark it as already set.</summary>
+    string? MainAuthor = null);
 
 public class BulkEditPreviewResponseDto
 {
