@@ -65,6 +65,14 @@ public sealed class AudiobookBulkChanges
     /// </summary>
     public void ApplyTo(Audiobook book)
     {
+        // First, before the Series Part change below: that edits the book's primary series' part, and
+        // the primary is the promoted series once this has run. Applied after, a part typed for the new
+        // primary would land on the demoted one (and a cleared part would clear the wrong series).
+        if (PrimarySeries is { Clear: false, Value: { } primary })
+        {
+            book.MakePrimarySeries(primary);
+        }
+
         if (BookName != null) book.BookName = ApplySingle(BookName);
         if (Subtitle != null) book.Subtitle = ApplySingle(Subtitle);
         if (Series != null) book.Series = ApplySingle(Series);
@@ -91,11 +99,6 @@ public sealed class AudiobookBulkChanges
         if (Genres != null)
         {
             book.Genres = MergeNames(book.Genres, Genres);
-        }
-
-        if (PrimarySeries is { Clear: false, Value: { } primary })
-        {
-            book.MakePrimarySeries(primary);
         }
 
         // After the authors, so the name is judged against the list the book will end up with.

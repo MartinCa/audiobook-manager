@@ -414,6 +414,46 @@ public class BulkEditServiceTests
         Assert.AreEqual(new SeriesRelation("Main", "1"), book.AdditionalSeries!.Single());
     }
 
+    // Regression: the part change used to run before the promotion, so "make Spinoff primary, part 5" saved
+    // Spinoff #3 as primary and Main #5 as additional - the part went to the series being demoted.
+    [TestMethod]
+    public void ApplyTo_APrimarySeriesWithASeriesPart_SetsThePartOfThePromotedSeries()
+    {
+        var book = MakeBook();
+        book.Series = "Main";
+        book.SeriesPart = "1";
+        book.AdditionalSeries = new List<SeriesRelation> { new("Spinoff", "3") };
+
+        new AudiobookBulkChanges
+        {
+            PrimarySeries = new BulkSingleChange("Spinoff", Clear: false),
+            SeriesPart = new BulkSingleChange("5", Clear: false),
+        }.ApplyTo(book);
+
+        Assert.AreEqual("Spinoff", book.Series);
+        Assert.AreEqual("5", book.SeriesPart);
+        Assert.AreEqual(new SeriesRelation("Main", "1"), book.AdditionalSeries!.Single(), "the demoted series keeps its own part");
+    }
+
+    [TestMethod]
+    public void ApplyTo_APrimarySeriesWithAClearedSeriesPart_ClearsThePartOfThePromotedSeriesOnly()
+    {
+        var book = MakeBook();
+        book.Series = "Main";
+        book.SeriesPart = "1";
+        book.AdditionalSeries = new List<SeriesRelation> { new("Spinoff", "3") };
+
+        new AudiobookBulkChanges
+        {
+            PrimarySeries = new BulkSingleChange("Spinoff", Clear: false),
+            SeriesPart = new BulkSingleChange(null, Clear: true),
+        }.ApplyTo(book);
+
+        Assert.AreEqual("Spinoff", book.Series);
+        Assert.IsNull(book.SeriesPart);
+        Assert.AreEqual(new SeriesRelation("Main", "1"), book.AdditionalSeries!.Single(), "Main's part is not touched");
+    }
+
     [TestMethod]
     public async Task ApplyAsync_APrimarySeriesChange_ReachesUpdateAudiobookWithTheNewPrimary()
     {
