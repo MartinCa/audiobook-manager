@@ -199,6 +199,33 @@ public sealed class MetadataChoiceRuleSet
         return result;
     }
 
+    /// <summary>
+    /// Whether two series names are the same series: trimmed and equal ignoring case, which is how
+    /// <see cref="SeriesRelationSet"/> tells series apart. Deliberately not <see cref="SameName"/>:
+    /// folding punctuation would merge "Saga." and "Saga", two series to the relation set, and an
+    /// explicit pick of one could then resolve to the other.
+    /// </summary>
+    public static bool SameSeries(string? a, string? b) =>
+        !string.IsNullOrWhiteSpace(a) && string.Equals(a.Trim(), b?.Trim(), StringComparison.OrdinalIgnoreCase);
+
+    private static List<string> DistinctSeries(IEnumerable<string?> names)
+    {
+        var result = new List<string>();
+        foreach (var name in names)
+        {
+            var trimmed = name?.Trim();
+            if (!string.IsNullOrEmpty(trimmed) && !result.Any(r => SameSeries(r, trimmed)))
+            {
+                result.Add(trimmed);
+            }
+        }
+
+        return result;
+    }
+
+    private static string? FindSeries(IReadOnlyList<string> candidates, string? name) =>
+        candidates.FirstOrDefault(c => SameSeries(c, name));
+
     private static string? Find(IReadOnlyList<string> candidates, string? name) =>
         string.IsNullOrWhiteSpace(name) ? null : candidates.FirstOrDefault(c => SameName(c, name));
 
@@ -336,9 +363,9 @@ public sealed class MetadataChoiceRuleSet
     public ChoiceOutcome ResolvePrimarySeries(
         IEnumerable<string?> sourceSeries, string? sourceMain, IReadOnlyList<string> currentSeries, string? explicitChoice = null)
     {
-        var candidates = Distinct(sourceSeries);
+        var candidates = DistinctSeries(sourceSeries);
 
-        var picked = Find(candidates, explicitChoice);
+        var picked = FindSeries(candidates, explicitChoice);
         if (picked is not null)
         {
             return new ChoiceOutcome(picked, false);
@@ -351,20 +378,20 @@ public sealed class MetadataChoiceRuleSet
 
         var currentPrimary = currentSeries.FirstOrDefault();
         var rule = Get(MetadataChoiceKinds.PrimarySeries);
-        var named = Find(candidates, sourceMain);
+        var named = FindSeries(candidates, sourceMain);
         if (named is not null)
         {
             return rule.WhenSourceNamesMain switch
             {
                 SourceNamesMainRule.UseSources => new ChoiceOutcome(named, false),
-                SourceNamesMainRule.AskMe => new ChoiceOutcome(null, !SameName(named, currentPrimary)),
+                SourceNamesMainRule.AskMe => new ChoiceOutcome(null, !SameSeries(named, currentPrimary)),
                 _ => new ChoiceOutcome(null, false),
             };
         }
 
         // Silent source: only the case where none of the book's series survives is a real decision;
         // otherwise the default (keep the one the book has) is what every rule would land on.
-        var survives = currentSeries.Any(s => Find(candidates, s) is not null);
+        var survives = currentSeries.Any(s => FindSeries(candidates, s) is not null);
         return rule.WhenSourceSilent switch
         {
             SourceSilentRule.FirstListed => new ChoiceOutcome(survives ? null : candidates[0], false),

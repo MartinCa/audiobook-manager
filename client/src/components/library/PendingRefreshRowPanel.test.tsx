@@ -749,6 +749,30 @@ describe("PendingRefreshRowPanel", () => {
       expect(screen.getByText("A One, B Two (main: B Two)")).toBeInTheDocument();
     });
 
+    it("keeps the review row and Apply buttons when the book's own main author is chosen on a main-author-only proposal", async () => {
+      // Same authors, the rules propose the source's B Two over the book's A One. Choosing A One makes
+      // the proposal a no-op, but the row must stay so the choice can still be confirmed or revised.
+      vi.mocked(settingsApi.getMetadataChoiceRules).mockResolvedValueOnce(useSourcesRules);
+      vi.mocked(browseApi.getAudiobookDetail).mockResolvedValue({
+        ...book,
+        authors: ["A One", "B Two"],
+        rating: "4.5",
+      });
+      vi.mocked(metadataRefreshApi.getPendingForAudiobook).mockResolvedValue(pendingWith("B Two"));
+
+      renderPanel();
+
+      fireEvent.click(await screen.findByRole("radio", { name: "A One" }));
+
+      expect(screen.getByRole("radio", { name: "B Two" })).not.toBeChecked();
+      expect(screen.getByRole("radio", { name: "A One" })).toBeChecked();
+      expect(screen.queryByText(/no applicable pending changes/i)).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /apply all/i })).toBeInTheDocument();
+      // ...and it can be revised again.
+      fireEvent.click(screen.getByRole("radio", { name: "B Two" }));
+      expect(screen.getByRole("radio", { name: "B Two" })).toBeChecked();
+    });
+
     it("shows no main author choice for a single-author source", async () => {
       vi.mocked(browseApi.getAudiobookDetail).mockResolvedValue(bookDetailWithOnlyRatingDiffering);
       vi.mocked(metadataRefreshApi.getPendingForAudiobook).mockResolvedValue(

@@ -252,6 +252,17 @@ export function TagPreviewDialog({
     }
   };
 
+  // Picking a main author other than the book's own is a decision to apply it, and it is applied
+  // with the Authors field: tick that field, or Apply Selected would drop the pick (and stay
+  // disabled when nothing else changed). Picking the book's own author asks for no change.
+  const pickMainAuthor = (name: string) => {
+    setChosenMainAuthor(name);
+    if (name !== choices.currentMainAuthor) {
+      setSelectionTouched(true);
+      setSelected((prev) => new Set(prev).add("authors"));
+    }
+  };
+
   const saveImmediately = !dontSaveAutomatically;
 
   // The consumer (BookEditForm's handleApplyPreviewedTags) reads bookName/subtitle straight off
@@ -342,7 +353,7 @@ export function TagPreviewDialog({
             authorsChoice={{
               options: choices.authorOptions,
               value: choices.mainAuthor,
-              onChange: setChosenMainAuthor,
+              onChange: pickMainAuthor,
               idPrefix: "tag-preview",
               askNote: choices.mainAuthorNeedsAsk
                 ? "Your library settings ask you to confirm the main author for this source."

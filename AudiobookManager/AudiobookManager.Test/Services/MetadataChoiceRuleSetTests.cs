@@ -182,6 +182,28 @@ public class MetadataChoiceRuleSetTests
         Assert.AreEqual(new ChoiceOutcome("Cosmere", false), rules.ResolvePrimarySeries(TwoSeries, "Saga", ["Saga"], "Cosmere"));
     }
 
+    // Series are told apart the way SeriesRelationSet does (trimmed, ignoring case), not by the author-name
+    // normalizer: "Saga." and "Saga" are two series there, and an explicit pick of one must not resolve to the other.
+    [TestMethod]
+    public void PrimarySeries_ExplicitPick_AmongNamesThatOnlyDifferByPunctuation_IsTheExactOne()
+    {
+        var rules = MetadataChoiceRuleSet.Defaults;
+        string[] lookalikes = ["Saga.", "Saga"];
+
+        Assert.AreEqual(new ChoiceOutcome("Saga", false), rules.ResolvePrimarySeries(lookalikes, null, [], "Saga"));
+        Assert.AreEqual(new ChoiceOutcome("Saga.", false), rules.ResolvePrimarySeries(lookalikes, null, [], "Saga."));
+        // Case alone is not a difference: it is the same series.
+        Assert.AreEqual(new ChoiceOutcome("Saga", false), rules.ResolvePrimarySeries(lookalikes, null, [], "SAGA"));
+    }
+
+    [TestMethod]
+    public void PrimarySeries_SourceNamesOneThatOnlyDiffersByPunctuation_UseSourcesTakesTheExactOne()
+    {
+        var rules = Rules(MetadataChoiceKinds.PrimarySeries, named: SourceNamesMainRule.UseSources);
+
+        Assert.AreEqual(new ChoiceOutcome("Saga", false), rules.ResolvePrimarySeries(["Saga.", "Saga"], "Saga", ["Other"]));
+    }
+
     [TestMethod]
     public void PrimarySeries_FewerThanTwo_HasNothingToChoose()
     {

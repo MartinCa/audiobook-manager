@@ -862,7 +862,9 @@ Defaults are Keep current for both, i.e. exactly the behaviour from before the r
   main author is kept only if the source still credits them; a sole author is never promoted); otherwise
   the rule for "source names one" or "source silent" applies. Names compare through `NameNormalizer`
   (case, dots, initials spacing folded) and the **source's spelling** is returned, because applying Authors
-  stores the source's names. **First listed fills a gap only** - it never replaces a main author the source
+  stores the source's names. **Series are compared differently**: trimmed and equal ignoring case (`SameSeries`, the
+  `SeriesRelationSet` rule), never through the normalizer, or an explicit pick of `Saga` could resolve to the
+  distinct series `Saga.`; the client twin mirrors both. **First listed fills a gap only** - it never replaces a main author the source
   still credits; for the series it uses the source's order (not the canonical alphabetical one) and only
   acts when none of the book's series survives. Primary-series outcomes are an *explicit primary or null*:
   null leaves it to `SeriesRelationSet.ChoosePrimary`, which is what keeps Keep current byte-identical to
@@ -889,7 +891,7 @@ Defaults are Keep current for both, i.e. exactly the behaviour from before the r
   Authors row (and the primary-series chooser in the Series row) preselected from the rules; the dialog
   hands the *resolved* main author to `BookEditForm` on the result (`mainAuthor`, `""` = none) and the form
   applies it only with the Authors field. The panel lists changed fields only, so the picker appears when
-  Authors changed - including a main-author-only change the rules would make.
+  Authors changed - including a main-author-only change the rules would make. The Authors row stays on screen once a main-author-only proposal put it there (choosing the book's own author must not remove the Apply buttons), and picking a different main author in the dialog ticks Authors.
 
 ### The "Queue status" filter and saved filter presets
 

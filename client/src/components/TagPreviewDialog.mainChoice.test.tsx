@@ -146,4 +146,55 @@ describe("TagPreviewDialog main author and primary series choice", () => {
       await screen.findByText(/library settings ask you to confirm the main author/i),
     ).toBeInTheDocument();
   });
+
+  it("ticks Authors when a different main author is picked on identical authors, so Apply Selected applies it", async () => {
+    // Same authors on both sides and the default rules keep the current main author: Authors starts
+    // unchanged and unticked, so only the pick itself can bring it into the selection.
+    const sameAuthors: MetadataSearchResult = { ...source, mainAuthor: undefined, series: [] };
+    const onApply = vi.fn();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <TagPreviewDialog
+          open
+          onOpenChange={() => {}}
+          currentInput={{ ...current, authors: "A One, B Two", series: undefined }}
+          searchResult={sameAuthors}
+          onApply={onApply}
+        />
+      </QueryClientProvider>,
+    );
+
+    const apply = await screen.findByRole("button", { name: /apply selected/i });
+    fireEvent.click(await screen.findByRole("radio", { name: "B Two" }));
+    fireEvent.click(apply);
+
+    const [result, keys] = onApply.mock.calls[0] as [MetadataSearchResult, Set<string>];
+    expect(keys.has("authors")).toBe(true);
+    expect(result.mainAuthor).toBe("B Two");
+  });
+
+  it("does not tick Authors when the book's own main author is picked again", async () => {
+    const sameAuthors: MetadataSearchResult = { ...source, mainAuthor: undefined, series: [] };
+    const onApply = vi.fn();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <TagPreviewDialog
+          open
+          onOpenChange={() => {}}
+          currentInput={{ ...current, authors: "A One, B Two", series: undefined }}
+          searchResult={sameAuthors}
+          onApply={onApply}
+        />
+      </QueryClientProvider>,
+    );
+
+    const apply = await screen.findByRole("button", { name: /apply selected/i });
+    fireEvent.click(await screen.findByRole("radio", { name: "A One" }));
+    fireEvent.click(apply);
+
+    const [, keys] = onApply.mock.calls[0] as [MetadataSearchResult, Set<string>];
+    expect(keys.has("authors")).toBe(false);
+  });
 });

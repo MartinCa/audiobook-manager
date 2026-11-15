@@ -25,6 +25,7 @@ import {
 } from "@/helpers/seriesRelations";
 import { handleApiError } from "@/lib/api";
 import { notifications } from "@/lib/notifications";
+import type { MetadataSearchResult } from "@/types/MetadataSearchResult";
 import type { TargetPathCheckResult } from "@/types/TargetPathCheck";
 
 /** The automated rules that write the source's value when nothing needs a person. */
@@ -33,6 +34,18 @@ const APPLYING_AUTOMATED_RULES: ReadonlySet<string> = new Set([
   "FillBlanksOnly",
   "OverwriteUnlessSourceEmpty",
 ]);
+
+// A stable stand-in while the snapshot loads: a fresh object per render would defeat the diff memo.
+const EMPTY_RESULT: MetadataSearchResult = {
+  url: "",
+  cleanUrl: "",
+  source: "",
+  authors: [],
+  narrators: [],
+  bookName: "",
+  genres: [],
+  series: [],
+};
 
 interface PendingRefreshRowPanelProps {
   audiobookId: number;
@@ -106,16 +119,7 @@ export function PendingRefreshRowPanel({ audiobookId, start }: PendingRefreshRow
 
   const allFields = useMetadataFieldDiffs(
     currentInput,
-    searchResult ?? {
-      url: "",
-      cleanUrl: "",
-      source: "",
-      authors: [],
-      narrators: [],
-      bookName: "",
-      genres: [],
-      series: [],
-    },
+    searchResult ?? EMPTY_RESULT,
     languages,
     splitTitleOnColonEnabled,
     chosenPrimarySeries,
@@ -147,9 +151,29 @@ export function PendingRefreshRowPanel({ audiobookId, start }: PendingRefreshRow
   // Only fields the backend can actually apply, and only the ones that changed - "cover" has no
   // backend counterpart in the stored snapshot (see MetadataRefreshApplier), and an unchanged
   // field has nothing to offer here regardless.
+  // What the review would propose with no manual pick: a main-author-only proposal puts Authors on
+  // screen, and choosing the book's own author must not make that row (and with it the Apply
+  // buttons) vanish while the review is open, so the row stays whenever the unpicked diff has it.
+  const unpickedFields = useMetadataFieldDiffs(
+    currentInput,
+    searchResult ?? EMPTY_RESULT,
+    languages,
+    splitTitleOnColonEnabled,
+    chosenPrimarySeries,
+    qualifierOptions,
+    langData?.defaultCode,
+    choiceRules,
+    undefined,
+  );
+  const authorsProposed = unpickedFields.some((f) => f.key === "authors" && f.changed);
   const changedFields = useMemo(
-    () => allFields.filter((f) => f.changed && CLIENT_KEY_TO_BACKEND_FIELDS[f.key]),
-    [allFields],
+    () =>
+      allFields.filter(
+        (f) =>
+          (f.changed || (f.key === "authors" && authorsProposed)) &&
+          CLIENT_KEY_TO_BACKEND_FIELDS[f.key],
+      ),
+    [allFields, authorsProposed],
   );
   const changedFieldKeys = useMemo(() => changedFields.map((f) => f.key), [changedFields]);
   // What a review starts with ticked: the changed fields, narrowed by each one's "when reviewing"

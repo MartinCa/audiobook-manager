@@ -96,6 +96,29 @@ export function sameName(a: string | null | undefined, b: string | null | undefi
   return left !== "" && left === normalizeName(b);
 }
 
+/**
+ * Whether two series names are the same series: trimmed and equal ignoring case, which is how the
+ * relation set tells series apart (the server's `SameSeries`). Not `sameName`: folding punctuation
+ * would merge "Saga." and "Saga", two series, and an explicit pick of one could resolve to the other.
+ */
+export function sameSeries(a: string | null | undefined, b: string | null | undefined): boolean {
+  const left = a?.trim();
+  return Boolean(left) && left!.toLowerCase() === b?.trim().toLowerCase();
+}
+
+function distinctSeries(names: readonly (string | null | undefined)[]): string[] {
+  const result: string[] = [];
+  for (const name of names) {
+    const trimmed = name?.trim();
+    if (trimmed && !result.some((r) => sameSeries(r, trimmed))) result.push(trimmed);
+  }
+  return result;
+}
+
+function findSeries(candidates: readonly string[], name: string | null | undefined) {
+  return candidates.find((c) => sameSeries(c, name));
+}
+
 function distinct(names: readonly (string | null | undefined)[]): string[] {
   const result: string[] = [];
   for (const name of names) {
@@ -164,25 +187,25 @@ export function resolvePrimarySeries(
   currentSeries: readonly string[],
   explicitChoice?: string,
 ): ChoiceOutcome {
-  const candidates = distinct(sourceSeries);
+  const candidates = distinctSeries(sourceSeries);
 
-  const picked = find(candidates, explicitChoice);
+  const picked = findSeries(candidates, explicitChoice);
   if (picked !== undefined) return { value: picked, needsAsk: false };
 
   if (candidates.length < 2) return { value: undefined, needsAsk: false };
 
   const currentPrimary = currentSeries[0];
-  const named = find(candidates, sourceMain);
+  const named = findSeries(candidates, sourceMain);
   if (named !== undefined) {
     const byRule: Record<SourceNamesMainRule, ChoiceOutcome> = {
       UseSources: { value: named, needsAsk: false },
-      AskMe: { value: undefined, needsAsk: !sameName(named, currentPrimary) },
+      AskMe: { value: undefined, needsAsk: !sameSeries(named, currentPrimary) },
       KeepCurrent: { value: undefined, needsAsk: false },
     };
     return byRule[rule.whenSourceNamesMain];
   }
 
-  const survives = currentSeries.some((s) => find(candidates, s) !== undefined);
+  const survives = currentSeries.some((s) => findSeries(candidates, s) !== undefined);
   const bySilentRule: Record<SourceSilentRule, ChoiceOutcome> = {
     FirstListed: { value: survives ? undefined : candidates[0], needsAsk: false },
     AskMe: { value: undefined, needsAsk: !survives },

@@ -202,6 +202,29 @@ describe("resolvePrimarySeries", () => {
   });
 });
 
+describe("resolvePrimarySeries with names that only differ by punctuation", () => {
+  // Series are the same when trimmed and equal ignoring case (the relation set's rule), so an explicit
+  // pick of "Saga" must not resolve to the distinct series "Saga." the way the author normalizer would.
+  it("resolves an explicit pick to the exact series, not its punctuation lookalike", () => {
+    const lookalikes = ["Saga.", "Saga"];
+    expect(resolvePrimarySeries(DEFAULT_CHOICE_RULE, lookalikes, undefined, [], "Saga")).toEqual(
+      out("Saga", false),
+    );
+    expect(resolvePrimarySeries(DEFAULT_CHOICE_RULE, lookalikes, undefined, [], "Saga.")).toEqual(
+      out("Saga.", false),
+    );
+    expect(resolvePrimarySeries(DEFAULT_CHOICE_RULE, lookalikes, undefined, [], "SAGA")).toEqual(
+      out("Saga", false),
+    );
+  });
+
+  it("takes the exact featured series when the rule is Use the source's", () => {
+    expect(resolvePrimarySeries(rule("UseSources"), ["Saga.", "Saga"], "Saga", ["Other"])).toEqual(
+      out("Saga", false),
+    );
+  });
+});
+
 describe("normalizeName / sameName", () => {
   it.each([
     ["George R. R. Martin", "george rr martin"],
