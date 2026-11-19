@@ -73,11 +73,17 @@ public interface IPersonRepository
     /// how the caller applies that filter's missing/upcoming-book fields, which this repository
     /// cannot evaluate itself (see <see cref="AuthorSummaryFilter"/>'s doc) - when non-null, only
     /// authors whose id is in this set are returned.
+    ///
+    /// <paramref name="sort"/> replaces the default order (null keeps it). The missing/upcoming
+    /// sort keys order by <paramref name="sortCounts"/> (author id to count, absent meaning zero),
+    /// which the caller computes from the roster reconciliation; without it those keys fall back to
+    /// the default order.
     /// </summary>
     Task<(List<AuthorSummaryRow> Items, int Total)> GetAuthorSummariesPagedAsync(
         string? search, int limit, int offset,
         AuthorSummaryFilter? filter = null, IReadOnlyCollection<long>? restrictToIds = null,
-        IReadOnlyCollection<long>? excludeIds = null);
+        IReadOnlyCollection<long>? excludeIds = null,
+        AuthorSort? sort = null, IReadOnlyDictionary<long, int>? sortCounts = null);
 
     /// <summary>Name-matching authors, with the book count projected in SQL, paged with a total.</summary>
     Task<(List<AuthorSummaryRow> Items, int Total)> SearchAuthorSummariesAsync(string query, int limit, int offset);

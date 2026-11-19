@@ -8,6 +8,7 @@ import { EntityFilterBar, type FilterFieldDef } from "@/components/filters/Entit
 import { countActiveFilters } from "@/components/filters/filterUtils";
 import { FilterToggleButton } from "@/components/filters/FilterToggleButton";
 import { FilterPresets } from "@/components/filters/FilterPresets";
+import { SortControl } from "@/components/filters/SortControl";
 import { queueStateField } from "@/components/filters/queueStateField";
 import { LibraryViewTabs } from "./LibraryViewTabs";
 import { MatchSourceBadge } from "./MatchSourceBadge";
@@ -19,6 +20,7 @@ import { usePageSize } from "@/hooks/usePageSize";
 import { Route } from "@/routes/library/authors/index";
 import { SOURCE_OPTION_LABELS, UNSUPPORTED_SOURCE_VALUE } from "@/types/EntityFilters";
 import type { AuthorListFilters } from "@/types/EntityFilters";
+import { AUTHOR_SORT, type ListSort } from "@/helpers/listSort";
 import type { PageSizeOption } from "@/constants/paging";
 
 // The redundant "Matched" boolean filter (equivalent to selecting/excluding the sources filter's
@@ -62,8 +64,11 @@ const BASE_FILTER_FIELDS: FilterFieldDef[] = [
 
 export function AuthorsList() {
   const navigate = useNavigate();
-  const { q = "", ...filterSearch } = Route.useSearch();
+  const { q = "", sortBy, sortDir, ...filterSearch } = Route.useSearch();
   const filters: AuthorListFilters = filterSearch;
+  // The sort is a route param of its own, not a filter: presets and the active-filter count only
+  // ever see `filters`.
+  const sort = useMemo<ListSort>(() => ({ sortBy, sortDir }), [sortBy, sortDir]);
   const [prevQ, setPrevQ] = useState(q);
   const [filter, setFilter] = useState(q);
   const [page, setPage] = useState(0);
@@ -119,6 +124,15 @@ export function AuthorsList() {
     });
   };
 
+  const handleSortChange = (next: ListSort) => {
+    setPage(0);
+    void navigate({
+      to: "/library/authors",
+      search: (prev) => ({ ...prev, ...next }),
+      replace: true,
+    });
+  };
+
   useEffect(() => {
     const timer = setTimeout(() => {
       const trimmed = filter.trim();
@@ -155,9 +169,9 @@ export function AuthorsList() {
   // The list is paged server-side: the filter also runs in SQL (accent-insensitive), so only the
   // requested page crosses the wire - the old version sent every author in the library.
   const { data: pageData, isLoading: loading } = useQuery({
-    queryKey: queryKeys.authors.page(q, page, pageSize, filters),
+    queryKey: queryKeys.authors.page(q, page, pageSize, filters, sort),
     placeholderData: keepPreviousData,
-    queryFn: () => browseApi.getAuthorPage(pageSize, page * pageSize, q, filters),
+    queryFn: () => browseApi.getAuthorPage(pageSize, page * pageSize, q, filters, sort),
   });
 
   const authors = pageData?.items ?? [];
@@ -231,6 +245,8 @@ export function AuthorsList() {
           activeCount={countActiveFilters(FILTER_FIELDS, filters)}
           controls="authors-filter-panel"
         />
+
+        <SortControl config={AUTHOR_SORT} sort={sort} onChange={handleSortChange} noun="authors" />
       </div>
 
       {filtersExpanded && (

@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { z } from "zod";
 import { normalizeRefreshBound } from "@/components/filters/filterUtils";
 import SeriesOverviewPage from "@/components/library/SeriesOverview";
+import { SERIES_SORT, sortSearchFields } from "@/helpers/listSort";
 
 const seriesSearchSchema = z.object({
   q: z.string().optional(),
@@ -25,6 +26,7 @@ const seriesSearchSchema = z.object({
   neverRefreshed: z.boolean().optional(),
   sources: z.array(z.string()).optional(),
   queueStates: z.array(z.string()).optional(),
+  ...sortSearchFields(SERIES_SORT),
 });
 
 export const Route = createFileRoute("/library/series/")({

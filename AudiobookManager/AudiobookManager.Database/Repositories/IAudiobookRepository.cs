@@ -6,7 +6,7 @@ public interface IAudiobookRepository
 {
     Task<Audiobook> InsertAudiobook(Audiobook audiobook);
     Task<Audiobook?> GetByFullPathAsync(string fullPath, Func<string, string, bool>? pathsEqual = null);
-    Task<(List<Audiobook> Items, int Total)> GetAllAsync(int limit, int offset, BookSummaryFilter? filter = null);
+    Task<(List<Audiobook> Items, int Total)> GetAllAsync(int limit, int offset, BookSummaryFilter? filter = null, BookSort? sort = null);
     Task<int> CountAsync();
 
     /// <summary>Every distinct non-empty <see cref="Audiobook.Language"/> value in the library, sorted for the book-list language filter's dropdown.</summary>
@@ -58,10 +58,16 @@ public interface IAudiobookRepository
     /// is how <c>SeriesService</c> applies that filter's missing/upcoming-book fields, which this
     /// repository cannot evaluate itself (see <see cref="SeriesOverviewFilter"/>'s doc) - when
     /// non-null, only series values in this set are returned.
+    ///
+    /// <paramref name="sort"/> replaces the default ascending-by-value order (null or Name ascending
+    /// keeps the SQL-paged default). <paramref name="sortValues"/> carries the per-series figure the
+    /// repository cannot compute - missing-book count and completion - for those two sort keys; a
+    /// series absent from it sorts last.
     /// </summary>
     Task<(List<string> Items, int Total)> GetSeriesValuesPageAsync(
         string? search, bool? matched, int skip, int take, long? authorId = null,
-        SeriesOverviewFilter? filter = null, IReadOnlyCollection<string>? restrictToNames = null);
+        SeriesOverviewFilter? filter = null, IReadOnlyCollection<string>? restrictToNames = null,
+        SeriesSort? sort = null, IReadOnlyDictionary<string, double>? sortValues = null);
 
     /// <summary>Total distinct series values (catalog plus audiobook tags) and how many of those have a matched catalog source, for the overview header badges.</summary>
     Task<(int Total, int Matched)> GetSeriesValueCountsAsync();
@@ -88,7 +94,7 @@ public interface IAudiobookRepository
     /// </summary>
     Task<(List<Audiobook> Items, int Total)> SearchAsync(
         string query, int limit, int offset, bool includeTotal = true, bool includeNarratorsAndGenres = true,
-        BookSummaryFilter? filter = null);
+        BookSummaryFilter? filter = null, BookSort? sort = null);
     Task<(List<(string Series, int BookCount)> Items, int Total)> SearchSeriesAsync(string query, int limit, int offset);
     Task<List<Audiobook>> GetBooksBySeriesAsync(string seriesName, long? authorId);
     Task<List<string>> GetAuthorNamesBySeriesAsync(string seriesName);

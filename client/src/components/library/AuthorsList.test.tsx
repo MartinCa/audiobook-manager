@@ -160,7 +160,7 @@ describe("AuthorsList", () => {
 
     await waitFor(() => {
       // 50-row pages; the next one begins at offset 50.
-      expect(browseApi.getAuthorPage).toHaveBeenCalledWith(50, 50, "", {});
+      expect(browseApi.getAuthorPage).toHaveBeenCalledWith(50, 50, "", {}, {});
     });
 
     expect(await screen.findByText("Author 51")).toBeInTheDocument();
@@ -175,7 +175,7 @@ describe("AuthorsList", () => {
     fireEvent.change(searchInput, { target: { value: "rene" } });
 
     await waitFor(() => {
-      expect(browseApi.getAuthorPage).toHaveBeenCalledWith(50, 0, "rene", {});
+      expect(browseApi.getAuthorPage).toHaveBeenCalledWith(50, 0, "rene", {}, {});
     });
   });
 
@@ -192,7 +192,7 @@ describe("AuthorsList", () => {
     fireEvent.change(screen.getByLabelText("Book count minimum"), { target: { value: "5" } });
 
     await waitFor(() => {
-      expect(browseApi.getAuthorPage).toHaveBeenCalledWith(50, 0, "", { minBookCount: 5 });
+      expect(browseApi.getAuthorPage).toHaveBeenCalledWith(50, 0, "", { minBookCount: 5 }, {});
     });
   });
 
@@ -274,7 +274,7 @@ describe("AuthorsList", () => {
 
     // The page must be corrected back to the last valid page and its fetch re-issued there.
     await waitFor(() => {
-      expect(browseApi.getAuthorPage).toHaveBeenCalledWith(50, 0, "", {});
+      expect(browseApi.getAuthorPage).toHaveBeenCalledWith(50, 0, "", {}, {});
     });
     expect(await screen.findByText("Author 01")).toBeInTheDocument();
     expect(await screen.findByText(/Authors \(50\)/)).toBeInTheDocument();
@@ -314,9 +314,15 @@ describe("AuthorsList", () => {
       fireEvent.click(await screen.findByRole("menuitemcheckbox", { name: "Not in any queue" }));
 
       await waitFor(() => {
-        expect(browseApi.getAuthorPage).toHaveBeenLastCalledWith(50, 0, "", {
-          queueStates: ["NotQueued"],
-        });
+        expect(browseApi.getAuthorPage).toHaveBeenLastCalledWith(
+          50,
+          0,
+          "",
+          {
+            queueStates: ["NotQueued"],
+          },
+          {},
+        );
       });
       expect(await screen.findByText("Queue status: Not in any queue")).toBeInTheDocument();
     });
@@ -333,9 +339,15 @@ describe("AuthorsList", () => {
       expect(await screen.findByText("Queue status: Refresh failed")).toBeInTheDocument();
       expect(screen.getByLabelText("Book count minimum")).toBeInTheDocument();
       await waitFor(() => {
-        expect(browseApi.getAuthorPage).toHaveBeenCalledWith(50, 0, "", {
-          queueStates: ["RefreshFailed"],
-        });
+        expect(browseApi.getAuthorPage).toHaveBeenCalledWith(
+          50,
+          0,
+          "",
+          {
+            queueStates: ["RefreshFailed"],
+          },
+          {},
+        );
       });
     });
 
@@ -361,15 +373,77 @@ describe("AuthorsList", () => {
 
       await waitFor(() => {
         // Exactly the preset's filters: followed and minBookCount are gone, not layered under it.
-        expect(browseApi.getAuthorPage).toHaveBeenLastCalledWith(50, 0, "", {
-          sources: ["Unsupported"],
-          queueStates: ["NotQueued"],
-        });
+        expect(browseApi.getAuthorPage).toHaveBeenLastCalledWith(
+          50,
+          0,
+          "",
+          {
+            sources: ["Unsupported"],
+            queueStates: ["NotQueued"],
+          },
+          {},
+        );
       });
       expect(filterPresetsApi.list).toHaveBeenCalledWith("authors");
       expect(
         await screen.findByRole("button", { name: /Unmatched, untouched/ }),
       ).toBeInTheDocument();
+    });
+  });
+
+  describe("sorting", () => {
+    it("sends the sort from the URL to the server", async () => {
+      vi.mocked(browseApi.getAuthorPage).mockResolvedValue({
+        count: 1,
+        total: 1,
+        items: [makeAuthor(1)],
+      });
+
+      renderWithProviders("/library/authors?sortBy=bookCount&sortDir=desc");
+
+      await screen.findByText("Author 01");
+      expect(browseApi.getAuthorPage).toHaveBeenCalledWith(
+        50,
+        0,
+        "",
+        {},
+        { sortBy: "bookCount", sortDir: "desc" },
+      );
+      expect(screen.getByRole("combobox", { name: "Sort authors by" })).toHaveTextContent(
+        "Number of books",
+      );
+    });
+
+    it("re-queries with the new direction and keeps the filters, when the toggle is clicked", async () => {
+      vi.mocked(browseApi.getAuthorPage).mockResolvedValue({
+        count: 1,
+        total: 1,
+        items: [makeAuthor(1)],
+      });
+
+      renderWithProviders("/library/authors?minBookCount=2&sortBy=bookCount&sortDir=desc");
+      await screen.findByText("Author 01");
+
+      fireEvent.click(screen.getByRole("button", { name: /switch to ascending/ }));
+
+      await waitFor(() => {
+        expect(browseApi.getAuthorPage).toHaveBeenLastCalledWith(
+          50,
+          0,
+          "",
+          { minBookCount: 2 },
+          { sortBy: "bookCount", sortDir: "asc" },
+        );
+      });
+    });
+
+    it("does not count the sort as an active filter", async () => {
+      vi.mocked(browseApi.getAuthorPage).mockResolvedValue({ count: 0, total: 0, items: [] });
+
+      renderWithProviders("/library/authors?sortBy=bookCount&sortDir=desc");
+
+      const toggle = await screen.findByRole("button", { name: /Filters/ });
+      expect(within(toggle).queryByText("1")).not.toBeInTheDocument();
     });
   });
 });

@@ -1,4 +1,5 @@
 import type { AuthorListFilters, BookListFilters, SeriesListFilters } from "@/types/EntityFilters";
+import type { ListSort } from "@/helpers/listSort";
 
 /**
  * TanStack Query key factories, one family per cached resource.
@@ -88,8 +89,13 @@ export const queryKeys = {
 
   books: {
     all: () => ["books"] as const,
-    page: (q: string, page: number, pageSize: number, filters: BookListFilters = {}) =>
-      ["books", q, page, pageSize, filters] as const,
+    page: (
+      q: string,
+      page: number,
+      pageSize: number,
+      filters: BookListFilters = {},
+      sort: ListSort = {},
+    ) => ["books", q, page, pageSize, filters, sort] as const,
   },
 
   tagMismatch: (issueId: number | undefined) => ["tag-mismatch", issueId] as const,
@@ -132,8 +138,13 @@ export const queryKeys = {
     all: () => ["authors"] as const,
     // filters is included as a plain object - TanStack Query hashes query keys deeply, so two
     // different filter combinations (or none) never share a cache entry.
-    page: (q: string, page: number, pageSize: number, filters: AuthorListFilters) =>
-      ["authors", q, page, pageSize, filters] as const,
+    page: (
+      q: string,
+      page: number,
+      pageSize: number,
+      filters: AuthorListFilters,
+      sort: ListSort = {},
+    ) => ["authors", q, page, pageSize, filters, sort] as const,
   },
 
   missingBookCandidates: (
@@ -184,8 +195,13 @@ export const queryKeys = {
 
   series: {
     all: () => ["series"] as const,
-    page: (q: string, page: number, pageSize: number, filters: SeriesListFilters) =>
-      ["series", q, page, pageSize, filters] as const,
+    page: (
+      q: string,
+      page: number,
+      pageSize: number,
+      filters: SeriesListFilters,
+      sort: ListSort = {},
+    ) => ["series", q, page, pageSize, filters, sort] as const,
     unmatched: (page: number, pageSize: number) => ["series", "unmatched", page, pageSize] as const,
   },
 

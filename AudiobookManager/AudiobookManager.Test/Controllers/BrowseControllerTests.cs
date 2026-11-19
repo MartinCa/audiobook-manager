@@ -108,7 +108,7 @@ public class BrowseControllerTests
         _audiobookRepo.Setup(r => r.GetAllAsync(20, 0, null))
             .ReturnsAsync((new List<Audiobook> { matched, unmatched }, 2));
 
-        var result = await _controller.GetAudiobooks();
+        var result = (await _controller.GetAudiobooks()).Value!;
 
         Assert.IsTrue(result.Items[0].IsMatched);
         Assert.AreEqual("Hardcover", result.Items[0].MatchedSourceName);
@@ -1606,6 +1606,131 @@ public class BrowseControllerTests
 
         _personRepo.Verify(r => r.GetAuthorSummariesPagedAsync(null, 50, 0, It.Is<AuthorSummaryFilter?>(f =>
             f != null && f.QueueStates!.SequenceEqual(new[] { QueueState.RenamePending })), null, null), Times.Once);
+    }
+
+    // ---- sortBy / sortDir ----------------------------------------------------------------
+
+    [TestMethod]
+    public async Task GetAudiobooks_PassesTheSortThrough()
+    {
+        _audiobookRepo
+            .Setup(r => r.GetAllAsync(20, 0, null, It.IsAny<BookSort?>()))
+            .ReturnsAsync((new List<Audiobook>(), 0));
+
+        await _controller.GetAudiobooks(sortBy: "year", sortDir: "desc");
+
+        _audiobookRepo.Verify(r => r.GetAllAsync(20, 0, null, new BookSort(BookSortKey.Year, true)), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task GetAudiobooks_WithoutASort_PassesNone()
+    {
+        _audiobookRepo
+            .Setup(r => r.GetAllAsync(20, 0, null, It.IsAny<BookSort?>()))
+            .ReturnsAsync((new List<Audiobook>(), 0));
+
+        await _controller.GetAudiobooks();
+
+        _audiobookRepo.Verify(r => r.GetAllAsync(20, 0, null, null), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task GetAudiobooks_UnknownSort_Is400_AndNeverReachesTheRepository()
+    {
+        var result = await _controller.GetAudiobooks(sortBy: "bogus");
+
+        Assert.AreEqual(400, (result.Result as ObjectResult)?.StatusCode);
+        _audiobookRepo.Verify(r => r.GetAllAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<BookSummaryFilter?>(), It.IsAny<BookSort?>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task SearchAudiobooks_PassesTheSortToTheSearch()
+    {
+        _audiobookRepo
+            .Setup(r => r.SearchAsync("dune", 20, 0, true, true, It.IsAny<BookSummaryFilter?>(), It.IsAny<BookSort?>()))
+            .ReturnsAsync((new List<Audiobook>(), 0));
+
+        await _controller.SearchAudiobooks("dune", sortBy: "duration");
+
+        _audiobookRepo.Verify(r => r.SearchAsync("dune", 20, 0, true, true, null, new BookSort(BookSortKey.Duration, false)), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task GetAuthors_PassesTheSortThrough()
+    {
+        _personRepo
+            .Setup(r => r.GetAuthorSummariesPagedAsync(null, 50, 0, null, null, null, It.IsAny<AuthorSort?>(), null))
+            .ReturnsAsync((new List<AuthorSummaryRow>(), 0));
+
+        var result = await _controller.GetAuthors(sortBy: "bookCount", sortDir: "desc");
+
+        Assert.IsNotNull(result.Value);
+        _personRepo.Verify(
+            r => r.GetAuthorSummariesPagedAsync(null, 50, 0, null, null, null, new AuthorSort(AuthorSortKey.BookCount, true), null),
+            Times.Once);
+    }
+
+    [TestMethod]
+    public async Task GetAuthors_UnknownSort_Is400()
+    {
+        var result = await _controller.GetAuthors(sortBy: "bogus");
+
+        Assert.AreEqual(400, (result.Result as ObjectResult)?.StatusCode);
+    }
+
+    [TestMethod]
+    public async Task GetAuthors_MissingBooksSort_HandsTheRepositoryTheMissingCounts()
+    {
+        var missing = new Dictionary<long, int> { [1] = 3 };
+        _authorReconciliation
+            .Setup(r => r.GetBulkMissingOrUpcomingAuthorIdsAsync())
+            .ReturnsAsync(new AuthorBulkReconciliationResult(
+                new HashSet<long> { 1 }, new HashSet<long> { 2 }, Refused: false, missing, new Dictionary<long, int> { [2] = 4 }));
+        _personRepo
+            .Setup(r => r.GetAuthorSummariesPagedAsync(null, 50, 0, null, null, null, It.IsAny<AuthorSort?>(), It.IsAny<IReadOnlyDictionary<long, int>?>()))
+            .ReturnsAsync((new List<AuthorSummaryRow>(), 0));
+
+        await _controller.GetAuthors(sortBy: "missingBooks", sortDir: "desc");
+
+        _personRepo.Verify(
+            r => r.GetAuthorSummariesPagedAsync(
+                null, 50, 0, null, null, null, new AuthorSort(AuthorSortKey.MissingBooks, true), missing),
+            Times.Once);
+    }
+
+    [TestMethod]
+    public async Task GetAuthors_UpcomingBooksSort_HandsTheRepositoryTheUpcomingCounts()
+    {
+        var upcoming = new Dictionary<long, int> { [2] = 4 };
+        _authorReconciliation
+            .Setup(r => r.GetBulkMissingOrUpcomingAuthorIdsAsync())
+            .ReturnsAsync(new AuthorBulkReconciliationResult(
+                new HashSet<long> { 1 }, new HashSet<long> { 2 }, Refused: false, new Dictionary<long, int> { [1] = 3 }, upcoming));
+        _personRepo
+            .Setup(r => r.GetAuthorSummariesPagedAsync(null, 50, 0, null, null, null, It.IsAny<AuthorSort?>(), It.IsAny<IReadOnlyDictionary<long, int>?>()))
+            .ReturnsAsync((new List<AuthorSummaryRow>(), 0));
+
+        await _controller.GetAuthors(sortBy: "upcomingBooks");
+
+        _personRepo.Verify(
+            r => r.GetAuthorSummariesPagedAsync(
+                null, 50, 0, null, null, null, new AuthorSort(AuthorSortKey.UpcomingBooks, false), upcoming),
+            Times.Once);
+    }
+
+    [TestMethod]
+    public async Task GetAuthors_MissingBooksSortWhenTheClassificationIsRefused_StillListsWithoutCounts()
+    {
+        _authorReconciliation
+            .Setup(r => r.GetBulkMissingOrUpcomingAuthorIdsAsync())
+            .ReturnsAsync(new AuthorBulkReconciliationResult(new HashSet<long>(), new HashSet<long>(), Refused: true));
+        _personRepo
+            .Setup(r => r.GetAuthorSummariesPagedAsync(null, 50, 0, null, null, null, It.IsAny<AuthorSort?>(), null))
+            .ReturnsAsync((new List<AuthorSummaryRow>(), 0));
+
+        var result = await _controller.GetAuthors(sortBy: "missingBooks");
+
+        Assert.IsNotNull(result.Value);
     }
 
     [TestMethod]

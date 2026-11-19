@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { z } from "zod";
 import { normalizeRefreshBound } from "@/components/filters/filterUtils";
 import AuthorsList from "@/components/library/AuthorsList";
+import { AUTHOR_SORT, sortSearchFields } from "@/helpers/listSort";
 
 const authorsSearchSchema = z.object({
   q: z.string().optional(),
@@ -23,6 +24,7 @@ const authorsSearchSchema = z.object({
   neverRefreshed: z.boolean().optional(),
   sources: z.array(z.string()).optional(),
   queueStates: z.array(z.string()).optional(),
+  ...sortSearchFields(AUTHOR_SORT),
 });
 
 export const Route = createFileRoute("/library/authors/")({

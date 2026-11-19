@@ -11,6 +11,7 @@ import { EntityFilterBar, type FilterFieldDef } from "@/components/filters/Entit
 import { countActiveFilters } from "@/components/filters/filterUtils";
 import { FilterToggleButton } from "@/components/filters/FilterToggleButton";
 import { FilterPresets } from "@/components/filters/FilterPresets";
+import { SortControl } from "@/components/filters/SortControl";
 import { queueStateField } from "@/components/filters/queueStateField";
 import type { PageSizeOption } from "@/constants/paging";
 import { browseApi, consistencyApi, metadataRefreshApi, settingsApi } from "@/services/api";
@@ -23,6 +24,7 @@ import {
   UNSUPPORTED_SOURCE_VALUE,
 } from "@/types/EntityFilters";
 import type { BookListFilters } from "@/types/EntityFilters";
+import { BOOK_SORT, type ListSort } from "@/helpers/listSort";
 import type { BookSelection } from "@/hooks/useBookSelection";
 import type { ManagedAudiobook } from "@/types/ManagedAudiobook";
 
@@ -70,6 +72,14 @@ export interface OwnedBookListProps {
   /** The committed filter values (e.g. route search params or local state); this component owns the UI. */
   filters: BookListFilters;
   onFiltersChange: (next: BookListFilters) => void;
+
+  /**
+   * The committed sort and its change handler. Both optional: only the main library list is
+   * sortable, and the other surfaces that share this component (series/author detail, missing
+   * tags) keep their fixed order and show no sort control.
+   */
+  sort?: ListSort;
+  onSortChange?: (next: ListSort) => void;
 
   /** 0-indexed current page, matching SectionPager. */
   page: number;
@@ -124,6 +134,8 @@ export function OwnedBookList({
   showSearchBox = true,
   filters,
   onFiltersChange,
+  sort,
+  onSortChange,
   page,
   pageCount,
   pageSize,
@@ -334,6 +346,15 @@ export function OwnedBookList({
           activeCount={countActiveFilters(FILTER_FIELDS, filters)}
           controls={filterPanelId}
         />
+
+        {onSortChange ? (
+          <SortControl
+            config={BOOK_SORT}
+            sort={sort ?? {}}
+            onChange={onSortChange}
+            noun="audiobooks"
+          />
+        ) : null}
 
         <div className="flex items-center gap-3">
           <Checkbox

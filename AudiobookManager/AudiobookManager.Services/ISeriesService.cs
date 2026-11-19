@@ -28,7 +28,7 @@ public interface ISeriesService
     /// </summary>
     Task<SeriesOverviewPage> GetSeriesOverviewPageAsync(
         int page, int pageSize, string? search, bool? matched, long? authorId = null,
-        SeriesOverviewFilter? filter = null);
+        SeriesOverviewFilter? filter = null, SeriesSort? sort = null);
 
     /// <summary>Total/matched/unmatched series counts for the overview header badge.</summary>
     Task<SeriesOverviewCounts> GetSeriesOverviewCountsAsync();

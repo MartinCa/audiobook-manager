@@ -121,7 +121,7 @@ public class AudiobookRepository : IAudiobookRepository
         return languages;
     }
 
-    public async Task<(List<Audiobook> Items, int Total)> GetAllAsync(int limit, int offset, BookSummaryFilter? filter = null)
+    public async Task<(List<Audiobook> Items, int Total)> GetAllAsync(int limit, int offset, BookSummaryFilter? filter = null, BookSort? sort = null)
     {
         var query = _db.Audiobooks
             .AsNoTracking()
@@ -132,12 +132,13 @@ public class AudiobookRepository : IAudiobookRepository
 
         query = ApplyBookSummaryFilter(query, filter);
 
-        query = query
+        query = sort is null
             // BookName is not unique, so it cannot order a page on its own: rows sharing a
             // title have an undefined relative order, which lets the same book appear on two
             // pages (and another be skipped) - and with AsSplitQuery the Skip/Take runs in each
             // of the queries, so they can even disagree about which rows the page contains.
-            .OrderBy(a => a.BookName).ThenBy(a => a.Id);
+            ? query.OrderBy(a => a.BookName).ThenBy(a => a.Id)
+            : ApplyBookSort(query, sort);
 
         var total = await query.CountAsync();
         var items = await query.Skip(offset).Take(limit).ToListAsync();
@@ -204,6 +205,48 @@ public class AudiobookRepository : IAudiobookRepository
             a.Authors.Any(p => EF.Functions.Like(p.NameFolded, pattern, LikePatterns.EscapeCharacter)) ||
             EF.Functions.Like(a.DescriptionFolded, pattern, LikePatterns.EscapeCharacter)
         );
+    }
+
+    /// <summary>
+    /// Orders by the user's chosen key, always finishing with the title and id so the order is
+    /// total (a paged query needs that - see <see cref="GetAllAsync"/>). A book missing the key's
+    /// value (no duration, never refreshed) sorts first ascending and last descending; the series
+    /// key keeps series-less books last in both directions.
+    /// </summary>
+    private IQueryable<Audiobook> ApplyBookSort(IQueryable<Audiobook> query, BookSort sort)
+    {
+        var desc = sort.Descending;
+        IOrderedQueryable<Audiobook> ordered;
+        switch (sort.Key)
+        {
+            case BookSortKey.Title:
+                ordered = desc ? query.OrderByDescending(a => a.BookName) : query.OrderBy(a => a.BookName);
+                return ordered.ThenBy(a => a.Id);
+            case BookSortKey.Year:
+                ordered = desc ? query.OrderByDescending(a => a.Year) : query.OrderBy(a => a.Year);
+                break;
+            case BookSortKey.Duration:
+                ordered = desc ? query.OrderByDescending(a => a.DurationInSeconds) : query.OrderBy(a => a.DurationInSeconds);
+                break;
+            case BookSortKey.LastRefreshed:
+                ordered = desc ? query.OrderByDescending(a => a.LastMetadataRefreshedAt) : query.OrderBy(a => a.LastMetadataRefreshedAt);
+                break;
+            case BookSortKey.Series:
+                var primary = _db.AudiobookSeries.AsNoTracking().Where(r => r.IsPrimary);
+                var withoutSeries = query.OrderBy(a => !primary.Any(r => r.AudiobookId == a.Id));
+                ordered = desc
+                    ? withoutSeries
+                        .ThenByDescending(a => primary.Where(r => r.AudiobookId == a.Id).Select(r => r.SeriesName).FirstOrDefault())
+                        .ThenByDescending(a => SeriesPartSortKey.Key(primary.Where(r => r.AudiobookId == a.Id).Select(r => r.SeriesPart).FirstOrDefault()))
+                    : withoutSeries
+                        .ThenBy(a => primary.Where(r => r.AudiobookId == a.Id).Select(r => r.SeriesName).FirstOrDefault())
+                        .ThenBy(a => SeriesPartSortKey.Key(primary.Where(r => r.AudiobookId == a.Id).Select(r => r.SeriesPart).FirstOrDefault()));
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(sort));
+        }
+
+        return ordered.ThenBy(a => a.BookName).ThenBy(a => a.Id);
     }
 
     /// <summary>
@@ -354,7 +397,7 @@ public class AudiobookRepository : IAudiobookRepository
     /// </summary>
     public async Task<(List<Audiobook> Items, int Total)> SearchAsync(
         string query, int limit, int offset, bool includeTotal = true, bool includeNarratorsAndGenres = true,
-        BookSummaryFilter? filter = null)
+        BookSummaryFilter? filter = null, BookSort? sort = null)
     {
         // Fold the query so an unaccented search (e.g. "Rene") still matches an accented value
         // ("René") - SQLite's default BINARY collation, which LIKE uses here, never does that.
@@ -396,17 +439,25 @@ public class AudiobookRepository : IAudiobookRepository
 
         dbQuery = ApplyBookSummaryFilter(dbQuery, filter);
 
-        dbQuery = dbQuery
-            // Rank in SQL, before Skip/Take. Ordering by title alone and ranking the survivors
-            // in the controller meant a limit-5 type-ahead kept the five alphabetically-first
-            // matches and re-ranked those - so searching "harry" in a library holding "Alex
-            // Rider" ... "Harry Potter" never surfaced the one title that actually starts with
-            // it. ThenBy(Id) keeps the order total, which a paged split query requires.
-            .OrderByDescending(a =>
-                EF.Functions.Like(a.BookNameFolded, prefixPattern, LikePatterns.EscapeCharacter) ||
-                a.Authors.Any(p => EF.Functions.Like(p.NameFolded, prefixPattern, LikePatterns.EscapeCharacter)))
-            .ThenBy(a => a.BookName)
-            .ThenBy(a => a.Id);
+        // An explicit user sort replaces the relevance ranking; without one the ranking below applies.
+        if (sort is not null)
+        {
+            dbQuery = ApplyBookSort(dbQuery, sort);
+        }
+        else
+        {
+            dbQuery = dbQuery
+                // Rank in SQL, before Skip/Take. Ordering by title alone and ranking the survivors
+                // in the controller meant a limit-5 type-ahead kept the five alphabetically-first
+                // matches and re-ranked those - so searching "harry" in a library holding "Alex
+                // Rider" ... "Harry Potter" never surfaced the one title that actually starts with
+                // it. ThenBy(Id) keeps the order total, which a paged split query requires.
+                .OrderByDescending(a =>
+                    EF.Functions.Like(a.BookNameFolded, prefixPattern, LikePatterns.EscapeCharacter) ||
+                    a.Authors.Any(p => EF.Functions.Like(p.NameFolded, prefixPattern, LikePatterns.EscapeCharacter)))
+                .ThenBy(a => a.BookName)
+                .ThenBy(a => a.Id);
+        }
 
         // The type-ahead path (BrowseController.SearchLibrary) is capped at `limit` and never
         // renders a total, so counting there was a second full execution of the query for a
@@ -934,7 +985,8 @@ public class AudiobookRepository : IAudiobookRepository
 
     public async Task<(List<string> Items, int Total)> GetSeriesValuesPageAsync(
         string? search, bool? matched, int skip, int take, long? authorId = null,
-        SeriesOverviewFilter? filter = null, IReadOnlyCollection<string>? restrictToNames = null)
+        SeriesOverviewFilter? filter = null, IReadOnlyCollection<string>? restrictToNames = null,
+        SeriesSort? sort = null, IReadOnlyDictionary<string, double>? sortValues = null)
     {
         var folded = string.IsNullOrWhiteSpace(search) ? null : AccentFolding.FoldPlain(search!.Trim());
         // ESCAPEd like every other raw user-pattern LIKE in this repository.
@@ -1124,8 +1176,15 @@ public class AudiobookRepository : IAudiobookRepository
         // value no longer appears on any audiobook is not a series the author owns. The distinct
         // value is still unique within the set, so ordering by the value alone keeps every page
         // stable.
+        var customSort = sort is not null && !(sort.Key == SeriesSortKey.Name && !sort.Descending);
+
         if (authorId.HasValue)
         {
+            if (customSort)
+            {
+                return await PageSeriesNamesBySortAsync(fromBooks, sort!, sortValues, skip, take);
+            }
+
             var scopedTotal = await fromBooks.CountAsync();
             var scopedItems = await fromBooks
                 .OrderBy(value => value)
@@ -1199,6 +1258,11 @@ public class AudiobookRepository : IAudiobookRepository
         // unique within the union, so ORDER BY the value alone keeps every page stable.
         var union = fromBooks.Union(fromCatalog);
 
+        if (customSort)
+        {
+            return await PageSeriesNamesBySortAsync(union, sort!, sortValues, skip, take);
+        }
+
         var total = await union.CountAsync();
 
         var items = await union
@@ -1208,6 +1272,68 @@ public class AudiobookRepository : IAudiobookRepository
             .ToListAsync();
 
         return (items, total);
+    }
+
+    /// <summary>
+    /// One page of series values in the user's chosen order. The value space is the union of two
+    /// tables and the sort keys (owned count, last refresh, the service's missing/completion
+    /// figures) live in different tables or outside SQL altogether, so the candidate names are
+    /// read once and ordered in memory, ending on the value itself (ordinal, like the SQL BINARY
+    /// default) so the order is total and every page stays stable. A series with no value for the
+    /// key (never refreshed, no expected books) sorts last in both directions.
+    /// </summary>
+    private async Task<(List<string> Items, int Total)> PageSeriesNamesBySortAsync(
+        IQueryable<string> names, SeriesSort sort, IReadOnlyDictionary<string, double>? sortValues, int skip, int take)
+    {
+        var candidates = await names.ToListAsync();
+
+        Dictionary<string, double> keys;
+        switch (sort.Key)
+        {
+            case SeriesSortKey.BookCount:
+                keys = (await _db.AudiobookSeries.AsNoTracking()
+                        .Where(r => r.SeriesName != "")
+                        .GroupBy(r => r.SeriesName)
+                        .Select(g => new { Series = g.Key, Count = g.Count() })
+                        .ToListAsync())
+                    .ToDictionary(g => g.Series, g => (double)g.Count, StringComparer.Ordinal);
+                // A catalog-only series owns no book, which is a real zero rather than "no value".
+                foreach (var name in candidates)
+                {
+                    keys.TryAdd(name, 0);
+                }
+
+                break;
+            case SeriesSortKey.LastRefreshed:
+                keys = (await _db.Series.AsNoTracking()
+                        .Where(s => s.LastRefreshedAt != null)
+                        .Select(s => new { s.Name, s.LastRefreshedAt })
+                        .ToListAsync())
+                    .ToDictionary(s => s.Name, s => (double)s.LastRefreshedAt!.Value.Ticks, StringComparer.Ordinal);
+                break;
+            case SeriesSortKey.MissingBooks:
+            case SeriesSortKey.Completion:
+                keys = sortValues is null
+                    ? new Dictionary<string, double>(StringComparer.Ordinal)
+                    : new Dictionary<string, double>(sortValues, StringComparer.Ordinal);
+                break;
+            default:
+                keys = new Dictionary<string, double>(StringComparer.Ordinal);
+                break;
+        }
+
+        var withKey = candidates.Where(keys.ContainsKey);
+        var ordered = sort.Key == SeriesSortKey.Name
+            ? (sort.Descending
+                ? candidates.OrderByDescending(n => n, StringComparer.Ordinal)
+                : candidates.OrderBy(n => n, StringComparer.Ordinal)).ToList()
+            : (sort.Descending
+                    ? withKey.OrderByDescending(n => keys[n]).ThenBy(n => n, StringComparer.Ordinal)
+                    : withKey.OrderBy(n => keys[n]).ThenBy(n => n, StringComparer.Ordinal))
+                .Concat(candidates.Where(n => !keys.ContainsKey(n)).OrderBy(n => n, StringComparer.Ordinal))
+                .ToList();
+
+        return (ordered.Skip(skip).Take(take).ToList(), ordered.Count);
     }
 
     public async Task<(int Total, int Matched)> GetSeriesValueCountsAsync()

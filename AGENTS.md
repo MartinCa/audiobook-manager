@@ -974,6 +974,36 @@ and `main_author_id`), they are book-list-only (the series and author lists have
 the client they are `tristate` fields in `OwnedBookList` plus keys in the library route's search schema.
 Together they find co-authored books that still lack a main author.
 
+### List sorting: `sortBy`/`sortDir` are not filters
+
+The authors, series and library book lists take an optional `sortBy` (a camelCase key) and `sortDir`
+(`asc`/`desc`). The keys are the enums in `Database/Repositories/ListSorts.cs` (`AuthorSortKey`,
+`SeriesSortKey`, `BookSortKey`), parsed by `ListSortParser` - an unknown key or direction is a 400, and
+`sortBy` omitted means the list's own order (a search keeps relevance ranking unless `sortBy` is given).
+
+- **Never in `BookSummaryFilter`/`AuthorSummaryFilter`/`SeriesOverviewFilter` or in a preset.** Sort is a
+  separate argument end to end (`BookSort`/`AuthorSort`/`SeriesSort` records), so it stays out of
+  `FilterPresetRules.Keys` and the active-filter count; `FilterPresetRulesTests` lists `sortBy`/`sortDir`
+  as non-filter parameters. It lives in the route search (URL only, no persistence) and a change resets
+  to the first page.
+- **Every sort ends on the name/title and id**, so the order is total and paging is stable (see the
+  ordering rule above). Missing values (never refreshed, no duration) sort first ascending and last
+  descending, except the book `series` key (series-less books last both ways) and the series
+  `missingBooks`/`completion` keys (a series without a figure last both ways).
+- **Keys SQL cannot compute are supplied by the caller.** Missing/upcoming counts come from the roster
+  reconciliation: `GetBulkMissingOrUpcomingAuthorIdsAsync` returns `MissingCounts`/`UpcomingCounts`
+  (one pass, shared with the filter), and `SeriesService` builds a per-series missing/completion
+  dictionary from `GetAllSeriesOverviewAsync` - only when such a key is asked for. The repositories then
+  order that list in memory and page it (`PageSeriesNamesBySortAsync`, the authors' in-memory branch). If
+  the author classification is refused (roster over its cap) the list falls back to name order, like the
+  missing/upcoming filter skips itself.
+- **"Release date" of an owned book is its year** (`Audiobook.Year`); the library only stores a full date
+  for expected/upcoming books. There is no "date added" key because the database has no such column.
+- **Client:** `helpers/listSort.ts` holds each list's keys (mirroring the backend enums), the route schema
+  fields (`sortSearchFields`, lenient: an unknown key is dropped, not an error) and the key/direction
+  transitions; `components/filters/SortControl.tsx` is the control. Only the main library list passes
+  `sort`/`onSortChange` to `OwnedBookList`; the detail pages keep their fixed order.
+
 ### Metadata sidecar files
 
 Alongside each m4b, `WriteMetadata()` creates `desc.txt` (description), `reader.txt` (narrators)

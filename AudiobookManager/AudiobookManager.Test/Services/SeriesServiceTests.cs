@@ -1081,6 +1081,97 @@ public class SeriesServiceTests
         Assert.AreEqual("Missing Series", page.Items[0].Name);
     }
 
+    // The missing/completion sorts depend on the same fuzzy reconciliation as the missing filter,
+    // so the service computes the per-series figure and hands it to the repository, which cannot.
+    private void SetUpReconciledSeries()
+    {
+        _audiobookRepository
+            .Setup(r => r.GetSeriesGroupingDataAsync())
+            .ReturnsAsync(new List<SeriesGroupingBook>
+            {
+                new("Half Series", "1", "Book One", new List<string> { "Author" }),
+            });
+        _seriesRepository
+            .Setup(r => r.GetAllWithExpectedBooksAsync())
+            .ReturnsAsync(new List<Series>
+            {
+                new()
+                {
+                    Id = 1,
+                    Name = "Half Series",
+                    ExpectedBooks = new List<ExpectedBook>
+                    {
+                        MakeExpected(1, "Book One", "1"),
+                        MakeExpected(2, "Book Two", "2"),
+                    },
+                },
+                new() { Id = 2, Name = "No Roster" },
+            });
+        _audiobookRepository
+            .Setup(r => r.GetSeriesGroupingDataAsync(It.IsAny<List<string>>()))
+            .ReturnsAsync(new List<SeriesGroupingBook>());
+        _seriesRepository
+            .Setup(r => r.GetByNamesWithExpectedBooksAsync(It.IsAny<List<string>>()))
+            .ReturnsAsync(new List<Series>());
+    }
+
+    [TestMethod]
+    public async Task GetSeriesOverviewPageAsync_MissingBooksSort_SuppliesTheMissingCountPerSeries()
+    {
+        SetUpReconciledSeries();
+        IReadOnlyDictionary<string, double>? supplied = null;
+        _audiobookRepository
+            .Setup(r => r.GetSeriesValuesPageAsync(
+                null, null, 0, 50, null, null, null,
+                new SeriesSort(SeriesSortKey.MissingBooks, true), It.IsAny<IReadOnlyDictionary<string, double>?>()))
+            .Callback<string?, bool?, int, int, long?, SeriesOverviewFilter?, IReadOnlyCollection<string>?, SeriesSort?, IReadOnlyDictionary<string, double>?>(
+                (_, _, _, _, _, _, _, _, values) => supplied = values)
+            .ReturnsAsync((new List<string>(), 0));
+
+        await MakeService().GetSeriesOverviewPageAsync(
+            0, 50, null, null, sort: new SeriesSort(SeriesSortKey.MissingBooks, true));
+
+        Assert.IsNotNull(supplied);
+        Assert.AreEqual(1.0, supplied["Half Series"]);
+        Assert.AreEqual(0.0, supplied["No Roster"]);
+    }
+
+    [TestMethod]
+    public async Task GetSeriesOverviewPageAsync_CompletionSort_SuppliesOwnedOverExpected_AndSkipsSeriesWithNoRoster()
+    {
+        SetUpReconciledSeries();
+        IReadOnlyDictionary<string, double>? supplied = null;
+        _audiobookRepository
+            .Setup(r => r.GetSeriesValuesPageAsync(
+                null, null, 0, 50, null, null, null,
+                new SeriesSort(SeriesSortKey.Completion, false), It.IsAny<IReadOnlyDictionary<string, double>?>()))
+            .Callback<string?, bool?, int, int, long?, SeriesOverviewFilter?, IReadOnlyCollection<string>?, SeriesSort?, IReadOnlyDictionary<string, double>?>(
+                (_, _, _, _, _, _, _, _, values) => supplied = values)
+            .ReturnsAsync((new List<string>(), 0));
+
+        await MakeService().GetSeriesOverviewPageAsync(
+            0, 50, null, null, sort: new SeriesSort(SeriesSortKey.Completion, false));
+
+        Assert.IsNotNull(supplied);
+        Assert.AreEqual(0.5, supplied["Half Series"], 0.0001);
+        Assert.IsFalse(supplied.ContainsKey("No Roster"));
+    }
+
+    [TestMethod]
+    public async Task GetSeriesOverviewPageAsync_SqlSortKey_DoesNotPayForTheWholeLibraryReconciliation()
+    {
+        _audiobookRepository
+            .Setup(r => r.GetSeriesValuesPageAsync(
+                null, null, 0, 50, null, null, null,
+                new SeriesSort(SeriesSortKey.BookCount, true), null))
+            .ReturnsAsync((new List<string>(), 0));
+
+        await MakeService().GetSeriesOverviewPageAsync(
+            0, 50, null, null, sort: new SeriesSort(SeriesSortKey.BookCount, true));
+
+        _seriesRepository.Verify(r => r.GetAllWithExpectedBooksAsync(), Times.Never);
+    }
+
     // The overview must stay library-wide in its owned/missing figures even when the page of
     // series values is author-scoped: a series entry lists what the whole library owns, so the
     // catalog data used to build it is not author-filtered. Confirmed by a matched catalog row

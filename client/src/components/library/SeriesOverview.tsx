@@ -11,6 +11,7 @@ import { EntityFilterBar, type FilterFieldDef } from "@/components/filters/Entit
 import { countActiveFilters } from "@/components/filters/filterUtils";
 import { FilterToggleButton } from "@/components/filters/FilterToggleButton";
 import { FilterPresets } from "@/components/filters/FilterPresets";
+import { SortControl } from "@/components/filters/SortControl";
 import { queueStateField } from "@/components/filters/queueStateField";
 import { LibraryViewTabs } from "./LibraryViewTabs";
 import { OperationProgressBar } from "@/components/OperationProgressBar";
@@ -29,6 +30,7 @@ import { Route } from "@/routes/library/series/index";
 import type { SeriesOverview } from "@/types/Series";
 import { SOURCE_OPTION_LABELS, UNSUPPORTED_SOURCE_VALUE } from "@/types/EntityFilters";
 import type { SeriesListFilters } from "@/types/EntityFilters";
+import { SERIES_SORT, type ListSort } from "@/helpers/listSort";
 
 // The redundant "Matched" boolean filter (equivalent to selecting/excluding the sources filter's
 // "Unsupported/None" option - see the `matched` parameter's application in
@@ -86,8 +88,11 @@ interface SeriesRefreshCompletePayload {
 export function SeriesOverviewPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { q = "", ...filterSearch } = Route.useSearch();
+  const { q = "", sortBy, sortDir, ...filterSearch } = Route.useSearch();
   const filters: SeriesListFilters = filterSearch;
+  // The sort is a route param of its own, not a filter: presets and the active-filter count only
+  // ever see `filters`.
+  const sort = useMemo<ListSort>(() => ({ sortBy, sortDir }), [sortBy, sortDir]);
   const [prevQ, setPrevQ] = useState(q);
   const [filter, setFilter] = useState(q);
 
@@ -136,6 +141,15 @@ export function SeriesOverviewPage() {
   }
 
   const handleFiltersChange = (next: SeriesListFilters) => {
+    setPage(0);
+    void navigate({
+      to: "/library/series",
+      search: (prev) => ({ ...prev, ...next }),
+      replace: true,
+    });
+  };
+
+  const handleSortChange = (next: ListSort) => {
     setPage(0);
     void navigate({
       to: "/library/series",
@@ -220,11 +234,11 @@ export function SeriesOverviewPage() {
     // that shrank. The pager stays rendered even when such a page comes back empty (its items
     // count on totalCount, not on the items), so the user can page back instead of staring at a
     // dead-end heading - the CleanBookUrls shape.
-    queryKey: queryKeys.series.page(q, page, pageSize, filters),
+    queryKey: queryKeys.series.page(q, page, pageSize, filters, sort),
     // keepPreviousData: while the next page loads the previous one stays rendered, so the pager
     // doesn't vanish on every navigation.
     placeholderData: keepPreviousData,
-    queryFn: () => seriesApi.getSeriesPage(page, pageSize, q, filters),
+    queryFn: () => seriesApi.getSeriesPage(page, pageSize, q, filters, sort),
   });
 
   const seriesList = (pageData?.items ?? []) as SeriesOverview[];
@@ -383,6 +397,8 @@ export function SeriesOverviewPage() {
           activeCount={countActiveFilters(FILTER_FIELDS, filters)}
           controls="series-filter-panel"
         />
+
+        <SortControl config={SERIES_SORT} sort={sort} onChange={handleSortChange} noun="series" />
       </div>
 
       {filtersExpanded && (

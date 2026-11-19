@@ -141,9 +141,11 @@ public class AuthorReconciliationProvider : IAuthorReconciliationProvider
 
         var hasMissing = new HashSet<long>();
         var hasUpcoming = new HashSet<long>();
+        var missingCounts = new Dictionary<long, int>();
+        var upcomingCounts = new Dictionary<long, int>();
         if (refs.Count == 0)
         {
-            return new AuthorBulkReconciliationResult(hasMissing, hasUpcoming, Refused: false);
+            return new AuthorBulkReconciliationResult(hasMissing, hasUpcoming, Refused: false, missingCounts, upcomingCounts);
         }
 
         // ONE batched read serves every rostered author's owned keys instead of one query per
@@ -224,15 +226,17 @@ public class AuthorReconciliationProvider : IAuthorReconciliationProvider
                 if (ExpectedBookClassifier.IsUpcoming(bookRef.ReleaseDate, bookRef.Year, today))
                 {
                     hasUpcoming.Add(group.Key);
+                    upcomingCounts[group.Key] = upcomingCounts.GetValueOrDefault(group.Key) + 1;
                 }
                 else
                 {
                     hasMissing.Add(group.Key);
+                    missingCounts[group.Key] = missingCounts.GetValueOrDefault(group.Key) + 1;
                 }
             }
         }
 
-        return new AuthorBulkReconciliationResult(hasMissing, hasUpcoming, Refused: false);
+        return new AuthorBulkReconciliationResult(hasMissing, hasUpcoming, Refused: false, missingCounts, upcomingCounts);
     }
 
     /// <summary>
