@@ -440,19 +440,24 @@ public class AudiobookRepository : IAudiobookRepository
         dbQuery = ApplyBookSummaryFilter(dbQuery, filter);
 
         // An explicit user sort replaces the relevance ranking; without one the ranking below applies.
-        dbQuery = sort is not null
-            ? ApplyBookSort(dbQuery, sort)
-            : dbQuery
-            // Rank in SQL, before Skip/Take. Ordering by title alone and ranking the survivors
-            // in the controller meant a limit-5 type-ahead kept the five alphabetically-first
-            // matches and re-ranked those - so searching "harry" in a library holding "Alex
-            // Rider" ... "Harry Potter" never surfaced the one title that actually starts with
-            // it. ThenBy(Id) keeps the order total, which a paged split query requires.
-            .OrderByDescending(a =>
-                EF.Functions.Like(a.BookNameFolded, prefixPattern, LikePatterns.EscapeCharacter) ||
-                a.Authors.Any(p => EF.Functions.Like(p.NameFolded, prefixPattern, LikePatterns.EscapeCharacter)))
-            .ThenBy(a => a.BookName)
-            .ThenBy(a => a.Id);
+        if (sort is not null)
+        {
+            dbQuery = ApplyBookSort(dbQuery, sort);
+        }
+        else
+        {
+            dbQuery = dbQuery
+                // Rank in SQL, before Skip/Take. Ordering by title alone and ranking the survivors
+                // in the controller meant a limit-5 type-ahead kept the five alphabetically-first
+                // matches and re-ranked those - so searching "harry" in a library holding "Alex
+                // Rider" ... "Harry Potter" never surfaced the one title that actually starts with
+                // it. ThenBy(Id) keeps the order total, which a paged split query requires.
+                .OrderByDescending(a =>
+                    EF.Functions.Like(a.BookNameFolded, prefixPattern, LikePatterns.EscapeCharacter) ||
+                    a.Authors.Any(p => EF.Functions.Like(p.NameFolded, prefixPattern, LikePatterns.EscapeCharacter)))
+                .ThenBy(a => a.BookName)
+                .ThenBy(a => a.Id);
+        }
 
         // The type-ahead path (BrowseController.SearchLibrary) is capped at `limit` and never
         // renders a total, so counting there was a second full execution of the query for a

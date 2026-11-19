@@ -74,7 +74,10 @@ export function effectiveSort(
   config: SortConfig,
   sort: ListSort,
 ): { sortBy: string; sortDir: SortDirection } {
-  return { sortBy: sort.sortBy ?? config.defaultKey, sortDir: sort.sortDir ?? "asc" };
+  // A direction with no key is ignored by the backend (no sort is applied), so it must not show
+  // as descending here either: the direction only counts together with an explicit key.
+  if (sort.sortBy == null) return { sortBy: config.defaultKey, sortDir: "asc" };
+  return { sortBy: sort.sortBy, sortDir: sort.sortDir ?? "asc" };
 }
 
 /**

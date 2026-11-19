@@ -52,6 +52,13 @@ describe("listSort", () => {
     });
   });
 
+  it("ignores a stray direction when no key is set, as the backend does", () => {
+    expect(effectiveSort(AUTHOR_SORT, { sortDir: "desc" })).toEqual({
+      sortBy: "name",
+      sortDir: "asc",
+    });
+  });
+
   it("clears the URL sort for the default key ascending, keeping both fields present", () => {
     const cleared = toListSort(AUTHOR_SORT, "name", "asc");
     expect(cleared).toEqual({ sortBy: undefined, sortDir: undefined });
