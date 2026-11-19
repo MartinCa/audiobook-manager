@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { Library, RefreshCw } from "lucide-react";
@@ -12,14 +13,26 @@ import { usePageSize } from "@/hooks/usePageSize";
 import { Route } from "@/routes/library/index";
 import type { BookListFilters } from "@/types/EntityFilters";
 import type { PageSizeOption } from "@/constants/paging";
+import type { ListSort } from "@/helpers/listSort";
 
 export function BookLibrary() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const selection = useBookSelection();
   const [pageSize, setPageSize] = usePageSize();
-  const { q = "", page = 1, ...filterSearch } = Route.useSearch();
+  const { q = "", page = 1, sortBy, sortDir, ...filterSearch } = Route.useSearch();
   const filters: BookListFilters = filterSearch;
+  // The sort is a route param of its own, not a filter, so it stays out of presets and the
+  // active-filter count.
+  const sort = useMemo<ListSort>(() => ({ sortBy, sortDir }), [sortBy, sortDir]);
+
+  const handleSortChange = (next: ListSort) => {
+    void navigate({
+      to: "/library",
+      search: (prev) => ({ ...prev, ...next, page: undefined }),
+      replace: true,
+    });
+  };
 
   const handleFiltersChange = (next: BookListFilters) => {
     void navigate({
@@ -42,12 +55,12 @@ export function BookLibrary() {
     isLoading: loading,
     refetch,
   } = useQuery({
-    queryKey: queryKeys.books.page(q, page, pageSize, filters),
+    queryKey: queryKeys.books.page(q, page, pageSize, filters, sort),
     queryFn: async () => {
       const offset = (page - 1) * pageSize;
       const browseRes = q.trim()
-        ? await browseApi.searchAudiobooks(q.trim(), pageSize, offset, filters)
-        : await browseApi.getAudiobooks(pageSize, offset, filters);
+        ? await browseApi.searchAudiobooks(q.trim(), pageSize, offset, filters, sort)
+        : await browseApi.getAudiobooks(pageSize, offset, filters, sort);
       return { books: browseRes.items, totalCount: browseRes.total };
     },
   });
@@ -129,6 +142,8 @@ export function BookLibrary() {
         onSearchChange={handleSearchChange}
         filters={filters}
         onFiltersChange={handleFiltersChange}
+        sort={sort}
+        onSortChange={handleSortChange}
         page={page - 1}
         pageCount={pageCount}
         pageSize={pageSize}

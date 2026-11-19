@@ -132,7 +132,7 @@ describe("SeriesOverview", () => {
     nextButton.click();
 
     await waitFor(() => {
-      expect(seriesApi.getSeriesPage).toHaveBeenCalledWith(1, 50, "", {});
+      expect(seriesApi.getSeriesPage).toHaveBeenCalledWith(1, 50, "", {}, {});
     });
 
     expect(await screen.findByText("Series 51")).toBeInTheDocument();
@@ -149,7 +149,7 @@ describe("SeriesOverview", () => {
     await waitFor(() => {
       // The debounced term lands in the TanStack Query key and the server is asked for the
       // filtered page, from page 0.
-      expect(seriesApi.getSeriesPage).toHaveBeenCalledWith(0, 50, "mist", {});
+      expect(seriesApi.getSeriesPage).toHaveBeenCalledWith(0, 50, "mist", {}, {});
     });
   });
 
@@ -165,7 +165,7 @@ describe("SeriesOverview", () => {
     // Move to page 1 first, so the filter change resetting it back to 0 is observable.
     screen.getByRole("button", { name: "Next" }).click();
     await waitFor(() => {
-      expect(seriesApi.getSeriesPage).toHaveBeenLastCalledWith(1, 50, "", {});
+      expect(seriesApi.getSeriesPage).toHaveBeenLastCalledWith(1, 50, "", {}, {});
     });
 
     // The filter bar starts collapsed - open it before reaching for a field inside it.
@@ -173,7 +173,7 @@ describe("SeriesOverview", () => {
     fireEvent.change(screen.getByLabelText("Owned books minimum"), { target: { value: "3" } });
 
     await waitFor(() => {
-      expect(seriesApi.getSeriesPage).toHaveBeenLastCalledWith(0, 50, "", { minOwnedBooks: 3 });
+      expect(seriesApi.getSeriesPage).toHaveBeenLastCalledWith(0, 50, "", { minOwnedBooks: 3 }, {});
     });
   });
 
@@ -276,7 +276,7 @@ describe("SeriesOverview", () => {
     expect(await screen.findByText(/Showing 1–50 of 120/)).toBeInTheDocument();
     screen.getByRole("button", { name: "Next" }).click();
     await waitFor(() => {
-      expect(seriesApi.getSeriesPage).toHaveBeenCalledWith(1, 50, "", {});
+      expect(seriesApi.getSeriesPage).toHaveBeenCalledWith(1, 50, "", {}, {});
     });
     expect(screen.getByText(/Showing 51–100 of 120/)).toBeInTheDocument();
 
@@ -292,7 +292,7 @@ describe("SeriesOverview", () => {
 
     // Only the page-0 fetch is issued after completion...
     await waitFor(() => {
-      expect(seriesApi.getSeriesPage).toHaveBeenCalledWith(0, 50, "", {});
+      expect(seriesApi.getSeriesPage).toHaveBeenCalledWith(0, 50, "", {}, {});
     });
     // ...and its items render instead of a dead-end empty page.
     expect(await screen.findByText("Series 01")).toBeInTheDocument();
@@ -400,9 +400,15 @@ describe("SeriesOverview", () => {
       fireEvent.click(await screen.findByRole("menuitemcheckbox", { name: "Refresh failed" }));
 
       await waitFor(() => {
-        expect(seriesApi.getSeriesPage).toHaveBeenLastCalledWith(0, 50, "", {
-          queueStates: ["RefreshFailed"],
-        });
+        expect(seriesApi.getSeriesPage).toHaveBeenLastCalledWith(
+          0,
+          50,
+          "",
+          {
+            queueStates: ["RefreshFailed"],
+          },
+          {},
+        );
       });
     });
 
@@ -435,12 +441,61 @@ describe("SeriesOverview", () => {
       fireEvent.click(await screen.findByRole("menuitemradio", { name: "Unmatched, untouched" }));
 
       await waitFor(() => {
-        expect(seriesApi.getSeriesPage).toHaveBeenLastCalledWith(0, 50, "", {
-          sources: ["Unsupported"],
-          queueStates: ["NotQueued"],
-        });
+        expect(seriesApi.getSeriesPage).toHaveBeenLastCalledWith(
+          0,
+          50,
+          "",
+          {
+            sources: ["Unsupported"],
+            queueStates: ["NotQueued"],
+          },
+          {},
+        );
       });
       expect(filterPresetsApi.list).toHaveBeenCalledWith("series");
+    });
+  });
+
+  describe("sorting", () => {
+    it("sends the sort from the URL to the server", async () => {
+      vi.mocked(seriesApi.getSeriesPage).mockResolvedValue(page0);
+
+      renderWithProviders("/library/series?sortBy=completion&sortDir=desc");
+
+      await screen.findByText("Series 01");
+      expect(seriesApi.getSeriesPage).toHaveBeenCalledWith(
+        0,
+        50,
+        "",
+        {},
+        { sortBy: "completion", sortDir: "desc" },
+      );
+    });
+
+    it("goes back to the first page when the sort changes", async () => {
+      const mountCall = vi.mocked(seriesApi.getSeriesPage);
+      mountCall.mockResolvedValue(page0);
+      renderWithProviders();
+      const nextButton = await screen.findByRole("button", { name: "Next" });
+      nextButton.click();
+      await waitFor(() => {
+        expect(seriesApi.getSeriesPage).toHaveBeenCalledWith(1, 50, "", {}, {});
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: /switch to descending/ }));
+
+      await waitFor(() => {
+        expect(seriesApi.getSeriesPage).toHaveBeenLastCalledWith(
+          0,
+          50,
+          "",
+          {},
+          {
+            sortBy: "name",
+            sortDir: "desc",
+          },
+        );
+      });
     });
   });
 });

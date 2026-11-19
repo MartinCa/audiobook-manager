@@ -458,6 +458,8 @@ export interface paths {
                     queueStates?: string[];
                     multipleAuthors?: boolean;
                     hasMainAuthor?: boolean;
+                    sortBy?: string;
+                    sortDir?: string;
                 };
                 header?: never;
                 path?: never;
@@ -551,6 +553,8 @@ export interface paths {
                     queueStates?: string[];
                     multipleAuthors?: boolean;
                     hasMainAuthor?: boolean;
+                    sortBy?: string;
+                    sortDir?: string;
                 };
                 header?: never;
                 path?: never;
@@ -685,6 +689,8 @@ export interface paths {
                     neverRefreshed?: boolean;
                     sources?: string[];
                     queueStates?: string[];
+                    sortBy?: string;
+                    sortDir?: string;
                 };
                 header?: never;
                 path?: never;
@@ -3776,6 +3782,8 @@ export interface paths {
                     neverRefreshed?: boolean;
                     sources?: string[];
                     queueStates?: string[];
+                    sortBy?: string;
+                    sortDir?: string;
                 };
                 header?: never;
                 path?: never;

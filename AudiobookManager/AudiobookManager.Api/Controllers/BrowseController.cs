@@ -105,7 +105,7 @@ public class BrowseController : ControllerBase
         options.Select(o => new QueueStateOptionDto(o.Value, o.Label)).ToList();
 
     [HttpGet("audiobooks")]
-    public async Task<PaginatedResult<AudiobookSummaryDto>> GetAudiobooks(
+    public async Task<ActionResult<PaginatedResult<AudiobookSummaryDto>>> GetAudiobooks(
         int limit = 20, int offset = 0,
         [FromQuery] List<string>? sources = null,
         [FromQuery] List<string>? genres = null,
@@ -118,12 +118,35 @@ public class BrowseController : ControllerBase
         [FromQuery] bool? neverRefreshed = null,
         [FromQuery] List<string>? queueStates = null,
         [FromQuery] bool? multipleAuthors = null,
-        [FromQuery] bool? hasMainAuthor = null)
+        [FromQuery] bool? hasMainAuthor = null,
+        [FromQuery] string? sortBy = null,
+        [FromQuery] string? sortDir = null)
     {
+        if (!TryParseBookSort(sortBy, sortDir, out var sort, out var sortError))
+        {
+            return this.InvalidRequest(sortError!);
+        }
+
         var filter = new BookSummaryFilter(sources, genres, languages, minDurationInSeconds, maxDurationInSeconds, qualifiers, refreshedAfter, refreshedBefore, neverRefreshed, queueStates, multipleAuthors, hasMainAuthor);
-        var (items, total) = await _audiobookRepo.GetAllAsync(limit, offset, filter.IsEmpty ? null : filter);
+        var (items, total) = await _audiobookRepo.GetAllAsync(limit, offset, filter.IsEmpty ? null : filter, sort);
         var dtos = items.Select(MapToSummaryDto).ToList();
         return new PaginatedResult<AudiobookSummaryDto>(dtos.Count, total, dtos);
+    }
+
+    /// <summary>
+    /// Parses the book lists' <c>sortBy</c>/<c>sortDir</c>; a null <paramref name="sort"/> with a
+    /// true result means "no sort requested" (the list keeps its default order).
+    /// </summary>
+    private static bool TryParseBookSort(string? sortBy, string? sortDir, out BookSort? sort, out string? error)
+    {
+        sort = null;
+        if (!ListSortParser.TryParse<BookSortKey>(sortBy, sortDir, out var parsed, out error))
+        {
+            return false;
+        }
+
+        sort = parsed is null ? null : new BookSort(parsed.Value.Key, parsed.Value.Descending);
+        return true;
     }
 
     [HttpGet("library-search")]
@@ -168,7 +191,7 @@ public class BrowseController : ControllerBase
     }
 
     [HttpGet("audiobooks/search")]
-    public async Task<PaginatedResult<AudiobookSummaryDto>> SearchAudiobooks(
+    public async Task<ActionResult<PaginatedResult<AudiobookSummaryDto>>> SearchAudiobooks(
         [FromQuery] string q, int limit = 20, int offset = 0,
         [FromQuery] List<string>? sources = null,
         [FromQuery] List<string>? genres = null,
@@ -181,15 +204,22 @@ public class BrowseController : ControllerBase
         [FromQuery] bool? neverRefreshed = null,
         [FromQuery] List<string>? queueStates = null,
         [FromQuery] bool? multipleAuthors = null,
-        [FromQuery] bool? hasMainAuthor = null)
+        [FromQuery] bool? hasMainAuthor = null,
+        [FromQuery] string? sortBy = null,
+        [FromQuery] string? sortDir = null)
     {
         if (string.IsNullOrWhiteSpace(q))
         {
-            return await GetAudiobooks(limit, offset, sources, genres, languages, minDurationInSeconds, maxDurationInSeconds, qualifiers, refreshedAfter, refreshedBefore, neverRefreshed, queueStates, multipleAuthors, hasMainAuthor);
+            return await GetAudiobooks(limit, offset, sources, genres, languages, minDurationInSeconds, maxDurationInSeconds, qualifiers, refreshedAfter, refreshedBefore, neverRefreshed, queueStates, multipleAuthors, hasMainAuthor, sortBy, sortDir);
+        }
+
+        if (!TryParseBookSort(sortBy, sortDir, out var sort, out var sortError))
+        {
+            return this.InvalidRequest(sortError!);
         }
 
         var filter = new BookSummaryFilter(sources, genres, languages, minDurationInSeconds, maxDurationInSeconds, qualifiers, refreshedAfter, refreshedBefore, neverRefreshed, queueStates, multipleAuthors, hasMainAuthor);
-        var (items, total) = await _audiobookRepo.SearchAsync(q, limit, offset, filter: filter.IsEmpty ? null : filter);
+        var (items, total) = await _audiobookRepo.SearchAsync(q, limit, offset, filter: filter.IsEmpty ? null : filter, sort: sort);
         var dtos = items.Select(MapToSummaryDto).ToList();
         return new PaginatedResult<AudiobookSummaryDto>(dtos.Count, total, dtos);
     }
@@ -274,13 +304,22 @@ public class BrowseController : ControllerBase
         [FromQuery] DateTime? refreshedBefore = null,
         [FromQuery] bool? neverRefreshed = null,
         [FromQuery] List<string>? sources = null,
-        [FromQuery] List<string>? queueStates = null)
+        [FromQuery] List<string>? queueStates = null,
+        [FromQuery] string? sortBy = null,
+        [FromQuery] string? sortDir = null)
     {
         var clampError = ValidateSearchPaging(limit, offset);
         if (clampError != null)
         {
             return clampError;
         }
+
+        if (!ListSortParser.TryParse<AuthorSortKey>(sortBy, sortDir, out var parsedSort, out var sortError))
+        {
+            return this.InvalidRequest(sortError!);
+        }
+
+        var sort = parsedSort is null ? null : new AuthorSort(parsedSort.Value.Key, parsedSort.Value.Descending);
 
         if (minBookCount is < 0 || maxBookCount is < 0)
         {
@@ -311,16 +350,21 @@ public class BrowseController : ControllerBase
         // apply) rather than applied to a truncated set.
         IReadOnlyCollection<long>? restrictToIds = null;
         IReadOnlyCollection<long>? excludeIds = null;
-        if (filter.NeedsReconciliation)
+        IReadOnlyDictionary<long, int>? sortCounts = null;
+        var sortNeedsReconciliation = sort?.Key is AuthorSortKey.MissingBooks or AuthorSortKey.UpcomingBooks;
+        if (filter.NeedsReconciliation || sortNeedsReconciliation)
         {
+            // One classification serves both the filter and the missing/upcoming sort.
             var bulk = await _authorReconciliation.GetBulkMissingOrUpcomingAuthorIdsAsync();
             if (bulk.Refused)
             {
                 _logger.LogWarning(
-                    "Skipping the missing/upcoming-book author filter: the unified expected-book roster exceeds the bounded bulk classification's reference cap.");
+                    "Skipping the missing/upcoming-book author filter and sort: the unified expected-book roster exceeds the bounded bulk classification's reference cap.");
             }
             else
             {
+                sortCounts = sort?.Key == AuthorSortKey.UpcomingBooks ? bulk.UpcomingCounts : bulk.MissingCounts;
+
                 HashSet<long>? include = null;
                 var exclude = new HashSet<long>();
 
@@ -349,7 +393,7 @@ public class BrowseController : ControllerBase
 
         var search = string.IsNullOrWhiteSpace(q) ? null : q!.Trim();
         var (items, total) = await _personRepo.GetAuthorSummariesPagedAsync(
-            search, limit, offset, filter.IsEmpty ? null : filter, restrictToIds, excludeIds);
+            search, limit, offset, filter.IsEmpty ? null : filter, restrictToIds, excludeIds, sort, sortCounts);
         var dtos = items.Select(ToAuthorSummaryDto).ToList();
         return new PaginatedResult<AuthorSummaryDto>(dtos.Count, total, dtos);
     }

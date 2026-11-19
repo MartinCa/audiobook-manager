@@ -207,6 +207,29 @@ public class SeriesControllerTests
     }
 
     [TestMethod]
+    public async Task GetSeries_PassesTheSortThrough()
+    {
+        _seriesService
+            .Setup(s => s.GetSeriesOverviewPageAsync(0, 50, null, null, null, null, new SeriesSort(SeriesSortKey.BookCount, true)))
+            .ReturnsAsync(new SeriesOverviewPage { Items = new List<SeriesOverview>(), TotalCount = 0 });
+
+        var result = await _controller.GetSeries(sortBy: "bookCount", sortDir: "desc");
+
+        Assert.IsInstanceOfType(result.Result, typeof(OkObjectResult));
+        _seriesService.Verify(
+            s => s.GetSeriesOverviewPageAsync(0, 50, null, null, null, null, new SeriesSort(SeriesSortKey.BookCount, true)),
+            Times.Once);
+    }
+
+    [TestMethod]
+    public async Task GetSeries_UnknownSort_Is400()
+    {
+        var result = await _controller.GetSeries(sortBy: "bogus");
+
+        Assert.AreEqual(400, (result.Result as ObjectResult)?.StatusCode);
+    }
+
+    [TestMethod]
     public async Task GetSeries_MinOwnedBooksGreaterThanMax_IsRefused()
     {
         var result = await _controller.GetSeries(minOwnedBooks: 10, maxOwnedBooks: 2);

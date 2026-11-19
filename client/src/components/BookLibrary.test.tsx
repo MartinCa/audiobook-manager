@@ -184,7 +184,7 @@ describe("BookLibrary", () => {
 
     expect(await screen.findByText("The Way of Kings")).toBeInTheDocument();
     expect(screen.getByText("Words of Radiance")).toBeInTheDocument();
-    expect(browseApi.getAudiobooks).toHaveBeenCalledWith(20, 0, {});
+    expect(browseApi.getAudiobooks).toHaveBeenCalledWith(20, 0, {}, {});
   });
 
   it("shows a pending-refresh badge for books with a stored snapshot", async () => {
@@ -216,7 +216,7 @@ describe("BookLibrary", () => {
     expect(input).toHaveValue("Kings");
 
     expect(await screen.findByText("The Way of Kings")).toBeInTheDocument();
-    expect(browseApi.searchAudiobooks).toHaveBeenCalledWith("Kings", 20, 0, {});
+    expect(browseApi.searchAudiobooks).toHaveBeenCalledWith("Kings", 20, 0, {}, {});
   });
 
   it("updates URL search query when user types in search input", async () => {
@@ -231,7 +231,7 @@ describe("BookLibrary", () => {
     });
 
     await waitFor(() => {
-      expect(browseApi.searchAudiobooks).toHaveBeenCalledWith("Kings", 20, 0, {});
+      expect(browseApi.searchAudiobooks).toHaveBeenCalledWith("Kings", 20, 0, {}, {});
     });
   });
 
@@ -384,7 +384,7 @@ describe("BookLibrary", () => {
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
 
     await waitFor(() => {
-      expect(browseApi.getAudiobooks).toHaveBeenCalledWith(20, 20, {});
+      expect(browseApi.getAudiobooks).toHaveBeenCalledWith(20, 20, {}, {});
     });
 
     // The pick survived the page change: book 1's row (rendered again on this mocked page) is
@@ -411,9 +411,14 @@ describe("BookLibrary", () => {
     });
 
     await waitFor(() => {
-      expect(browseApi.getAudiobooks).toHaveBeenLastCalledWith(20, 0, {
-        minDurationInSeconds: 600,
-      });
+      expect(browseApi.getAudiobooks).toHaveBeenLastCalledWith(
+        20,
+        0,
+        {
+          minDurationInSeconds: 600,
+        },
+        {},
+      );
     });
   });
 
@@ -440,9 +445,14 @@ describe("BookLibrary", () => {
     });
 
     await waitFor(() => {
-      expect(browseApi.getAudiobooks).toHaveBeenLastCalledWith(20, 0, {
-        refreshedAfter: new Date("2026-01-15T10:30").toISOString(),
-      });
+      expect(browseApi.getAudiobooks).toHaveBeenLastCalledWith(
+        20,
+        0,
+        {
+          refreshedAfter: new Date("2026-01-15T10:30").toISOString(),
+        },
+        {},
+      );
     });
   });
 
@@ -453,7 +463,7 @@ describe("BookLibrary", () => {
     await router.navigate({ to: "/library", search: { neverRefreshed: true } });
 
     await waitFor(() => {
-      expect(browseApi.getAudiobooks).toHaveBeenLastCalledWith(20, 0, { neverRefreshed: true });
+      expect(browseApi.getAudiobooks).toHaveBeenLastCalledWith(20, 0, { neverRefreshed: true }, {});
     });
   });
 
@@ -467,10 +477,15 @@ describe("BookLibrary", () => {
     });
 
     await waitFor(() => {
-      expect(browseApi.getAudiobooks).toHaveBeenLastCalledWith(20, 0, {
-        refreshedAfter: new Date(2024, 5, 1).toISOString(),
-        refreshedBefore: new Date(2024, 5, 2).toISOString(),
-      });
+      expect(browseApi.getAudiobooks).toHaveBeenLastCalledWith(
+        20,
+        0,
+        {
+          refreshedAfter: new Date(2024, 5, 1).toISOString(),
+          refreshedBefore: new Date(2024, 5, 2).toISOString(),
+        },
+        {},
+      );
     });
   });
 
@@ -517,9 +532,14 @@ describe("BookLibrary", () => {
       );
 
       await waitFor(() => {
-        expect(browseApi.getAudiobooks).toHaveBeenLastCalledWith(20, 0, {
-          queueStates: ["MatchRejected"],
-        });
+        expect(browseApi.getAudiobooks).toHaveBeenLastCalledWith(
+          20,
+          0,
+          {
+            queueStates: ["MatchRejected"],
+          },
+          {},
+        );
       });
     });
 
@@ -527,7 +547,7 @@ describe("BookLibrary", () => {
       renderWithRouter();
 
       expect(await screen.findByText("The Way of Kings")).toBeInTheDocument();
-      expect(browseApi.getAudiobooks).toHaveBeenCalledWith(20, 0, {});
+      expect(browseApi.getAudiobooks).toHaveBeenCalledWith(20, 0, {}, {});
       expect(screen.getByText("Words of Radiance")).toBeInTheDocument();
     });
 
@@ -553,10 +573,15 @@ describe("BookLibrary", () => {
       fireEvent.click(await screen.findByRole("menuitemradio", { name: "Unsupported backlog" }));
 
       await waitFor(() => {
-        expect(browseApi.getAudiobooks).toHaveBeenLastCalledWith(20, 0, {
-          sources: ["Unsupported"],
-          queueStates: ["NotQueued"],
-        });
+        expect(browseApi.getAudiobooks).toHaveBeenLastCalledWith(
+          20,
+          0,
+          {
+            sources: ["Unsupported"],
+            queueStates: ["NotQueued"],
+          },
+          {},
+        );
       });
       expect(filterPresetsApi.list).toHaveBeenCalledWith("books");
     });
@@ -590,6 +615,55 @@ describe("BookLibrary", () => {
           queueStates: ["NotQueued"],
         }),
       );
+    });
+  });
+
+  describe("sorting", () => {
+    it("sends the sort from the URL to the list and to a search", async () => {
+      renderWithRouter("/library?sortBy=year&sortDir=desc");
+      await screen.findByText("The Way of Kings");
+      expect(browseApi.getAudiobooks).toHaveBeenCalledWith(
+        20,
+        0,
+        {},
+        { sortBy: "year", sortDir: "desc" },
+      );
+    });
+
+    it("sends the sort with a search, replacing relevance", async () => {
+      renderWithRouter("/library?q=Kings&sortBy=duration&sortDir=asc");
+      await waitFor(() => {
+        expect(browseApi.searchAudiobooks).toHaveBeenCalledWith(
+          "Kings",
+          20,
+          0,
+          {},
+          { sortBy: "duration", sortDir: "asc" },
+        );
+      });
+    });
+
+    it("drops back to the first page and keeps the filters when the sort changes", async () => {
+      renderWithRouter("/library?page=2&neverRefreshed=true&sortBy=year&sortDir=desc");
+      await waitFor(() => {
+        expect(browseApi.getAudiobooks).toHaveBeenLastCalledWith(
+          20,
+          20,
+          { neverRefreshed: true },
+          { sortBy: "year", sortDir: "desc" },
+        );
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: /switch to ascending/ }));
+
+      await waitFor(() => {
+        expect(browseApi.getAudiobooks).toHaveBeenLastCalledWith(
+          20,
+          0,
+          { neverRefreshed: true },
+          { sortBy: "year", sortDir: "asc" },
+        );
+      });
     });
   });
 });

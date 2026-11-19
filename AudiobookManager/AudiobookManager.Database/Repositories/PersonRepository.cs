@@ -282,7 +282,8 @@ public class PersonRepository : IPersonRepository
     public async Task<(List<AuthorSummaryRow> Items, int Total)> GetAuthorSummariesPagedAsync(
         string? search, int limit, int offset,
         AuthorSummaryFilter? filter = null, IReadOnlyCollection<long>? restrictToIds = null,
-        IReadOnlyCollection<long>? excludeIds = null)
+        IReadOnlyCollection<long>? excludeIds = null,
+        AuthorSort? sort = null, IReadOnlyDictionary<long, int>? sortCounts = null)
     {
         var dbQuery = _db.Persons
             .AsNoTracking()
@@ -386,14 +387,39 @@ public class PersonRepository : IPersonRepository
 
         var total = await dbQuery.CountAsync();
 
+        if (sort is { Key: AuthorSortKey.MissingBooks or AuthorSortKey.UpcomingBooks } && sortCounts is not null)
+        {
+            // The counts come from the fuzzy roster reconciliation, which SQL cannot evaluate, so
+            // the filtered ids are ordered in memory (name, then id as the total-order tiebreakers)
+            // and only the page's rows are read.
+            var candidates = await dbQuery.Select(p => new { p.Id, p.Name }).ToListAsync();
+            int CountOf(long id) => sortCounts.GetValueOrDefault(id);
+            var ordered = (sort.Descending
+                    ? candidates.OrderByDescending(c => CountOf(c.Id))
+                    : candidates.OrderBy(c => CountOf(c.Id)))
+                .ThenBy(c => c.Name, StringComparer.Ordinal)
+                .ThenBy(c => c.Id)
+                .Skip(offset).Take(limit)
+                .Select(c => c.Id)
+                .ToList();
+
+            var pageRows = await dbQuery
+                .Where(p => ordered.Contains(p.Id))
+                .Select(p => new AuthorSummaryRow(
+                    p.Id, p.Name, p.BooksAuthored.Count,
+                    p.MatchedSourceId != null && p.MatchedSourceId != "", p.MatchedSourceName))
+                .ToListAsync();
+            var position = ordered.Select((id, index) => (id, index)).ToDictionary(x => x.id, x => x.index);
+            return (pageRows.OrderBy(r => position[r.Id]).ToList(), total);
+        }
+
         // BookCount (BooksAuthored.Count) is part of the total order too, defensively: persons
         // names are unique, but the issue asked for it and a future without the unique index
         // must not silently get a non-total order. Id is the final tiebreaker that makes the
         // order total.
-        var rows = await dbQuery
-            .OrderBy(p => p.Name)
-            .ThenByDescending(p => p.BooksAuthored.Count)
-            .ThenBy(p => p.Id)
+        var orderedQuery = ApplyAuthorSort(dbQuery, sort);
+
+        var rows = await orderedQuery
             .Skip(offset)
             .Take(limit)
             .Select(p => new AuthorSummaryRow(
@@ -402,6 +428,36 @@ public class PersonRepository : IPersonRepository
             .ToListAsync();
 
         return (rows, total);
+    }
+
+    /// <summary>
+    /// The SQL order of the authors list: the default (name) or the user's key, each ending on the
+    /// name and id so the order is total. Never-refreshed authors sort first ascending, last
+    /// descending. A missing/upcoming sort without counts (the bulk classification was refused)
+    /// falls back to the default order.
+    /// </summary>
+    private static IOrderedQueryable<Person> ApplyAuthorSort(IQueryable<Person> query, AuthorSort? sort)
+    {
+        switch (sort?.Key)
+        {
+            case AuthorSortKey.Name when sort.Descending:
+                return query.OrderByDescending(p => p.Name).ThenBy(p => p.Id);
+            case AuthorSortKey.BookCount:
+                return (sort.Descending
+                        ? query.OrderByDescending(p => p.BooksAuthored.Count)
+                        : query.OrderBy(p => p.BooksAuthored.Count))
+                    .ThenBy(p => p.Name).ThenBy(p => p.Id);
+            case AuthorSortKey.LastRefreshed:
+                return (sort.Descending
+                        ? query.OrderByDescending(p => p.LastRefreshedAt)
+                        : query.OrderBy(p => p.LastRefreshedAt))
+                    .ThenBy(p => p.Name).ThenBy(p => p.Id);
+            default:
+                return query
+                    .OrderBy(p => p.Name)
+                    .ThenByDescending(p => p.BooksAuthored.Count)
+                    .ThenBy(p => p.Id);
+        }
     }
 
     public async Task<(List<AuthorSummaryRow> Items, int Total)> SearchAuthorSummariesAsync(string query, int limit, int offset)

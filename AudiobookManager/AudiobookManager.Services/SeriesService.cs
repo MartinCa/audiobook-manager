@@ -141,26 +141,48 @@ public class SeriesService : ISeriesService
 
     public async Task<SeriesOverviewPage> GetSeriesOverviewPageAsync(
         int page, int pageSize, string? search, bool? matched, long? authorId = null,
-        SeriesOverviewFilter? filter = null)
+        SeriesOverviewFilter? filter = null, SeriesSort? sort = null)
     {
-        // HasMissingBooks/HasUpcomingBooks depend on the fuzzy roster reconciliation
-        // (SeriesRosterMatcher), which the repository layer does not reference - resolve them
-        // here into a restricting name set before the paged SQL query runs. This is a
-        // whole-library computation, the same one BulkAutoMatchSeriesAsync already pays for; it
-        // only runs when the caller actually asks for one of these two filters.
+        // HasMissingBooks/HasUpcomingBooks (and the missing/completion sorts) depend on the fuzzy
+        // roster reconciliation (SeriesRosterMatcher), which the repository layer does not
+        // reference - resolve them here into a restricting name set and a per-series figure before
+        // the paged query runs. This is a whole-library computation, the same one
+        // BulkAutoMatchSeriesAsync already pays for; it only runs when the caller actually asks for
+        // one of these filters or sorts, and once for both.
         IReadOnlyCollection<string>? restrictToNames = null;
-        if (filter?.NeedsReconciliation == true)
+        IReadOnlyDictionary<string, double>? sortValues = null;
+        var sortNeedsReconciliation = sort?.Key is SeriesSortKey.MissingBooks or SeriesSortKey.Completion;
+        if (filter?.NeedsReconciliation == true || sortNeedsReconciliation)
         {
             var allOverviews = await GetAllSeriesOverviewAsync();
-            restrictToNames = allOverviews
-                .Where(o => (filter.HasMissingBooks is null || (o.MissingBookCount > 0) == filter.HasMissingBooks)
-                    && (filter.HasUpcomingBooks is null || (o.UpcomingBookCount > 0) == filter.HasUpcomingBooks))
-                .Select(o => o.Name)
-                .ToList();
+            if (filter?.NeedsReconciliation == true)
+            {
+                restrictToNames = allOverviews
+                    .Where(o => (filter.HasMissingBooks is null || (o.MissingBookCount > 0) == filter.HasMissingBooks)
+                        && (filter.HasUpcomingBooks is null || (o.UpcomingBookCount > 0) == filter.HasUpcomingBooks))
+                    .Select(o => o.Name)
+                    .ToList();
+            }
+
+            if (sort?.Key == SeriesSortKey.MissingBooks)
+            {
+                sortValues = allOverviews.ToDictionary(o => o.Name, o => (double)o.MissingBookCount, StringComparer.Ordinal);
+            }
+            else if (sort?.Key == SeriesSortKey.Completion)
+            {
+                // No expected books means no completion to speak of: left out, so it sorts last.
+                sortValues = allOverviews
+                    .Where(o => o.ExpectedBookCount > 0)
+                    .ToDictionary(
+                        o => o.Name,
+                        o => Math.Min(1.0, (double)o.OwnedBookCount / o.ExpectedBookCount),
+                        StringComparer.Ordinal);
+            }
         }
 
         var (names, totalCount) = await _audiobookRepository.GetSeriesValuesPageAsync(
-            search, matched, skip: (int)((long)page * pageSize), take: pageSize, authorId, filter, restrictToNames);
+            search, matched, skip: (int)((long)page * pageSize), take: pageSize, authorId, filter, restrictToNames,
+            sort, sortValues);
 
         if (names.Count == 0)
         {

@@ -139,13 +139,22 @@ public class SeriesController : ControllerBase
         [FromQuery] DateTime? refreshedBefore = null,
         [FromQuery] bool? neverRefreshed = null,
         [FromQuery] List<string>? sources = null,
-        [FromQuery] List<string>? queueStates = null)
+        [FromQuery] List<string>? queueStates = null,
+        [FromQuery] string? sortBy = null,
+        [FromQuery] string? sortDir = null)
     {
         var pagingError = ValidatePageSelection(page, pageSize, "series");
         if (pagingError != null)
         {
             return pagingError;
         }
+
+        if (!ListSortParser.TryParse<SeriesSortKey>(sortBy, sortDir, out var parsedSort, out var sortError))
+        {
+            return this.InvalidRequest(sortError!);
+        }
+
+        var sort = parsedSort is null ? null : new SeriesSort(parsedSort.Value.Key, parsedSort.Value.Descending);
 
         if (minOwnedBooks is < 0 || maxOwnedBooks is < 0)
         {
@@ -167,7 +176,7 @@ public class SeriesController : ControllerBase
             refreshedAfter, refreshedBefore, neverRefreshed, sources, queueStates);
 
         var overviewPage = await _seriesService.GetSeriesOverviewPageAsync(
-            page, pageSize, search, matched, authorId: null, filter: filter.IsEmpty ? null : filter);
+            page, pageSize, search, matched, authorId: null, filter: filter.IsEmpty ? null : filter, sort: sort);
         return Ok(new SeriesOverviewPageDto(overviewPage.Items.Select(SeriesOverviewMapper.ToDto).ToList(), overviewPage.TotalCount));
     }
 

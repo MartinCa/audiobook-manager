@@ -16,6 +16,7 @@ import type {
 } from "@/types/BookConsistencyIssue";
 import type { DiscoveredAudiobookPage } from "@/types/DiscoveredAudiobookPage";
 import type { AuthorListFilters, BookListFilters, SeriesListFilters } from "@/types/EntityFilters";
+import type { ListSort } from "@/helpers/listSort";
 import type { BrowseFilterOptions } from "@/types/BrowseFilterOptions";
 import type { FilterPreset, FilterPresetScope } from "@/types/FilterPreset";
 import type { EntryStatus } from "@/types/EntryStatus";
@@ -204,14 +205,23 @@ export const bulkEditApi = {
 
 // Browse & Search
 export const browseApi = {
-  getAudiobooks: (limit = 20, offset = 0, filters: BookListFilters = {}) =>
+  // sort (sortBy/sortDir) is kept apart from filters: it is not a filter, so it stays out of
+  // filter presets and the active-filter count. Omitted means the list's default order (for a
+  // search, relevance).
+  getAudiobooks: (limit = 20, offset = 0, filters: BookListFilters = {}, sort: ListSort = {}) =>
     api.get<PaginatedResult<ManagedAudiobook>>("/browse/audiobooks", {
-      query: { limit, offset, ...filters },
+      query: { limit, offset, ...filters, ...sort },
     }),
 
-  searchAudiobooks: (q: string, limit = 20, offset = 0, filters: BookListFilters = {}) =>
+  searchAudiobooks: (
+    q: string,
+    limit = 20,
+    offset = 0,
+    filters: BookListFilters = {},
+    sort: ListSort = {},
+  ) =>
     api.get<PaginatedResult<ManagedAudiobook>>("/browse/audiobooks/search", {
-      query: { q, limit, offset, ...filters },
+      query: { q, limit, offset, ...filters, ...sort },
     }),
 
   // Whichever scrapers are actually registered (see AudiobookManager.Scraping.DependencyInjection)
@@ -243,9 +253,10 @@ export const browseApi = {
     offset = 0,
     q?: string,
     filters: AuthorListFilters = {},
+    sort: ListSort = {},
   ) =>
     api.get<PaginatedResult<AuthorSummary>>("/browse/authors", {
-      query: { limit, offset, q: q || undefined, ...filters },
+      query: { limit, offset, q: q || undefined, ...filters, ...sort },
     }),
 
   // The three sections are paged server-side: an author owning hundreds of series/books used
@@ -757,9 +768,10 @@ export const seriesApi = {
     pageSize: number,
     search?: string,
     filters: SeriesListFilters = {},
+    sort: ListSort = {},
   ) =>
     api.get<SeriesOverviewPage>("/series", {
-      query: { page, pageSize, search: search || undefined, ...filters },
+      query: { page, pageSize, search: search || undefined, ...filters, ...sort },
     }),
 
   /** Total/matched/unmatched series for the overview header badges, independent of any page. */

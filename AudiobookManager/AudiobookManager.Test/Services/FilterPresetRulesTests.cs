@@ -173,8 +173,8 @@ public class FilterPresetRulesTests
 
     // ---- Guards against the vocabulary drifting from the endpoints it feeds -------------------
 
-    /// <summary>The non-filter parameters of the list actions: paging, search text and the retired 'matched'.</summary>
-    private static readonly string[] NonFilterParameters = ["limit", "offset", "q", "page", "pageSize", "search", "matched"];
+    /// <summary>The non-filter parameters of the list actions: paging, search text, the sort (kept in the URL, never in a preset) and the retired 'matched'.</summary>
+    private static readonly string[] NonFilterParameters = ["limit", "offset", "q", "page", "pageSize", "search", "matched", "sortBy", "sortDir"];
 
     private static List<string> FilterParametersOf(Type controller, string action) =>
         controller.GetMethod(action, BindingFlags.Public | BindingFlags.Instance)!

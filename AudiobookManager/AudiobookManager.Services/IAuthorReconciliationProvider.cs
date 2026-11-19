@@ -46,8 +46,12 @@ public interface IAuthorReconciliationProvider
 /// reference set exceeded the bounded read's cap: the filter is then skipped by the caller
 /// (the list keeps its other filters; the missing/upcoming one is simply not applied) rather than
 /// applied to a truncated set, which would produce a silently-wrong result.
+/// <see cref="MissingCounts"/>/<see cref="UpcomingCounts"/> hold the per-author numbers (only for
+/// authors that have at least one) for the list's missing/upcoming sort; null when refused.
 /// </summary>
 public record AuthorBulkReconciliationResult(
     HashSet<long> HasMissingBooks,
     HashSet<long> HasUpcomingBooks,
-    bool Refused);
+    bool Refused,
+    IReadOnlyDictionary<long, int>? MissingCounts = null,
+    IReadOnlyDictionary<long, int>? UpcomingCounts = null);

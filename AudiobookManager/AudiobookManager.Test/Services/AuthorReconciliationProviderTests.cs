@@ -394,6 +394,35 @@ public class AuthorReconciliationProviderTests
             Times.Once);
     }
 
+    // The authors list's missing/upcoming sort orders by how many, not just whether: the counts
+    // come out of the same classification pass as the id sets.
+    [TestMethod]
+    public async Task GetBulkMissingOrUpcomingAuthorIdsAsync_CountsMissingAndUpcomingPerAuthor()
+    {
+        var nextYear = DateTime.UtcNow.Year + 1;
+        _expectedBookRepository
+            .Setup(r => r.GetActiveAuthorBookRefsAsync(It.IsAny<int>()))
+            .ReturnsAsync((new List<ExpectedBookAuthorBookRef>
+            {
+                MakeRef(1, 1, "Elantris", 2005),
+                MakeRef(1, 2, "Warbreaker", 2009),
+                MakeRef(1, 3, "Emperor's Soul", 2012),
+                MakeRef(1, 4, "Future One", nextYear),
+                MakeRef(2, 5, "Mistborn", 2006),
+                MakeRef(2, 6, "Future Two", nextYear),
+                MakeRef(2, 7, "Future Three", nextYear),
+            }, false));
+        SetupOwnedBulk(new List<AuthorOwnedKey> { new(2, 105, null, "Mistborn", null) });
+
+        var result = await _provider.GetBulkMissingOrUpcomingAuthorIdsAsync();
+
+        Assert.IsFalse(result.Refused);
+        Assert.AreEqual(3, result.MissingCounts![1]);
+        Assert.IsFalse(result.MissingCounts.ContainsKey(2), "an author with none missing has no entry");
+        Assert.AreEqual(1, result.UpcomingCounts![1]);
+        Assert.AreEqual(2, result.UpcomingCounts[2]);
+    }
+
     // The bulk classifier matches series-linked refs with the same series-scoped semantics as the
     // detail view: a ref linked to a local series is only owned by a book of that series.
     [TestMethod]
