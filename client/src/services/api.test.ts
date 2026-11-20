@@ -571,6 +571,17 @@ describe("api service mappings and contracts", () => {
     });
   });
 
+  describe("browseApi cover URLs", () => {
+    it("asks the server for a 128px thumbnail by default and for another allowed size on request", () => {
+      expect(browseApi.getCoverThumbnailUrl(7)).toBe("/api/browse/audiobooks/7/cover?size=128");
+      expect(browseApi.getCoverThumbnailUrl(7, 64)).toBe("/api/browse/audiobooks/7/cover?size=64");
+    });
+
+    it("leaves the original-cover URL without a size, so the detail page still gets the full image", () => {
+      expect(browseApi.getCoverUrl(7)).toBe("/api/browse/audiobooks/7/cover");
+    });
+  });
+
   describe("Files API endpoints", () => {
     it("calls delete_directory on filesApi.deleteBook", async () => {
       const fetchSpy = vi

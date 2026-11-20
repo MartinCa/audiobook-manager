@@ -39,6 +39,7 @@ public class BrowseController : ControllerBase
     private readonly IPendingAuthorRefreshRepository _pendingAuthorRefreshRepository;
     private readonly IEnumerable<IScraper> _scrapers;
     private readonly ISettingsService _settingsService;
+    private readonly ICoverThumbnailService _coverThumbnails;
     private readonly IServiceScopeFactory _serviceScopeFactory;
     private readonly IOperationStatusRegistry _statusRegistry;
     private readonly IHostApplicationLifetime _appLifetime;
@@ -56,6 +57,7 @@ public class BrowseController : ControllerBase
         IExpectedBookWriteGate expectedBookWriteGate,
         IEnumerable<IScraper> scrapers,
         ISettingsService settingsService,
+        ICoverThumbnailService coverThumbnails,
         IServiceScopeFactory serviceScopeFactory,
         IOperationStatusRegistry statusRegistry,
         IHostApplicationLifetime appLifetime,
@@ -72,6 +74,7 @@ public class BrowseController : ControllerBase
         _expectedBookWriteGate = expectedBookWriteGate;
         _scrapers = scrapers;
         _settingsService = settingsService;
+        _coverThumbnails = coverThumbnails;
         _serviceScopeFactory = serviceScopeFactory;
         _statusRegistry = statusRegistry;
         _appLifetime = appLifetime;
@@ -1029,28 +1032,48 @@ public class BrowseController : ControllerBase
         );
     }
 
+    /// <param name="size">
+    /// Optional longest edge in pixels for a downscaled JPEG (one of <see cref="ICoverThumbnailService.AllowedSizes"/>).
+    /// Lists show covers at a few dozen pixels, so they ask for a thumbnail instead of the original.
+    /// </param>
     [HttpGet("audiobooks/{id}/cover")]
-    public async Task<IActionResult> GetAudiobookCover(long id)
+    public async Task<IActionResult> GetAudiobookCover(long id, [FromQuery] int? size, CancellationToken cancellationToken)
     {
+        if (size is not null && !_coverThumbnails.AllowedSizes.Contains(size.Value))
+            return this.InvalidRequest(
+                $"size must be one of: {string.Join(", ", _coverThumbnails.AllowedSizes)}.");
+
         var coverFilePath = await _audiobookRepo.GetCoverFilePathAsync(id);
         if (string.IsNullOrEmpty(coverFilePath) || !System.IO.File.Exists(coverFilePath))
             return NotFound();
+
+        // Same caching approach for both variants: no max-age, because a cover is rewritten in
+        // place whenever the book is saved and nothing in the URL changes when it is, so a
+        // freshness window would serve a stale image for its duration. The ETag/Last-Modified
+        // pair makes the repeat request a cheap 304 instead.
+        Response.Headers.CacheControl = "private, no-cache";
+
+        if (size is not null)
+        {
+            // Null means no thumbnail could be made (unreadable image, cache not writable); the
+            // original is served rather than no cover, exactly as before thumbnails existed.
+            var thumbnail = await _coverThumbnails.GetOrCreateAsync(id, coverFilePath, size.Value, cancellationToken);
+            if (thumbnail is not null)
+                return PhysicalFile(
+                    thumbnail.Path, thumbnail.MimeType, thumbnail.LastModified,
+                    new EntityTagHeaderValue(thumbnail.ETag), enableRangeProcessing: true);
+        }
 
         var mimeType = coverFilePath.EndsWith(".png", StringComparison.OrdinalIgnoreCase)
             ? "image/png"
             : "image/jpeg";
 
-        // Stream the file instead of buffering it, and let the browser revalidate rather than
-        // re-download: a 50-row library page requests 50 of these. Deliberately no max-age -
-        // a cover is rewritten in place whenever the book is saved, and nothing in the URL
-        // changes when it is, so a freshness window would serve a stale image for its duration.
-        // The ETag/Last-Modified pair makes the repeat request a cheap 304 instead.
+        // Stream the file instead of buffering it, and let the browser revalidate rather than re-download.
         var fullPath = Path.GetFullPath(coverFilePath);
         var lastModified = new DateTimeOffset(System.IO.File.GetLastWriteTimeUtc(fullPath), TimeSpan.Zero);
         var length = new FileInfo(fullPath).Length;
         var entityTag = new EntityTagHeaderValue($"\"{lastModified.ToUnixTimeMilliseconds():x}-{length:x}\"");
 
-        Response.Headers.CacheControl = "private, no-cache";
         return PhysicalFile(fullPath, mimeType, lastModified, entityTag, enableRangeProcessing: true);
     }
 

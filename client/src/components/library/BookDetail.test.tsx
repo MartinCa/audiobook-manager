@@ -16,6 +16,7 @@ vi.mock("@/services/api", () => ({
   browseApi: {
     getAudiobookDetail: vi.fn(),
     getCoverUrl: vi.fn((id: number) => `/api/browse/audiobooks/${id}/cover`),
+    getCoverThumbnailUrl: vi.fn((id: number) => `/api/browse/audiobooks/${id}/cover?size=128`),
   },
   audiobookApi: {
     updateBook: vi.fn(),

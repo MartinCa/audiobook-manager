@@ -28,6 +28,7 @@ public class BrowseControllerTests
     private Mock<IPersonRepository> _personRepo = null!;
     private Mock<IGenreRepository> _genreRepo = null!;
     private Mock<ISettingsService> _settingsService = null!;
+    private Mock<ICoverThumbnailService> _coverThumbnails = null!;
     private Mock<ISeriesService> _seriesService = null!;
     private Mock<IUpcomingReleaseService> _upcomingReleaseService = null!;
     private Mock<IAuthorReconciliationProvider> _authorReconciliation = null!;
@@ -63,6 +64,8 @@ public class BrowseControllerTests
         mockScope.Setup(s => s.ServiceProvider).Returns(mockServiceProvider.Object);
         _serviceScopeFactory.Setup(f => f.CreateScope()).Returns(mockScope.Object);
 
+        _coverThumbnails = new Mock<ICoverThumbnailService>();
+        _coverThumbnails.Setup(c => c.AllowedSizes).Returns(new[] { 64, 128, 256 });
         _settingsService = new Mock<ISettingsService>();
         _settingsService.Setup(s => s.GetMetadataSourceOrder()).ReturnsAsync(Array.Empty<string>());
 
@@ -70,9 +73,10 @@ public class BrowseControllerTests
             _audiobookRepo.Object, _personRepo.Object, _genreRepo.Object, _seriesService.Object,
             _upcomingReleaseService.Object, _authorReconciliation.Object,
             _authorConsistencyIssueRepository.Object, _pendingAuthorRefreshRepository.Object, _expectedBookWriteGate,
-            Array.Empty<IScraper>(), _settingsService.Object,
+            Array.Empty<IScraper>(), _settingsService.Object, _coverThumbnails.Object,
             _serviceScopeFactory.Object, _statusRegistry.Object, Mock.Of<IHostApplicationLifetime>(),
             Mock.Of<ILogger<BrowseController>>());
+        _controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() };
     }
 
     // BackgroundOperationRunner calls statusRegistry.SetFinished(key) and THEN releases the
@@ -1768,7 +1772,7 @@ public class BrowseControllerTests
             _audiobookRepo.Object, _personRepo.Object, _genreRepo.Object, _seriesService.Object,
             _upcomingReleaseService.Object, _authorReconciliation.Object,
             _authorConsistencyIssueRepository.Object, _pendingAuthorRefreshRepository.Object, _expectedBookWriteGate,
-            scrapers, _settingsService.Object,
+            scrapers, _settingsService.Object, _coverThumbnails.Object,
             _serviceScopeFactory.Object, _statusRegistry.Object, Mock.Of<IHostApplicationLifetime>(),
             Mock.Of<ILogger<BrowseController>>());
 
@@ -1797,5 +1801,94 @@ public class BrowseControllerTests
             options.AuthorQueueStates.Select(o => o.Value).ToList());
         Assert.IsTrue(options.BookQueueStates.All(o => !string.IsNullOrWhiteSpace(o.Label)));
         Assert.AreEqual("Not in any queue", options.BookQueueStates[0].Label);
+    }
+
+    // --- cover thumbnails -------------------------------------------------------------------
+
+    private string WriteTempCover()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"cover-{Guid.NewGuid():N}.jpg");
+        File.WriteAllBytes(path, new byte[] { 1, 2, 3 });
+        return path;
+    }
+
+    [TestMethod]
+    public async Task GetAudiobookCover_WithAllowedSize_ServesTheThumbnailNotTheOriginal()
+    {
+        var original = WriteTempCover();
+        var thumb = WriteTempCover();
+        try
+        {
+            _audiobookRepo.Setup(r => r.GetCoverFilePathAsync(7)).ReturnsAsync(original);
+            _coverThumbnails
+                .Setup(c => c.GetOrCreateAsync(7, original, 128, It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new CoverThumbnail(thumb, "image/jpeg", DateTimeOffset.UtcNow, "\"t128-x\""));
+
+            var result = await _controller.GetAudiobookCover(7, 128, CancellationToken.None);
+
+            var file = result as PhysicalFileResult;
+            Assert.IsNotNull(file);
+            Assert.AreEqual(thumb, file.FileName);
+        }
+        finally
+        {
+            File.Delete(original);
+            File.Delete(thumb);
+        }
+    }
+
+    [TestMethod]
+    public async Task GetAudiobookCover_WhenNoThumbnailCanBeMade_FallsBackToTheOriginal()
+    {
+        var original = WriteTempCover();
+        try
+        {
+            _audiobookRepo.Setup(r => r.GetCoverFilePathAsync(7)).ReturnsAsync(original);
+            _coverThumbnails
+                .Setup(c => c.GetOrCreateAsync(7, original, 128, It.IsAny<CancellationToken>()))
+                .ReturnsAsync((CoverThumbnail?)null);
+
+            var result = await _controller.GetAudiobookCover(7, 128, CancellationToken.None);
+
+            var file = result as PhysicalFileResult;
+            Assert.IsNotNull(file);
+            Assert.AreEqual(Path.GetFullPath(original), file.FileName);
+        }
+        finally
+        {
+            File.Delete(original);
+        }
+    }
+
+    [TestMethod]
+    public async Task GetAudiobookCover_WithoutSize_ServesTheOriginalAndNeverTouchesTheThumbnailCache()
+    {
+        var original = WriteTempCover();
+        try
+        {
+            _audiobookRepo.Setup(r => r.GetCoverFilePathAsync(7)).ReturnsAsync(original);
+
+            var result = await _controller.GetAudiobookCover(7, null, CancellationToken.None);
+
+            Assert.AreEqual(Path.GetFullPath(original), ((PhysicalFileResult)result).FileName);
+            _coverThumbnails.Verify(
+                c => c.GetOrCreateAsync(It.IsAny<long>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<CancellationToken>()),
+                Times.Never);
+        }
+        finally
+        {
+            File.Delete(original);
+        }
+    }
+
+    [TestMethod]
+    public async Task GetAudiobookCover_WithADisallowedSize_IsRefusedSoTheCacheStaysBounded()
+    {
+        var result = await _controller.GetAudiobookCover(7, 5000, CancellationToken.None);
+
+        Assert.AreEqual(400, (result as ObjectResult)?.StatusCode);
+        _coverThumbnails.Verify(
+            c => c.GetOrCreateAsync(It.IsAny<long>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<CancellationToken>()),
+            Times.Never);
     }
 }

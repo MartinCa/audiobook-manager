@@ -56,8 +56,10 @@ export function BookListRow({
           <div className="bg-muted h-12 w-12 shrink-0 overflow-hidden rounded">
             {book.coverFilePath ? (
               <img
-                src={browseApi.getCoverUrl(book.id)}
+                src={browseApi.getCoverThumbnailUrl(book.id)}
                 alt={book.bookName ?? undefined}
+                loading="lazy"
+                decoding="async"
                 className="h-full w-full object-contain"
                 onError={(e) => {
                   (e.currentTarget as HTMLElement).style.display = "none";

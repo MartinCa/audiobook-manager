@@ -3,6 +3,7 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { BookListRow } from "./BookListRow";
+import { browseApi } from "@/services/api";
 import type { ManagedAudiobook } from "@/types/ManagedAudiobook";
 
 const mockNavigatedTo: string[] = [];
@@ -32,6 +33,7 @@ vi.mock("@tanstack/react-router", () => ({
 vi.mock("@/services/api", () => ({
   browseApi: {
     getCoverUrl: vi.fn((id: number) => `/api/browse/audiobooks/${id}/cover`),
+    getCoverThumbnailUrl: vi.fn((id: number) => `/api/browse/audiobooks/${id}/cover?size=128`),
   },
   settingsApi: {
     getBookQualifiers: vi.fn().mockResolvedValue({
@@ -95,8 +97,17 @@ describe("BookListRow", () => {
     render(<BookListRow book={book()} />);
 
     const img = screen.getByAltText<HTMLImageElement>("The Way of Kings");
-    expect(img).toHaveAttribute("src", "/api/browse/audiobooks/1/cover");
+    expect(img).toHaveAttribute("src", "/api/browse/audiobooks/1/cover?size=128");
     expect(img.closest("a")).toHaveAttribute("href", "/library/book/1");
+  });
+
+  it("requests the small cover thumbnail, and defers off-screen images instead of fetching every row at once", () => {
+    render(<BookListRow book={book()} />);
+
+    const img = screen.getByAltText<HTMLImageElement>("The Way of Kings");
+    expect(browseApi.getCoverThumbnailUrl).toHaveBeenCalledWith(1);
+    expect(img).toHaveAttribute("loading", "lazy");
+    expect(img).toHaveAttribute("decoding", "async");
   });
 
   it("hides a cover that fails to load instead of showing a broken image", () => {
