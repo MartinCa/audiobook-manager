@@ -28,6 +28,7 @@ public class BrowseControllerTests
     private Mock<IPersonRepository> _personRepo = null!;
     private Mock<IGenreRepository> _genreRepo = null!;
     private Mock<ISettingsService> _settingsService = null!;
+    private Mock<ICoverThumbnailService> _coverThumbnails = null!;
     private Mock<ISeriesService> _seriesService = null!;
     private Mock<IUpcomingReleaseService> _upcomingReleaseService = null!;
     private Mock<IAuthorReconciliationProvider> _authorReconciliation = null!;
@@ -63,6 +64,8 @@ public class BrowseControllerTests
         mockScope.Setup(s => s.ServiceProvider).Returns(mockServiceProvider.Object);
         _serviceScopeFactory.Setup(f => f.CreateScope()).Returns(mockScope.Object);
 
+        _coverThumbnails = new Mock<ICoverThumbnailService>();
+        _coverThumbnails.Setup(c => c.AllowedSizes).Returns(new[] { 64, 128, 256 });
         _settingsService = new Mock<ISettingsService>();
         _settingsService.Setup(s => s.GetMetadataSourceOrder()).ReturnsAsync(Array.Empty<string>());
 
@@ -70,9 +73,10 @@ public class BrowseControllerTests
             _audiobookRepo.Object, _personRepo.Object, _genreRepo.Object, _seriesService.Object,
             _upcomingReleaseService.Object, _authorReconciliation.Object,
             _authorConsistencyIssueRepository.Object, _pendingAuthorRefreshRepository.Object, _expectedBookWriteGate,
-            Array.Empty<IScraper>(), _settingsService.Object,
+            Array.Empty<IScraper>(), _settingsService.Object, _coverThumbnails.Object,
             _serviceScopeFactory.Object, _statusRegistry.Object, Mock.Of<IHostApplicationLifetime>(),
             Mock.Of<ILogger<BrowseController>>());
+        _controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() };
     }
 
     // BackgroundOperationRunner calls statusRegistry.SetFinished(key) and THEN releases the
@@ -1768,7 +1772,7 @@ public class BrowseControllerTests
             _audiobookRepo.Object, _personRepo.Object, _genreRepo.Object, _seriesService.Object,
             _upcomingReleaseService.Object, _authorReconciliation.Object,
             _authorConsistencyIssueRepository.Object, _pendingAuthorRefreshRepository.Object, _expectedBookWriteGate,
-            scrapers, _settingsService.Object,
+            scrapers, _settingsService.Object, _coverThumbnails.Object,
             _serviceScopeFactory.Object, _statusRegistry.Object, Mock.Of<IHostApplicationLifetime>(),
             Mock.Of<ILogger<BrowseController>>());
 
@@ -1797,5 +1801,239 @@ public class BrowseControllerTests
             options.AuthorQueueStates.Select(o => o.Value).ToList());
         Assert.IsTrue(options.BookQueueStates.All(o => !string.IsNullOrWhiteSpace(o.Label)));
         Assert.AreEqual("Not in any queue", options.BookQueueStates[0].Label);
+    }
+
+    // --- cover thumbnails -------------------------------------------------------------------
+
+    private string WriteTempCover()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"cover-{Guid.NewGuid():N}.jpg");
+        File.WriteAllBytes(path, new byte[] { 1, 2, 3 });
+        return path;
+    }
+
+    [TestMethod]
+    public async Task GetAudiobookCover_WithAllowedSize_ServesTheThumbnailNotTheOriginal()
+    {
+        var original = WriteTempCover();
+        var thumb = WriteTempCover();
+        try
+        {
+            _audiobookRepo.Setup(r => r.GetCoverFilePathAsync(7)).ReturnsAsync(original);
+            _coverThumbnails
+                .Setup(c => c.GetOrCreateAsync(7, original, 128, It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new CoverThumbnail(thumb, "image/jpeg", DateTimeOffset.UtcNow, "\"t128-x\""));
+
+            var result = await _controller.GetAudiobookCover(7, 128, null, CancellationToken.None);
+
+            var file = result as PhysicalFileResult;
+            Assert.IsNotNull(file);
+            Assert.AreEqual(thumb, file.FileName);
+        }
+        finally
+        {
+            File.Delete(original);
+            File.Delete(thumb);
+        }
+    }
+
+    [TestMethod]
+    public async Task GetAudiobookCover_WhenNoThumbnailCanBeMade_FallsBackToTheOriginal()
+    {
+        var original = WriteTempCover();
+        try
+        {
+            _audiobookRepo.Setup(r => r.GetCoverFilePathAsync(7)).ReturnsAsync(original);
+            _coverThumbnails
+                .Setup(c => c.GetOrCreateAsync(7, original, 128, It.IsAny<CancellationToken>()))
+                .ReturnsAsync((CoverThumbnail?)null);
+
+            var result = await _controller.GetAudiobookCover(7, 128, null, CancellationToken.None);
+
+            var file = result as PhysicalFileResult;
+            Assert.IsNotNull(file);
+            Assert.AreEqual(Path.GetFullPath(original), file.FileName);
+        }
+        finally
+        {
+            File.Delete(original);
+        }
+    }
+
+    [TestMethod]
+    public async Task GetAudiobookCover_WithoutSize_ServesTheOriginalAndNeverTouchesTheThumbnailCache()
+    {
+        var original = WriteTempCover();
+        try
+        {
+            _audiobookRepo.Setup(r => r.GetCoverFilePathAsync(7)).ReturnsAsync(original);
+
+            var result = await _controller.GetAudiobookCover(7, null, null, CancellationToken.None);
+
+            Assert.AreEqual(Path.GetFullPath(original), ((PhysicalFileResult)result).FileName);
+            _coverThumbnails.Verify(
+                c => c.GetOrCreateAsync(It.IsAny<long>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<CancellationToken>()),
+                Times.Never);
+        }
+        finally
+        {
+            File.Delete(original);
+        }
+    }
+
+    [TestMethod]
+    public async Task GetAudiobookCover_WithoutAVersion_MustRevalidateOnEveryUse()
+    {
+        var original = WriteTempCover();
+        try
+        {
+            _audiobookRepo.Setup(r => r.GetCoverFilePathAsync(7)).ReturnsAsync(original);
+
+            await _controller.GetAudiobookCover(7, null, null, CancellationToken.None);
+
+            Assert.AreEqual("private, no-cache", _controller.Response.Headers.CacheControl.ToString());
+        }
+        finally
+        {
+            File.Delete(original);
+        }
+    }
+
+    // The version in the URL is what makes a year of caching safe - but only when it is the
+    // version of the bytes being served.
+    [TestMethod]
+    public async Task GetAudiobookCover_WithTheFilesCurrentVersion_IsCacheableForAYearWithoutRevalidation()
+    {
+        var original = WriteTempCover();
+        try
+        {
+            var stamp = new DateTime(2024, 5, 6, 7, 8, 9, DateTimeKind.Utc);
+            File.SetLastWriteTimeUtc(original, stamp);
+            _audiobookRepo.Setup(r => r.GetCoverFilePathAsync(7)).ReturnsAsync(original);
+
+            await _controller.GetAudiobookCover(
+                7, null, new DateTimeOffset(stamp).ToUnixTimeMilliseconds(), CancellationToken.None);
+
+            Assert.AreEqual(
+                "private, max-age=31536000, immutable", _controller.Response.Headers.CacheControl.ToString());
+        }
+        finally
+        {
+            File.Delete(original);
+        }
+    }
+
+    // A list loaded before a cover save asks for the image afterwards: the new bytes must not be
+    // pinned for a year under the old version's URL.
+    [TestMethod]
+    public async Task GetAudiobookCover_WithAStaleVersion_MustRevalidateInsteadOfBeingCachedForAYear()
+    {
+        var original = WriteTempCover();
+        try
+        {
+            var stamp = new DateTime(2024, 5, 6, 7, 8, 9, DateTimeKind.Utc);
+            File.SetLastWriteTimeUtc(original, stamp);
+            _audiobookRepo.Setup(r => r.GetCoverFilePathAsync(7)).ReturnsAsync(original);
+            var staleVersion = new DateTimeOffset(stamp.AddMinutes(-5)).ToUnixTimeMilliseconds();
+
+            await _controller.GetAudiobookCover(7, null, staleVersion, CancellationToken.None);
+
+            Assert.AreEqual("private, no-cache", _controller.Response.Headers.CacheControl.ToString());
+        }
+        finally
+        {
+            File.Delete(original);
+        }
+    }
+
+    // The fallback is a different representation (the full-size original) from the one the URL
+    // names; pinning it for a year would keep the big image after thumbnails recover.
+    [TestMethod]
+    public async Task GetAudiobookCover_ThumbnailRequestFallingBackToTheOriginal_AlwaysRevalidatesEvenWithAMatchingVersion()
+    {
+        var original = WriteTempCover();
+        try
+        {
+            var stamp = new DateTime(2024, 5, 6, 7, 8, 9, DateTimeKind.Utc);
+            File.SetLastWriteTimeUtc(original, stamp);
+            _audiobookRepo.Setup(r => r.GetCoverFilePathAsync(7)).ReturnsAsync(original);
+            _coverThumbnails
+                .Setup(c => c.GetOrCreateAsync(7, original, 128, It.IsAny<CancellationToken>()))
+                .ReturnsAsync((CoverThumbnail?)null);
+
+            var result = await _controller.GetAudiobookCover(
+                7, 128, new DateTimeOffset(stamp).ToUnixTimeMilliseconds(), CancellationToken.None);
+
+            Assert.AreEqual(Path.GetFullPath(original), (result as PhysicalFileResult)?.FileName);
+            Assert.AreEqual("private, no-cache", _controller.Response.Headers.CacheControl.ToString());
+        }
+        finally
+        {
+            File.Delete(original);
+        }
+    }
+
+    [TestMethod]
+    public async Task GetAudiobookCover_ThumbnailIsVersionedByItsSourcesModifiedTime_MatchingCachesAndMismatchRevalidates()
+    {
+        var original = WriteTempCover();
+        var thumb = WriteTempCover();
+        try
+        {
+            var sourceModified = new DateTimeOffset(2024, 5, 6, 7, 8, 9, TimeSpan.Zero);
+            _audiobookRepo.Setup(r => r.GetCoverFilePathAsync(7)).ReturnsAsync(original);
+            _coverThumbnails
+                .Setup(c => c.GetOrCreateAsync(7, original, 128, It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new CoverThumbnail(thumb, "image/jpeg", sourceModified, "\"t128-x\""));
+
+            await _controller.GetAudiobookCover(7, 128, sourceModified.ToUnixTimeMilliseconds(), CancellationToken.None);
+            Assert.AreEqual(
+                "private, max-age=31536000, immutable", _controller.Response.Headers.CacheControl.ToString());
+
+            await _controller.GetAudiobookCover(
+                7, 128, sourceModified.AddMinutes(-5).ToUnixTimeMilliseconds(), CancellationToken.None);
+            Assert.AreEqual("private, no-cache", _controller.Response.Headers.CacheControl.ToString());
+        }
+        finally
+        {
+            File.Delete(original);
+            File.Delete(thumb);
+        }
+    }
+
+    [TestMethod]
+    public async Task GetAudiobooks_CarriesTheCoverFilesModifiedTimeAsTheCoverVersion()
+    {
+        var cover = WriteTempCover();
+        try
+        {
+            var stamp = new DateTime(2024, 5, 6, 7, 8, 9, DateTimeKind.Utc);
+            File.SetLastWriteTimeUtc(cover, stamp);
+            var book = MakeBook(1, "With cover");
+            book.CoverFilePath = cover;
+            var coverless = MakeBook(2, "No cover");
+            _audiobookRepo.Setup(r => r.GetAllAsync(20, 0, null))
+                .ReturnsAsync((new List<Audiobook> { book, coverless }, 2));
+
+            var page = (await _controller.GetAudiobooks()).Value!;
+
+            Assert.AreEqual(new DateTimeOffset(stamp).ToUnixTimeMilliseconds(), page.Items[0].CoverVersion);
+            Assert.IsNull(page.Items[1].CoverVersion);
+        }
+        finally
+        {
+            File.Delete(cover);
+        }
+    }
+
+    [TestMethod]
+    public async Task GetAudiobookCover_WithADisallowedSize_IsRefusedSoTheCacheStaysBounded()
+    {
+        var result = await _controller.GetAudiobookCover(7, 5000, null, CancellationToken.None);
+
+        Assert.AreEqual(400, (result as ObjectResult)?.StatusCode);
+        _coverThumbnails.Verify(
+            c => c.GetOrCreateAsync(It.IsAny<long>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<CancellationToken>()),
+            Times.Never);
     }
 }

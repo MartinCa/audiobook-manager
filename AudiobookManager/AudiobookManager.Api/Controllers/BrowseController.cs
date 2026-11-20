@@ -39,6 +39,7 @@ public class BrowseController : ControllerBase
     private readonly IPendingAuthorRefreshRepository _pendingAuthorRefreshRepository;
     private readonly IEnumerable<IScraper> _scrapers;
     private readonly ISettingsService _settingsService;
+    private readonly ICoverThumbnailService _coverThumbnails;
     private readonly IServiceScopeFactory _serviceScopeFactory;
     private readonly IOperationStatusRegistry _statusRegistry;
     private readonly IHostApplicationLifetime _appLifetime;
@@ -56,6 +57,7 @@ public class BrowseController : ControllerBase
         IExpectedBookWriteGate expectedBookWriteGate,
         IEnumerable<IScraper> scrapers,
         ISettingsService settingsService,
+        ICoverThumbnailService coverThumbnails,
         IServiceScopeFactory serviceScopeFactory,
         IOperationStatusRegistry statusRegistry,
         IHostApplicationLifetime appLifetime,
@@ -72,6 +74,7 @@ public class BrowseController : ControllerBase
         _expectedBookWriteGate = expectedBookWriteGate;
         _scrapers = scrapers;
         _settingsService = settingsService;
+        _coverThumbnails = coverThumbnails;
         _serviceScopeFactory = serviceScopeFactory;
         _statusRegistry = statusRegistry;
         _appLifetime = appLifetime;
@@ -1029,28 +1032,73 @@ public class BrowseController : ControllerBase
         );
     }
 
+    /// <param name="size">
+    /// Optional longest edge in pixels for a downscaled JPEG (one of <see cref="ICoverThumbnailService.AllowedSizes"/>).
+    /// Lists show covers at a few dozen pixels, so they ask for a thumbnail instead of the original.
+    /// </param>
     [HttpGet("audiobooks/{id}/cover")]
-    public async Task<IActionResult> GetAudiobookCover(long id)
+    /// <param name="cv">
+    /// The cover version the list carried (<see cref="AudiobookSummaryDto.CoverVersion"/>). Its
+    /// presence means the URL changes whenever the cover does, so the response may be cached for a
+    /// year without revalidation. Without it the response is revalidated on every use.
+    /// </param>
+    public async Task<IActionResult> GetAudiobookCover(
+        long id, [FromQuery] int? size, [FromQuery] long? cv, CancellationToken cancellationToken)
     {
+        if (size is not null && !_coverThumbnails.AllowedSizes.Contains(size.Value))
+            return this.InvalidRequest(
+                $"size must be one of: {string.Join(", ", _coverThumbnails.AllowedSizes)}.");
+
         var coverFilePath = await _audiobookRepo.GetCoverFilePathAsync(id);
         if (string.IsNullOrEmpty(coverFilePath) || !System.IO.File.Exists(coverFilePath))
             return NotFound();
+
+        // Without a version in the URL there is no max-age, because a cover is rewritten in place
+        // whenever the book is saved and nothing in the URL changes when it is, so a freshness
+        // window would serve a stale image for its duration; the ETag/Last-Modified pair makes the
+        // repeat request a cheap 304 instead. A version (cv, the file's modified time as the list
+        // reported it) only licenses long-lived caching when it is the version of the bytes being
+        // served right now: a list loaded before a cover save can request its image afterwards, and
+        // then the new picture must not be pinned for a year under the old version's URL.
+        void SetCacheControl(DateTimeOffset servedCoverModified) =>
+            Response.Headers.CacheControl = cv is not null && cv == servedCoverModified.ToUnixTimeMilliseconds()
+                ? "private, max-age=31536000, immutable"
+                : "private, no-cache";
+
+        if (size is not null)
+        {
+            // Null means no thumbnail could be made (unreadable image, cache not writable); the
+            // original is served rather than no cover, exactly as before thumbnails existed.
+            var thumbnail = await _coverThumbnails.GetOrCreateAsync(id, coverFilePath, size.Value, cancellationToken);
+            if (thumbnail is not null)
+            {
+                // A thumbnail carries its source cover's modified time, so it is versioned the same way.
+                SetCacheControl(thumbnail.LastModified);
+                return PhysicalFile(
+                    thumbnail.Path, thumbnail.MimeType, thumbnail.LastModified,
+                    new EntityTagHeaderValue(thumbnail.ETag), enableRangeProcessing: true);
+            }
+        }
 
         var mimeType = coverFilePath.EndsWith(".png", StringComparison.OrdinalIgnoreCase)
             ? "image/png"
             : "image/jpeg";
 
-        // Stream the file instead of buffering it, and let the browser revalidate rather than
-        // re-download: a 50-row library page requests 50 of these. Deliberately no max-age -
-        // a cover is rewritten in place whenever the book is saved, and nothing in the URL
-        // changes when it is, so a freshness window would serve a stale image for its duration.
-        // The ETag/Last-Modified pair makes the repeat request a cheap 304 instead.
+        // Stream the file instead of buffering it, and let the browser revalidate rather than re-download.
         var fullPath = Path.GetFullPath(coverFilePath);
         var lastModified = new DateTimeOffset(System.IO.File.GetLastWriteTimeUtc(fullPath), TimeSpan.Zero);
         var length = new FileInfo(fullPath).Length;
         var entityTag = new EntityTagHeaderValue($"\"{lastModified.ToUnixTimeMilliseconds():x}-{length:x}\"");
 
-        Response.Headers.CacheControl = "private, no-cache";
+        // A request for a thumbnail that ends up here got the full-size original in its place
+        // (generation failed, e.g. the cache volume is briefly unwritable). That must never be
+        // pinned for a year under the thumbnail's URL, or the browser keeps the big image after
+        // generation recovers: only a request for the original itself may be cached for good.
+        if (size is null)
+            SetCacheControl(lastModified);
+        else
+            Response.Headers.CacheControl = "private, no-cache";
+
         return PhysicalFile(fullPath, mimeType, lastModified, entityTag, enableRangeProcessing: true);
     }
 
@@ -1079,7 +1127,8 @@ public class BrowseController : ControllerBase
             a.DurationInSeconds,
             !string.IsNullOrEmpty(a.MatchedSourceName),
             a.MatchedSourceName,
-            QualifierColumn.Parse(a.Qualifiers)
+            QualifierColumn.Parse(a.Qualifiers),
+            CoverVersion.Of(a.CoverFilePath)
         );
     }
 

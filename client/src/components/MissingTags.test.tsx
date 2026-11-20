@@ -25,6 +25,7 @@ vi.mock("@/services/api", () => ({
   // badge summaries, and the cover URL helper - unrelated to this file's own assertions.
   browseApi: {
     getCoverUrl: vi.fn((id: number) => `/api/browse/audiobooks/${id}/cover`),
+    getCoverThumbnailUrl: vi.fn((id: number) => `/api/browse/audiobooks/${id}/cover?size=128`),
     getFilterOptions: vi.fn().mockResolvedValue({ sources: [], genres: [], languages: [] }),
   },
   settingsApi: {

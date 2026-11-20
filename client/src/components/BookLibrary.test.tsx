@@ -12,6 +12,7 @@ vi.mock("@/services/api", () => ({
     getAudiobooks: vi.fn(),
     searchAudiobooks: vi.fn(),
     getCoverUrl: vi.fn((id: number) => `/api/browse/audiobooks/${id}/cover`),
+    getCoverThumbnailUrl: vi.fn((id: number) => `/api/browse/audiobooks/${id}/cover?size=128`),
     getAuthors: vi.fn().mockResolvedValue([]),
     getAudiobookDetail: vi.fn(),
     getFilterOptions: vi.fn().mockResolvedValue({ sources: [], genres: [], languages: [] }),

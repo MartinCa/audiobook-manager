@@ -25,6 +25,8 @@ public static class DependencyInjection
         // Stateless and cheap: a singleton avoids re-resolving it per request for what is
         // effectively a pure function over the bytes.
         .AddSingleton<ICoverImageProcessor, CoverImageProcessor>()
+        // Singleton: its generation gate and cache directory are process-wide.
+        .AddSingleton<ICoverThumbnailService, CoverThumbnailService>()
         .AddScoped<IFileService, FileService>()
         .AddScoped<IAudiobookService, AudiobookService>()
         .AddScoped<IScrapingService, ScrapingService>()

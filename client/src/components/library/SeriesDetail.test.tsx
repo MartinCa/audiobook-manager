@@ -302,7 +302,7 @@ describe("SeriesDetail", () => {
     renderWithProviders();
 
     const img = await screen.findByAltText<HTMLImageElement>("The Final Empire");
-    expect(img).toHaveAttribute("src", "/api/browse/audiobooks/10/cover");
+    expect(img).toHaveAttribute("src", "/api/browse/audiobooks/10/cover?size=128");
     expect(img.closest("a")).toHaveAttribute("href", "/library/book/10");
   });
 

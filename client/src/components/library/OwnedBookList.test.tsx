@@ -34,6 +34,7 @@ vi.mock("@/lib/notifications", () => ({
 vi.mock("@/services/api", () => ({
   browseApi: {
     getCoverUrl: vi.fn((id: number) => `/api/browse/audiobooks/${id}/cover`),
+    getCoverThumbnailUrl: vi.fn((id: number) => `/api/browse/audiobooks/${id}/cover?size=128`),
     getFilterOptions: vi
       .fn()
       .mockResolvedValue({ sources: ["Hardcover"], genres: ["Fantasy"], languages: ["en"] }),
