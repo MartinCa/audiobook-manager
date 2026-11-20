@@ -577,6 +577,18 @@ describe("api service mappings and contracts", () => {
       expect(browseApi.getCoverThumbnailUrl(7, 64)).toBe("/api/browse/audiobooks/7/cover?size=64");
     });
 
+    it("puts the list's cover version in the URL so the server can mark it cacheable forever", () => {
+      expect(browseApi.getCoverThumbnailUrl(7, 128, 1700000000000)).toBe(
+        "/api/browse/audiobooks/7/cover?size=128&cv=1700000000000",
+      );
+    });
+
+    it("keeps a cover version of 0 in the URL rather than treating it as absent", () => {
+      expect(browseApi.getCoverThumbnailUrl(7, 128, 0)).toBe(
+        "/api/browse/audiobooks/7/cover?size=128&cv=0",
+      );
+    });
+
     it("leaves the original-cover URL without a size, so the detail page still gets the full image", () => {
       expect(browseApi.getCoverUrl(7)).toBe("/api/browse/audiobooks/7/cover");
     });

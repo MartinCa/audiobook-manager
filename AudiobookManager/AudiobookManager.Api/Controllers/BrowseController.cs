@@ -1037,7 +1037,13 @@ public class BrowseController : ControllerBase
     /// Lists show covers at a few dozen pixels, so they ask for a thumbnail instead of the original.
     /// </param>
     [HttpGet("audiobooks/{id}/cover")]
-    public async Task<IActionResult> GetAudiobookCover(long id, [FromQuery] int? size, CancellationToken cancellationToken)
+    /// <param name="cv">
+    /// The cover version the list carried (<see cref="AudiobookSummaryDto.CoverVersion"/>). Its
+    /// presence means the URL changes whenever the cover does, so the response may be cached for a
+    /// year without revalidation. Without it the response is revalidated on every use.
+    /// </param>
+    public async Task<IActionResult> GetAudiobookCover(
+        long id, [FromQuery] int? size, [FromQuery] long? cv, CancellationToken cancellationToken)
     {
         if (size is not null && !_coverThumbnails.AllowedSizes.Contains(size.Value))
             return this.InvalidRequest(
@@ -1047,11 +1053,14 @@ public class BrowseController : ControllerBase
         if (string.IsNullOrEmpty(coverFilePath) || !System.IO.File.Exists(coverFilePath))
             return NotFound();
 
-        // Same caching approach for both variants: no max-age, because a cover is rewritten in
-        // place whenever the book is saved and nothing in the URL changes when it is, so a
-        // freshness window would serve a stale image for its duration. The ETag/Last-Modified
-        // pair makes the repeat request a cheap 304 instead.
-        Response.Headers.CacheControl = "private, no-cache";
+        // Without a version in the URL there is no max-age, because a cover is rewritten in place
+        // whenever the book is saved and nothing in the URL changes when it is, so a freshness
+        // window would serve a stale image for its duration; the ETag/Last-Modified pair makes the
+        // repeat request a cheap 304 instead. With one (cv, the file's modified time as the list
+        // reported it) the URL itself changes with the cover, so the browser may keep it.
+        Response.Headers.CacheControl = cv is null
+            ? "private, no-cache"
+            : "private, max-age=31536000, immutable";
 
         if (size is not null)
         {
@@ -1102,7 +1111,8 @@ public class BrowseController : ControllerBase
             a.DurationInSeconds,
             !string.IsNullOrEmpty(a.MatchedSourceName),
             a.MatchedSourceName,
-            QualifierColumn.Parse(a.Qualifiers)
+            QualifierColumn.Parse(a.Qualifiers),
+            CoverVersion.Of(a.CoverFilePath)
         );
     }
 

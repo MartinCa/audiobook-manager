@@ -21,5 +21,11 @@ public record AudiobookSummaryDto(
     bool IsMatched,
     string? MatchedSourceName,
     /// <summary>Keys of the book's qualifiers (abridged, dramatized, ...), canonical order. <c>BookName</c> and <c>Series</c> are the clean values.</summary>
-    List<string> Qualifiers
+    List<string> Qualifiers,
+    /// <summary>
+    /// Modified time of the cover file (Unix ms), or null without a readable cover. Sent back as
+    /// <c>cv</c> on the cover URL, which lets the server mark that URL as cacheable forever: it
+    /// changes exactly when the cover does.
+    /// </summary>
+    long? CoverVersion = null
 );

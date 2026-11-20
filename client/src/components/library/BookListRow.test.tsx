@@ -105,9 +105,15 @@ describe("BookListRow", () => {
     render(<BookListRow book={book()} />);
 
     const img = screen.getByAltText<HTMLImageElement>("The Way of Kings");
-    expect(browseApi.getCoverThumbnailUrl).toHaveBeenCalledWith(1);
+    expect(browseApi.getCoverThumbnailUrl).toHaveBeenCalledWith(1, 128, undefined);
     expect(img).toHaveAttribute("loading", "lazy");
     expect(img).toHaveAttribute("decoding", "async");
+  });
+
+  it("passes the list's cover version through so the thumbnail URL changes when the cover does", () => {
+    render(<BookListRow book={book({ coverVersion: 1700000000000 })} />);
+
+    expect(browseApi.getCoverThumbnailUrl).toHaveBeenCalledWith(1, 128, 1700000000000);
   });
 
   it("hides a cover that fails to load instead of showing a broken image", () => {

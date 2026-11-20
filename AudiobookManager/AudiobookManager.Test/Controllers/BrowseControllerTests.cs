@@ -1824,7 +1824,7 @@ public class BrowseControllerTests
                 .Setup(c => c.GetOrCreateAsync(7, original, 128, It.IsAny<CancellationToken>()))
                 .ReturnsAsync(new CoverThumbnail(thumb, "image/jpeg", DateTimeOffset.UtcNow, "\"t128-x\""));
 
-            var result = await _controller.GetAudiobookCover(7, 128, CancellationToken.None);
+            var result = await _controller.GetAudiobookCover(7, 128, null, CancellationToken.None);
 
             var file = result as PhysicalFileResult;
             Assert.IsNotNull(file);
@@ -1848,7 +1848,7 @@ public class BrowseControllerTests
                 .Setup(c => c.GetOrCreateAsync(7, original, 128, It.IsAny<CancellationToken>()))
                 .ReturnsAsync((CoverThumbnail?)null);
 
-            var result = await _controller.GetAudiobookCover(7, 128, CancellationToken.None);
+            var result = await _controller.GetAudiobookCover(7, 128, null, CancellationToken.None);
 
             var file = result as PhysicalFileResult;
             Assert.IsNotNull(file);
@@ -1868,7 +1868,7 @@ public class BrowseControllerTests
         {
             _audiobookRepo.Setup(r => r.GetCoverFilePathAsync(7)).ReturnsAsync(original);
 
-            var result = await _controller.GetAudiobookCover(7, null, CancellationToken.None);
+            var result = await _controller.GetAudiobookCover(7, null, null, CancellationToken.None);
 
             Assert.AreEqual(Path.GetFullPath(original), ((PhysicalFileResult)result).FileName);
             _coverThumbnails.Verify(
@@ -1882,9 +1882,73 @@ public class BrowseControllerTests
     }
 
     [TestMethod]
+    public async Task GetAudiobookCover_WithoutAVersion_MustRevalidateOnEveryUse()
+    {
+        var original = WriteTempCover();
+        try
+        {
+            _audiobookRepo.Setup(r => r.GetCoverFilePathAsync(7)).ReturnsAsync(original);
+
+            await _controller.GetAudiobookCover(7, null, null, CancellationToken.None);
+
+            Assert.AreEqual("private, no-cache", _controller.Response.Headers.CacheControl.ToString());
+        }
+        finally
+        {
+            File.Delete(original);
+        }
+    }
+
+    // The version in the URL is what makes a year of caching safe: the list reports the cover's
+    // modified time, so a rewritten cover is a different URL, never a stale image.
+    [TestMethod]
+    public async Task GetAudiobookCover_WithAVersion_IsCacheableForAYearWithoutRevalidation()
+    {
+        var original = WriteTempCover();
+        try
+        {
+            _audiobookRepo.Setup(r => r.GetCoverFilePathAsync(7)).ReturnsAsync(original);
+
+            await _controller.GetAudiobookCover(7, null, 1700000000000, CancellationToken.None);
+
+            Assert.AreEqual(
+                "private, max-age=31536000, immutable", _controller.Response.Headers.CacheControl.ToString());
+        }
+        finally
+        {
+            File.Delete(original);
+        }
+    }
+
+    [TestMethod]
+    public async Task GetAudiobooks_CarriesTheCoverFilesModifiedTimeAsTheCoverVersion()
+    {
+        var cover = WriteTempCover();
+        try
+        {
+            var stamp = new DateTime(2024, 5, 6, 7, 8, 9, DateTimeKind.Utc);
+            File.SetLastWriteTimeUtc(cover, stamp);
+            var book = MakeBook(1, "With cover");
+            book.CoverFilePath = cover;
+            var coverless = MakeBook(2, "No cover");
+            _audiobookRepo.Setup(r => r.GetAllAsync(20, 0, null))
+                .ReturnsAsync((new List<Audiobook> { book, coverless }, 2));
+
+            var page = (await _controller.GetAudiobooks()).Value!;
+
+            Assert.AreEqual(new DateTimeOffset(stamp).ToUnixTimeMilliseconds(), page.Items[0].CoverVersion);
+            Assert.IsNull(page.Items[1].CoverVersion);
+        }
+        finally
+        {
+            File.Delete(cover);
+        }
+    }
+
+    [TestMethod]
     public async Task GetAudiobookCover_WithADisallowedSize_IsRefusedSoTheCacheStaysBounded()
     {
-        var result = await _controller.GetAudiobookCover(7, 5000, CancellationToken.None);
+        var result = await _controller.GetAudiobookCover(7, 5000, null, CancellationToken.None);
 
         Assert.AreEqual(400, (result as ObjectResult)?.StatusCode);
         _coverThumbnails.Verify(

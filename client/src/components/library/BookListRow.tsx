@@ -56,7 +56,7 @@ export function BookListRow({
           <div className="bg-muted h-12 w-12 shrink-0 overflow-hidden rounded">
             {book.coverFilePath ? (
               <img
-                src={browseApi.getCoverThumbnailUrl(book.id)}
+                src={browseApi.getCoverThumbnailUrl(book.id, 128, book.coverVersion)}
                 alt={book.bookName ?? undefined}
                 loading="lazy"
                 decoding="async"

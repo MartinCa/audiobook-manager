@@ -1377,7 +1377,10 @@ export interface paths {
         };
         get: {
             parameters: {
-                query?: never;
+                query?: {
+                    size?: number;
+                    cv?: number;
+                };
                 header?: never;
                 path: {
                     id: number;
@@ -6096,6 +6099,8 @@ export interface components {
             isMatched?: boolean;
             matchedSourceName?: string | null;
             qualifiers?: string[] | null;
+            /** Format: int64 */
+            coverVersion?: number | null;
         };
         AudiobookSummaryDtoPaginatedResult: {
             /** Format: int32 */
