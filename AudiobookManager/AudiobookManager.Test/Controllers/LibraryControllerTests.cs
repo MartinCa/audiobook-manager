@@ -361,6 +361,10 @@ public class LibraryControllerTests
         // rather than Delay(Infinite): a forever-held gate would poison every scan/check test
         // ordered after this one in the run.
         var workMayFinish = new TaskCompletionSource();
+        // The first run starts on a background task, so "the orchestrator ran once" is only true
+        // once that task has actually been scheduled - under CI thread-pool contention it can lag
+        // the second request. Wait for the real signal instead of assuming it already happened.
+        var workStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var orchestrator = new Mock<ILibraryScanOrchestrator>();
         orchestrator.Setup(o => o.RunCombinedScanAsync(
                 It.IsAny<Func<string, int, int, Task>>(),
@@ -368,6 +372,7 @@ public class LibraryControllerTests
                 It.IsAny<Func<int, int, int, Task>?>()))
             .Returns(async () =>
             {
+                workStarted.TrySetResult();
                 await workMayFinish.Task;
                 return new CombinedScanResult(0, 0, 0, 0, 0);
             });
@@ -377,6 +382,7 @@ public class LibraryControllerTests
         try
         {
             Assert.IsInstanceOfType<OkResult>(first);
+            await workStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
             var second = (ObjectResult)_controller.StartLibraryScan();
             Assert.AreEqual(StatusCodes.Status409Conflict, second.StatusCode);
