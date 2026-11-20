@@ -1946,6 +1946,33 @@ public class BrowseControllerTests
         }
     }
 
+    // The fallback is a different representation (the full-size original) from the one the URL
+    // names; pinning it for a year would keep the big image after thumbnails recover.
+    [TestMethod]
+    public async Task GetAudiobookCover_ThumbnailRequestFallingBackToTheOriginal_AlwaysRevalidatesEvenWithAMatchingVersion()
+    {
+        var original = WriteTempCover();
+        try
+        {
+            var stamp = new DateTime(2024, 5, 6, 7, 8, 9, DateTimeKind.Utc);
+            File.SetLastWriteTimeUtc(original, stamp);
+            _audiobookRepo.Setup(r => r.GetCoverFilePathAsync(7)).ReturnsAsync(original);
+            _coverThumbnails
+                .Setup(c => c.GetOrCreateAsync(7, original, 128, It.IsAny<CancellationToken>()))
+                .ReturnsAsync((CoverThumbnail?)null);
+
+            var result = await _controller.GetAudiobookCover(
+                7, 128, new DateTimeOffset(stamp).ToUnixTimeMilliseconds(), CancellationToken.None);
+
+            Assert.AreEqual(Path.GetFullPath(original), (result as PhysicalFileResult)?.FileName);
+            Assert.AreEqual("private, no-cache", _controller.Response.Headers.CacheControl.ToString());
+        }
+        finally
+        {
+            File.Delete(original);
+        }
+    }
+
     [TestMethod]
     public async Task GetAudiobookCover_ThumbnailIsVersionedByItsSourcesModifiedTime_MatchingCachesAndMismatchRevalidates()
     {

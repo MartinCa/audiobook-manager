@@ -1090,7 +1090,15 @@ public class BrowseController : ControllerBase
         var length = new FileInfo(fullPath).Length;
         var entityTag = new EntityTagHeaderValue($"\"{lastModified.ToUnixTimeMilliseconds():x}-{length:x}\"");
 
-        SetCacheControl(lastModified);
+        // A request for a thumbnail that ends up here got the full-size original in its place
+        // (generation failed, e.g. the cache volume is briefly unwritable). That must never be
+        // pinned for a year under the thumbnail's URL, or the browser keeps the big image after
+        // generation recovers: only a request for the original itself may be cached for good.
+        if (size is null)
+            SetCacheControl(lastModified);
+        else
+            Response.Headers.CacheControl = "private, no-cache";
+
         return PhysicalFile(fullPath, mimeType, lastModified, entityTag, enableRangeProcessing: true);
     }
 
