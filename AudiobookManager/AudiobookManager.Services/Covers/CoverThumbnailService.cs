@@ -26,9 +26,8 @@ public class CoverThumbnailService : ICoverThumbnailService
 
     private static readonly int[] Sizes = [64, 128, 256];
 
-    // A first load of a page asks for ~50 thumbnails at once; each decodes a full-size cover.
-    // Capping concurrency bounds CPU and peak memory instead of letting the page's burst decide.
-    private static readonly SemaphoreSlim GenerationGate = new(MaxConcurrentGenerations);
+    /// <summary>How often a generation restarts because the cover was replaced underneath it.</summary>
+    private const int MaxStampAttempts = 3;
 
     private readonly string _cacheDirectory;
     private readonly ILogger<CoverThumbnailService> _logger;
@@ -39,6 +38,11 @@ public class CoverThumbnailService : ICoverThumbnailService
         _cacheDirectory = Path.Combine(dbDirectory, CacheDirectoryName);
         _logger = logger;
     }
+
+    // A first load of a page asks for ~50 thumbnails at once; each decodes a full-size cover.
+    // Capping concurrency bounds CPU and peak memory instead of letting the page's burst decide.
+    // The service is a singleton, so this is process-wide; internal so a test can hold it.
+    internal SemaphoreSlim GenerationGate { get; } = new(MaxConcurrentGenerations);
 
     public IReadOnlyList<int> AllowedSizes => Sizes;
 
@@ -52,60 +56,80 @@ public class CoverThumbnailService : ICoverThumbnailService
 
         try
         {
-            var source = new FileInfo(coverFilePath);
-            if (!source.Exists)
+            // The stamp names the cache entry and is what the caller's cache headers are checked
+            // against, so it has to describe the bytes the thumbnail was decoded from. A save can
+            // replace the cover while this request waits for the gate or while it decodes, so the
+            // stamp is re-read after both, and the generation starts over if it moved.
+            for (var attempt = 0; attempt < MaxStampAttempts; attempt++)
             {
-                return null;
-            }
-
-            var lastModified = new DateTimeOffset(source.LastWriteTimeUtc, TimeSpan.Zero);
-            var stamp = $"{lastModified.ToUnixTimeMilliseconds():x}-{source.Length:x}";
-            var prefix = $"{audiobookId}-{size}-";
-            var fileName = $"{prefix}{stamp}.jpg";
-            var cachePath = Path.Combine(_cacheDirectory, fileName);
-
-            if (!File.Exists(cachePath))
-            {
-                Directory.CreateDirectory(_cacheDirectory);
-
-                await GenerationGate.WaitAsync(cancellationToken);
-                try
+                var before = StampOf(coverFilePath);
+                if (before is null)
                 {
-                    // Another request may have produced it while this one waited for the gate.
-                    if (!File.Exists(cachePath))
+                    return null;
+                }
+
+                var (lastModified, stamp) = before.Value;
+                var prefix = $"{audiobookId}-{size}-";
+                var fileName = $"{prefix}{stamp}.jpg";
+                var cachePath = Path.Combine(_cacheDirectory, fileName);
+
+                if (!File.Exists(cachePath))
+                {
+                    Directory.CreateDirectory(_cacheDirectory);
+
+                    await GenerationGate.WaitAsync(cancellationToken);
+                    try
                     {
-                        var encoded = await Task.Run(() => Downscale(coverFilePath, size), cancellationToken);
-                        if (encoded is null)
+                        if (StampOf(coverFilePath)?.Stamp != stamp)
                         {
-                            return null;
+                            continue; // replaced while queued
                         }
 
-                        // Written to a temp name and moved, so a concurrent reader never sees a
-                        // half-written file.
-                        var tempPath = Path.Combine(_cacheDirectory, $".{Guid.NewGuid():N}.tmp");
-                        try
+                        // Another request may have produced it while this one waited for the gate.
+                        if (!File.Exists(cachePath))
                         {
-                            await File.WriteAllBytesAsync(tempPath, encoded, cancellationToken);
-                            File.Move(tempPath, cachePath, overwrite: true);
-                        }
-                        finally
-                        {
-                            // A cancelled request or a failed write/move would otherwise leave
-                            // the partial file behind (the superseded-file sweep only looks at
-                            // .jpg). Nothing to delete after a successful move.
-                            TryDelete(tempPath);
-                        }
+                            var encoded = await Task.Run(() => Downscale(coverFilePath, size), cancellationToken);
+                            if (encoded is null)
+                            {
+                                return null;
+                            }
 
-                        RemoveSuperseded(prefix, fileName);
+                            if (StampOf(coverFilePath)?.Stamp != stamp)
+                            {
+                                continue; // replaced while decoding: these bytes may be either image
+                            }
+
+                            // Written to a temp name and moved, so a concurrent reader never sees a
+                            // half-written file.
+                            var tempPath = Path.Combine(_cacheDirectory, $".{Guid.NewGuid():N}.tmp");
+                            try
+                            {
+                                await File.WriteAllBytesAsync(tempPath, encoded, cancellationToken);
+                                File.Move(tempPath, cachePath, overwrite: true);
+                            }
+                            finally
+                            {
+                                // A cancelled request or a failed write/move would otherwise leave
+                                // the partial file behind (the superseded-file sweep only looks at
+                                // .jpg). Nothing to delete after a successful move.
+                                TryDelete(tempPath);
+                            }
+
+                            RemoveSuperseded(prefix, fileName);
+                        }
+                    }
+                    finally
+                    {
+                        GenerationGate.Release();
                     }
                 }
-                finally
-                {
-                    GenerationGate.Release();
-                }
+
+                return new CoverThumbnail(cachePath, JpegMimeType, lastModified, $"\"t{size}-{stamp}\"");
             }
 
-            return new CoverThumbnail(cachePath, JpegMimeType, lastModified, $"\"t{size}-{stamp}\"");
+            // The cover kept changing under every attempt: no stable thumbnail, so the caller
+            // serves the original (revalidated) instead of publishing a guess.
+            return null;
         }
         catch (OperationCanceledException)
         {
@@ -118,6 +142,18 @@ public class CoverThumbnailService : ICoverThumbnailService
             _logger.LogWarning(ex, "Could not produce a cover thumbnail for audiobook {AudiobookId}", audiobookId);
             return null;
         }
+    }
+
+    private static (DateTimeOffset Modified, string Stamp)? StampOf(string path)
+    {
+        var file = new FileInfo(path);
+        if (!file.Exists)
+        {
+            return null;
+        }
+
+        var modified = new DateTimeOffset(file.LastWriteTimeUtc, TimeSpan.Zero);
+        return (modified, $"{modified.ToUnixTimeMilliseconds():x}-{file.Length:x}");
     }
 
     private byte[]? Downscale(string coverFilePath, int size)

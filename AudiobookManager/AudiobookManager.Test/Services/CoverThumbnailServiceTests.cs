@@ -174,4 +174,40 @@ public class CoverThumbnailServiceTests
         Assert.IsNull(thumb);
         Assert.AreEqual(0, Directory.GetFiles(CacheDir, "*.tmp").Length);
     }
+
+    // A cold page load queues ~50 thumbnail requests behind the generation gate. A cover saved
+    // while its request is queued must not be published under the stamp taken before the save:
+    // the controller would then match the old cv against it and pin the new bytes for a year.
+    [TestMethod]
+    public async Task ACoverReplacedWhileTheRequestIsQueued_IsThumbnailedFromTheNewFileUnderTheNewStamp()
+    {
+        var cover = WriteCover("cover.png", 500, 500);
+        var oldModified = new DateTimeOffset(new FileInfo(cover).LastWriteTimeUtc, TimeSpan.Zero);
+
+        await _service.GenerationGate.WaitAsync();
+        await _service.GenerationGate.WaitAsync();
+        Task<CoverThumbnail?> request;
+        try
+        {
+            // Runs synchronously up to the gate, so the stamp of the OLD file is already taken.
+            request = _service.GetOrCreateAsync(1, cover, 128, CancellationToken.None);
+            Assert.IsFalse(request.IsCompleted);
+
+            WriteCover("cover.png", 900, 300); // the save: same path, new content and length
+            File.SetLastWriteTimeUtc(cover, DateTime.UtcNow.AddMinutes(5));
+        }
+        finally
+        {
+            _service.GenerationGate.Release(2);
+        }
+
+        var thumb = await request;
+
+        Assert.IsNotNull(thumb);
+        Assert.AreEqual((128, 43), Dimensions(thumb.Path), "decoded from the replacement, not the old image");
+        Assert.AreNotEqual(oldModified, thumb.LastModified, "stamped with the replacement's modified time");
+        Assert.AreEqual(
+            new DateTimeOffset(new FileInfo(cover).LastWriteTimeUtc, TimeSpan.Zero), thumb.LastModified);
+        Assert.AreEqual(1, Directory.GetFiles(CacheDir, "*.jpg").Length);
+    }
 }
