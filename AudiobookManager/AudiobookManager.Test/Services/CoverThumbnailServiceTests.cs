@@ -157,4 +157,21 @@ public class CoverThumbnailServiceTests
         await Assert.ThrowsExactlyAsync<ArgumentOutOfRangeException>(
             () => _service.GetOrCreateAsync(1, cover, 999, CancellationToken.None));
     }
+
+    // A failed write/move used to leave its temp file on the database volume, where the
+    // superseded-thumbnail sweep (which only looks at .jpg) never reaches it.
+    [TestMethod]
+    public async Task AFailedMoveIntoTheCache_LeavesNoTempFileBehind()
+    {
+        var cover = WriteCover("cover.png", 500, 500);
+        var source = new FileInfo(cover);
+        var stamp = $"{new DateTimeOffset(source.LastWriteTimeUtc, TimeSpan.Zero).ToUnixTimeMilliseconds():x}-{source.Length:x}";
+        // A directory squatting on the target name makes the move fail after the temp is written.
+        Directory.CreateDirectory(Path.Combine(CacheDir, $"1-128-{stamp}.jpg"));
+
+        var thumb = await _service.GetOrCreateAsync(1, cover, 128, CancellationToken.None);
+
+        Assert.IsNull(thumb);
+        Assert.AreEqual(0, Directory.GetFiles(CacheDir, "*.tmp").Length);
+    }
 }

@@ -1056,11 +1056,14 @@ public class BrowseController : ControllerBase
         // Without a version in the URL there is no max-age, because a cover is rewritten in place
         // whenever the book is saved and nothing in the URL changes when it is, so a freshness
         // window would serve a stale image for its duration; the ETag/Last-Modified pair makes the
-        // repeat request a cheap 304 instead. With one (cv, the file's modified time as the list
-        // reported it) the URL itself changes with the cover, so the browser may keep it.
-        Response.Headers.CacheControl = cv is null
-            ? "private, no-cache"
-            : "private, max-age=31536000, immutable";
+        // repeat request a cheap 304 instead. A version (cv, the file's modified time as the list
+        // reported it) only licenses long-lived caching when it is the version of the bytes being
+        // served right now: a list loaded before a cover save can request its image afterwards, and
+        // then the new picture must not be pinned for a year under the old version's URL.
+        void SetCacheControl(DateTimeOffset servedCoverModified) =>
+            Response.Headers.CacheControl = cv is not null && cv == servedCoverModified.ToUnixTimeMilliseconds()
+                ? "private, max-age=31536000, immutable"
+                : "private, no-cache";
 
         if (size is not null)
         {
@@ -1068,9 +1071,13 @@ public class BrowseController : ControllerBase
             // original is served rather than no cover, exactly as before thumbnails existed.
             var thumbnail = await _coverThumbnails.GetOrCreateAsync(id, coverFilePath, size.Value, cancellationToken);
             if (thumbnail is not null)
+            {
+                // A thumbnail carries its source cover's modified time, so it is versioned the same way.
+                SetCacheControl(thumbnail.LastModified);
                 return PhysicalFile(
                     thumbnail.Path, thumbnail.MimeType, thumbnail.LastModified,
                     new EntityTagHeaderValue(thumbnail.ETag), enableRangeProcessing: true);
+            }
         }
 
         var mimeType = coverFilePath.EndsWith(".png", StringComparison.OrdinalIgnoreCase)
@@ -1083,6 +1090,7 @@ public class BrowseController : ControllerBase
         var length = new FileInfo(fullPath).Length;
         var entityTag = new EntityTagHeaderValue($"\"{lastModified.ToUnixTimeMilliseconds():x}-{length:x}\"");
 
+        SetCacheControl(lastModified);
         return PhysicalFile(fullPath, mimeType, lastModified, entityTag, enableRangeProcessing: true);
     }
 

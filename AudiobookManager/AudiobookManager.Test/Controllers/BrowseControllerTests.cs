@@ -1899,17 +1899,20 @@ public class BrowseControllerTests
         }
     }
 
-    // The version in the URL is what makes a year of caching safe: the list reports the cover's
-    // modified time, so a rewritten cover is a different URL, never a stale image.
+    // The version in the URL is what makes a year of caching safe - but only when it is the
+    // version of the bytes being served.
     [TestMethod]
-    public async Task GetAudiobookCover_WithAVersion_IsCacheableForAYearWithoutRevalidation()
+    public async Task GetAudiobookCover_WithTheFilesCurrentVersion_IsCacheableForAYearWithoutRevalidation()
     {
         var original = WriteTempCover();
         try
         {
+            var stamp = new DateTime(2024, 5, 6, 7, 8, 9, DateTimeKind.Utc);
+            File.SetLastWriteTimeUtc(original, stamp);
             _audiobookRepo.Setup(r => r.GetCoverFilePathAsync(7)).ReturnsAsync(original);
 
-            await _controller.GetAudiobookCover(7, null, 1700000000000, CancellationToken.None);
+            await _controller.GetAudiobookCover(
+                7, null, new DateTimeOffset(stamp).ToUnixTimeMilliseconds(), CancellationToken.None);
 
             Assert.AreEqual(
                 "private, max-age=31536000, immutable", _controller.Response.Headers.CacheControl.ToString());
@@ -1917,6 +1920,57 @@ public class BrowseControllerTests
         finally
         {
             File.Delete(original);
+        }
+    }
+
+    // A list loaded before a cover save asks for the image afterwards: the new bytes must not be
+    // pinned for a year under the old version's URL.
+    [TestMethod]
+    public async Task GetAudiobookCover_WithAStaleVersion_MustRevalidateInsteadOfBeingCachedForAYear()
+    {
+        var original = WriteTempCover();
+        try
+        {
+            var stamp = new DateTime(2024, 5, 6, 7, 8, 9, DateTimeKind.Utc);
+            File.SetLastWriteTimeUtc(original, stamp);
+            _audiobookRepo.Setup(r => r.GetCoverFilePathAsync(7)).ReturnsAsync(original);
+            var staleVersion = new DateTimeOffset(stamp.AddMinutes(-5)).ToUnixTimeMilliseconds();
+
+            await _controller.GetAudiobookCover(7, null, staleVersion, CancellationToken.None);
+
+            Assert.AreEqual("private, no-cache", _controller.Response.Headers.CacheControl.ToString());
+        }
+        finally
+        {
+            File.Delete(original);
+        }
+    }
+
+    [TestMethod]
+    public async Task GetAudiobookCover_ThumbnailIsVersionedByItsSourcesModifiedTime_MatchingCachesAndMismatchRevalidates()
+    {
+        var original = WriteTempCover();
+        var thumb = WriteTempCover();
+        try
+        {
+            var sourceModified = new DateTimeOffset(2024, 5, 6, 7, 8, 9, TimeSpan.Zero);
+            _audiobookRepo.Setup(r => r.GetCoverFilePathAsync(7)).ReturnsAsync(original);
+            _coverThumbnails
+                .Setup(c => c.GetOrCreateAsync(7, original, 128, It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new CoverThumbnail(thumb, "image/jpeg", sourceModified, "\"t128-x\""));
+
+            await _controller.GetAudiobookCover(7, 128, sourceModified.ToUnixTimeMilliseconds(), CancellationToken.None);
+            Assert.AreEqual(
+                "private, max-age=31536000, immutable", _controller.Response.Headers.CacheControl.ToString());
+
+            await _controller.GetAudiobookCover(
+                7, 128, sourceModified.AddMinutes(-5).ToUnixTimeMilliseconds(), CancellationToken.None);
+            Assert.AreEqual("private, no-cache", _controller.Response.Headers.CacheControl.ToString());
+        }
+        finally
+        {
+            File.Delete(original);
+            File.Delete(thumb);
         }
     }
 

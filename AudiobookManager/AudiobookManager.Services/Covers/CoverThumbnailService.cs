@@ -83,8 +83,19 @@ public class CoverThumbnailService : ICoverThumbnailService
                         // Written to a temp name and moved, so a concurrent reader never sees a
                         // half-written file.
                         var tempPath = Path.Combine(_cacheDirectory, $".{Guid.NewGuid():N}.tmp");
-                        await File.WriteAllBytesAsync(tempPath, encoded, cancellationToken);
-                        File.Move(tempPath, cachePath, overwrite: true);
+                        try
+                        {
+                            await File.WriteAllBytesAsync(tempPath, encoded, cancellationToken);
+                            File.Move(tempPath, cachePath, overwrite: true);
+                        }
+                        finally
+                        {
+                            // A cancelled request or a failed write/move would otherwise leave
+                            // the partial file behind (the superseded-file sweep only looks at
+                            // .jpg). Nothing to delete after a successful move.
+                            TryDelete(tempPath);
+                        }
+
                         RemoveSuperseded(prefix, fileName);
                     }
                 }
@@ -144,6 +155,18 @@ public class CoverThumbnailService : ICoverThumbnailService
         using var flatImage = SKImage.FromBitmap(flattened);
         using var data = flatImage.Encode(SKEncodedImageFormat.Jpeg, JpegQuality);
         return data.ToArray();
+    }
+
+    private static void TryDelete(string path)
+    {
+        try
+        {
+            File.Delete(path);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Best effort, and must never mask the failure that brought us here.
+        }
     }
 
     private void RemoveSuperseded(string prefix, string keepFileName)
