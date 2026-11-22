@@ -22,6 +22,7 @@ describe("consistencyHelpers", () => {
       expect(getIssueTypeLabel("MissingMediaFile")).toBe("Missing Media Files");
       expect(getIssueTypeLabel("WrongFilePath")).toBe("Wrong File Paths");
       expect(getIssueTypeLabel("TagMismatch")).toBe("Tag Mismatches");
+      expect(getIssueTypeLabel("MetadataRefreshFailed")).toBe("Metadata Refresh Failures");
     });
 
     it("falls back to raw string for unknown issue types", () => {

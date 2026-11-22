@@ -17,6 +17,7 @@ export const ISSUE_TYPE_LABELS: Record<string, string> = {
   LibraryPathUnavailable: "Library Path Unavailable",
   InitialsSpacingMismatch: "Initials Spacing",
   SeriesPartMismatch: "Series Part Mismatches",
+  MetadataRefreshFailed: "Metadata Refresh Failures",
 };
 
 export function getIssueTypeLabel(issueType: string): string {
