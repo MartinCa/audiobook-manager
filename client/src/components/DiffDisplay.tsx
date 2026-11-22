@@ -114,3 +114,41 @@ export function TagMismatchDiffDisplay({ expected, actual }: TagMismatchDiffDisp
 }
 
 export default DiffDisplay;
+
+interface IssueValuesDisplayProps {
+  issueType: string;
+  expectedValue?: string | null;
+  actualValue?: string | null;
+}
+
+/**
+ * The expected/actual detail of a consistency issue. A diff only makes sense when both sides
+ * exist; an issue that carries just one side still shows it, because for some types that side is
+ * the whole explanation (MetadataRefreshFailed stores the refresh error as its actual value).
+ */
+export function IssueValuesDisplay({
+  issueType,
+  expectedValue,
+  actualValue,
+}: IssueValuesDisplayProps) {
+  if (expectedValue && actualValue) {
+    return issueType === "TagMismatch" ? (
+      <TagMismatchDiffDisplay expected={expectedValue} actual={actualValue} />
+    ) : (
+      <DiffDisplay expected={expectedValue} actual={actualValue} />
+    );
+  }
+  if (actualValue) {
+    return (
+      <div className="text-muted-foreground text-[11px] break-words whitespace-pre-wrap">
+        {issueType === "MetadataRefreshFailed" ? "Cause" : "Actual"}: {actualValue}
+      </div>
+    );
+  }
+  if (expectedValue) {
+    return (
+      <div className="text-muted-foreground text-[11px] break-all">Expected: {expectedValue}</div>
+    );
+  }
+  return null;
+}

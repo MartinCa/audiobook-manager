@@ -28,7 +28,7 @@ import { OperationKeys, SignalREvents } from "@/constants/signalrEvents";
 import { OperationProgressBar } from "./OperationProgressBar";
 import { LinkButton } from "./link-button";
 import { SectionPager } from "./library/SectionPager";
-import { DiffDisplay, TagMismatchDiffDisplay } from "./DiffDisplay";
+import { IssueValuesDisplay } from "./DiffDisplay";
 import { DeleteFileDialog } from "./DeleteFileDialog";
 import { BulkDeleteDirectoriesDialog } from "./BulkDeleteDirectoriesDialog";
 import { TagMismatchResolveDialog } from "./TagMismatchResolveDialog";
@@ -668,23 +668,11 @@ export function LibraryConsistency() {
                                       {issue.description}
                                     </p>
 
-                                    {issue.expectedValue && issue.actualValue ? (
-                                      issue.issueType === "TagMismatch" ? (
-                                        <TagMismatchDiffDisplay
-                                          expected={issue.expectedValue}
-                                          actual={issue.actualValue}
-                                        />
-                                      ) : (
-                                        <DiffDisplay
-                                          expected={issue.expectedValue}
-                                          actual={issue.actualValue}
-                                        />
-                                      )
-                                    ) : issue.expectedValue ? (
-                                      <div className="text-muted-foreground text-[11px] break-all">
-                                        Expected: {issue.expectedValue}
-                                      </div>
-                                    ) : null}
+                                    <IssueValuesDisplay
+                                      issueType={issue.issueType}
+                                      expectedValue={issue.expectedValue}
+                                      actualValue={issue.actualValue}
+                                    />
                                   </div>
                                 </div>
 
