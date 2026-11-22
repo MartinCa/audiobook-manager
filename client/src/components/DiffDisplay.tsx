@@ -1,5 +1,7 @@
 import { diffChars, type Change } from "diff";
 
+import { cn } from "@/lib/utils";
+
 interface DiffDisplayProps {
   expected?: string;
   actual?: string;
@@ -114,3 +116,55 @@ export function TagMismatchDiffDisplay({ expected, actual }: TagMismatchDiffDisp
 }
 
 export default DiffDisplay;
+
+interface IssueValuesDisplayProps {
+  issueType: string;
+  /** Applied to the component's own root, so a caller can space it without knowing whether it renders. */
+  className?: string;
+  expectedValue?: string | null;
+  actualValue?: string | null;
+}
+
+/**
+ * The expected/actual detail of a consistency issue. A diff only makes sense when both sides
+ * exist; an issue that carries just one side still shows it, because for some types that side is
+ * the whole explanation (MetadataRefreshFailed stores the refresh error as its actual value).
+ */
+export function IssueValuesDisplay({
+  issueType,
+  className,
+  expectedValue,
+  actualValue,
+}: IssueValuesDisplayProps) {
+  if (expectedValue && actualValue) {
+    return (
+      <div className={className}>
+        {issueType === "TagMismatch" ? (
+          <TagMismatchDiffDisplay expected={expectedValue} actual={actualValue} />
+        ) : (
+          <DiffDisplay expected={expectedValue} actual={actualValue} />
+        )}
+      </div>
+    );
+  }
+  if (actualValue) {
+    return (
+      <div
+        className={cn(
+          "text-muted-foreground text-[11px] break-words whitespace-pre-wrap",
+          className,
+        )}
+      >
+        {issueType === "MetadataRefreshFailed" ? "Cause" : "Actual"}: {actualValue}
+      </div>
+    );
+  }
+  if (expectedValue) {
+    return (
+      <div className={cn("text-muted-foreground text-[11px] break-all", className)}>
+        Expected: {expectedValue}
+      </div>
+    );
+  }
+  return null;
+}

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { render, screen } from "@testing-library/react";
-import { DiffDisplay, TagMismatchDiffDisplay } from "./DiffDisplay";
+import { DiffDisplay, IssueValuesDisplay, TagMismatchDiffDisplay } from "./DiffDisplay";
 
 describe("DiffDisplay", () => {
   it("renders identical text without addition/removal classes", () => {
@@ -54,5 +54,33 @@ describe("DiffDisplay", () => {
     expect(container.querySelectorAll(".bg-muted\\/50")).toHaveLength(1);
     expect(screen.queryByText("Publisher")).toBeNull();
     expect(screen.queryByText("Rating")).toBeNull();
+  });
+});
+
+describe("IssueValuesDisplay", () => {
+  it("shows the cause of a failed refresh, which has an actual value but no expected one", () => {
+    render(
+      <IssueValuesDisplay
+        issueType="MetadataRefreshFailed"
+        expectedValue={null}
+        actualValue="Audible returned HTTP 503"
+      />,
+    );
+    expect(screen.getByText(/Cause: Audible returned HTTP 503/)).toBeInTheDocument();
+  });
+
+  it("renders nothing when the issue carries no values", () => {
+    const { container } = render(<IssueValuesDisplay issueType="Other" />);
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it("applies className to its own root, and adds no spacing block when empty", () => {
+    const { container, rerender } = render(
+      <IssueValuesDisplay issueType="MetadataRefreshFailed" actualValue="boom" className="mt-2" />,
+    );
+    expect(container.firstElementChild).toHaveClass("mt-2");
+
+    rerender(<IssueValuesDisplay issueType="MetadataRefreshFailed" className="mt-2" />);
+    expect(container).toBeEmptyDOMElement();
   });
 });
