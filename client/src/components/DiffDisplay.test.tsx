@@ -73,4 +73,14 @@ describe("IssueValuesDisplay", () => {
     const { container } = render(<IssueValuesDisplay issueType="Other" />);
     expect(container).toBeEmptyDOMElement();
   });
+
+  it("applies className to its own root, and adds no spacing block when empty", () => {
+    const { container, rerender } = render(
+      <IssueValuesDisplay issueType="MetadataRefreshFailed" actualValue="boom" className="mt-2" />,
+    );
+    expect(container.firstElementChild).toHaveClass("mt-2");
+
+    rerender(<IssueValuesDisplay issueType="MetadataRefreshFailed" className="mt-2" />);
+    expect(container).toBeEmptyDOMElement();
+  });
 });

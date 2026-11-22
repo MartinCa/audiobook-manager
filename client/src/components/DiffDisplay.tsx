@@ -1,5 +1,7 @@
 import { diffChars, type Change } from "diff";
 
+import { cn } from "@/lib/utils";
+
 interface DiffDisplayProps {
   expected?: string;
   actual?: string;
@@ -117,6 +119,8 @@ export default DiffDisplay;
 
 interface IssueValuesDisplayProps {
   issueType: string;
+  /** Applied to the component's own root, so a caller can space it without knowing whether it renders. */
+  className?: string;
   expectedValue?: string | null;
   actualValue?: string | null;
 }
@@ -128,26 +132,38 @@ interface IssueValuesDisplayProps {
  */
 export function IssueValuesDisplay({
   issueType,
+  className,
   expectedValue,
   actualValue,
 }: IssueValuesDisplayProps) {
   if (expectedValue && actualValue) {
-    return issueType === "TagMismatch" ? (
-      <TagMismatchDiffDisplay expected={expectedValue} actual={actualValue} />
-    ) : (
-      <DiffDisplay expected={expectedValue} actual={actualValue} />
+    return (
+      <div className={className}>
+        {issueType === "TagMismatch" ? (
+          <TagMismatchDiffDisplay expected={expectedValue} actual={actualValue} />
+        ) : (
+          <DiffDisplay expected={expectedValue} actual={actualValue} />
+        )}
+      </div>
     );
   }
   if (actualValue) {
     return (
-      <div className="text-muted-foreground text-[11px] break-words whitespace-pre-wrap">
+      <div
+        className={cn(
+          "text-muted-foreground text-[11px] break-words whitespace-pre-wrap",
+          className,
+        )}
+      >
         {issueType === "MetadataRefreshFailed" ? "Cause" : "Actual"}: {actualValue}
       </div>
     );
   }
   if (expectedValue) {
     return (
-      <div className="text-muted-foreground text-[11px] break-all">Expected: {expectedValue}</div>
+      <div className={cn("text-muted-foreground text-[11px] break-all", className)}>
+        Expected: {expectedValue}
+      </div>
     );
   }
   return null;

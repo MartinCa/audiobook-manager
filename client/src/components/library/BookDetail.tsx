@@ -750,15 +750,12 @@ export function BookDetail({ mode }: BookDetailProps) {
                       </div>
                       <p className="mt-1 text-[11px] opacity-90">{issue.description}</p>
 
-                      {issue.expectedValue || issue.actualValue ? (
-                        <div className="mt-2">
-                          <IssueValuesDisplay
-                            issueType={issue.issueType}
-                            expectedValue={issue.expectedValue}
-                            actualValue={issue.actualValue}
-                          />
-                        </div>
-                      ) : null}
+                      <IssueValuesDisplay
+                        className="mt-2"
+                        issueType={issue.issueType}
+                        expectedValue={issue.expectedValue}
+                        actualValue={issue.actualValue}
+                      />
                     </div>
                   ))}
                 </div>
