@@ -339,6 +339,7 @@ export function TagPreviewDialog({
           </p>
 
           <MetadataFieldDiffTable
+            orderKey={`${languages.length > 0}|${qualifierOptions.length > 0}|${choiceRulesReady}`}
             fields={fields}
             selected={selected}
             onToggleField={toggleField}

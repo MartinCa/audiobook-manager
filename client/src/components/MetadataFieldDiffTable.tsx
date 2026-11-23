@@ -1,3 +1,5 @@
+import { useState } from "react";
+
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -23,6 +25,19 @@ interface MetadataFieldDiffTableProps {
    * main-author choice under the names. Omit for a single author.
    */
   authorsChoice?: MainAuthorChooserProps;
+  /**
+   * Changes once the inputs the diff is derived from have finished loading (the language list,
+   * the qualifier options, the metadata choice rules). The row order is frozen between changes of
+   * this key, so the order is re-derived once when some `changed` flags settle, not on every
+   * toggle. Required, so a new caller cannot silently get the un-settled order.
+   */
+  orderKey: string;
+}
+
+/** Row position per field key with changed rows first and each group in its original order. */
+function rankChangedFirst(fields: FieldDiff[]): Map<string, number> {
+  const sorted = [...fields].sort((a, b) => Number(b.changed) - Number(a.changed));
+  return new Map(sorted.map((f, i) => [f.key, i]));
 }
 
 /**
@@ -38,7 +53,26 @@ export function MetadataFieldDiffTable({
   changedFieldKeys,
   seriesChoice,
   authorsChoice,
+  orderKey,
 }: MetadataFieldDiffTableProps) {
+  // Changed rows first (each group keeps its field order): the preview lists every field, and on
+  // a phone the dialog body only fits a handful of rows, so a late-ordered changed field
+  // (Qualifiers, URL) used to sit below the fold while the counter said it was selected. The order
+  // is frozen per mount (re-derived only when the set of rows or `orderKey` changes): `changed` is live state
+  // the user flips while interacting (the split-title toggle, the main-author radios), and rows
+  // must not jump under the pointer while a diff is being resolved.
+  const rowKeys = `${orderKey}#${fields.map((f) => f.key).join("|")}`;
+  const [frozen, setFrozen] = useState(() => ({ rowKeys, rank: rankChangedFirst(fields) }));
+  let rank = frozen.rank;
+  if (frozen.rowKeys !== rowKeys) {
+    rank = rankChangedFirst(fields);
+    setFrozen({ rowKeys, rank });
+  }
+  const orderedFields = [...fields].sort(
+    (a, b) =>
+      (rank.get(a.key) ?? Number.MAX_SAFE_INTEGER) - (rank.get(b.key) ?? Number.MAX_SAFE_INTEGER),
+  );
+
   return (
     <div className="space-y-2">
       <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
@@ -59,8 +93,11 @@ export function MetadataFieldDiffTable({
       {/* No inner vertical scroll region: the table grows to its content and the surrounding
           scroller (the page, or TagPreviewDialog's body) scrolls. A nested scroller swallowed touch
           drags on mobile, so the Apply buttons below it could not be reached. For the same reason
-          the header is not sticky - it would stick under the app bar instead of inside a box. */}
-      <div className="border-border overflow-x-auto rounded-md border">
+          the header is not sticky - it would stick under the app bar instead of inside a box.
+          overflow-clip, not overflow-x-auto: this wrapper only needs to round the corners, and any
+          non-visible overflow-x makes it a scroll container (overflow-y computes to auto). The
+          table is table-fixed and wraps, so nothing needs to scroll sideways. */}
+      <div className="border-border overflow-clip rounded-md border">
         {/* table-fixed + no phone minimums: the columns share the dialog's width instead of forcing it
             wider (the old min-widths made the grid ~370px, so on a phone the Use checkboxes
             scrolled out of view). Long values wrap; the wide sm: layout is unchanged. */}
@@ -74,7 +111,7 @@ export function MetadataFieldDiffTable({
             </tr>
           </thead>
           <tbody className="divide-border divide-y">
-            {fields.map((field) => {
+            {orderedFields.map((field) => {
               const isChecked = selected.has(field.key);
               const isLinkOrCover = field.key === "www" || field.key === "cover";
               return (
