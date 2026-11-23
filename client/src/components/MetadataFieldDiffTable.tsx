@@ -1,3 +1,5 @@
+import { useState } from "react";
+
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -25,6 +27,12 @@ interface MetadataFieldDiffTableProps {
   authorsChoice?: MainAuthorChooserProps;
 }
 
+/** Row position per field key with changed rows first and each group in its original order. */
+function rankChangedFirst(fields: FieldDiff[]): Map<string, number> {
+  const sorted = [...fields].sort((a, b) => Number(b.changed) - Number(a.changed));
+  return new Map(sorted.map((f, i) => [f.key, i]));
+}
+
 /**
  * The selectable field-diff grid shared by TagPreviewDialog (every field, in a modal) and
  * PendingRefreshRowPanel (changed fields only, inline in the metadata-refresh list) - kept as one
@@ -39,10 +47,20 @@ export function MetadataFieldDiffTable({
   seriesChoice,
   authorsChoice,
 }: MetadataFieldDiffTableProps) {
-  // Changed rows first (stable, so each group keeps its field order): the preview lists every
-  // field, and on a phone the dialog body only fits a handful of rows, so a late-ordered changed
-  // field (Qualifiers, URL) used to sit below the fold while the counter said it was selected.
-  const orderedFields = [...fields].sort((a, b) => Number(b.changed) - Number(a.changed));
+  // Changed rows first (each group keeps its field order): the preview lists every field, and on
+  // a phone the dialog body only fits a handful of rows, so a late-ordered changed field
+  // (Qualifiers, URL) used to sit below the fold while the counter said it was selected. The order
+  // is frozen per mount (re-derived only when the set of rows changes): `changed` is live state
+  // the user flips while interacting (the split-title toggle, the main-author radios), and rows
+  // must not jump under the pointer while a diff is being resolved.
+  const rowKeys = fields.map((f) => f.key).join("|");
+  const [frozen, setFrozen] = useState(() => ({ rowKeys, rank: rankChangedFirst(fields) }));
+  let rank = frozen.rank;
+  if (frozen.rowKeys !== rowKeys) {
+    rank = rankChangedFirst(fields);
+    setFrozen({ rowKeys, rank });
+  }
+  const orderedFields = [...fields].sort((a, b) => (rank.get(a.key) ?? 0) - (rank.get(b.key) ?? 0));
 
   return (
     <div className="space-y-2">
@@ -65,10 +83,9 @@ export function MetadataFieldDiffTable({
           scroller (the page, or TagPreviewDialog's body) scrolls. A nested scroller swallowed touch
           drags on mobile, so the Apply buttons below it could not be reached. For the same reason
           the header is not sticky - it would stick under the app bar instead of inside a box.
-          overflow-clip, not overflow-x-auto: any non-visible overflow-x makes overflow-y compute to
-          auto, so that wrapper was still a (vertical) scroll container that captured touch drags.
-          Clip only rounds the corners; the table is table-fixed and wraps, so nothing needs to
-          scroll sideways. */}
+          overflow-clip, not overflow-x-auto: this wrapper only needs to round the corners, and any
+          non-visible overflow-x makes it a scroll container (overflow-y computes to auto). The
+          table is table-fixed and wraps, so nothing needs to scroll sideways. */}
       <div className="border-border overflow-clip rounded-md border">
         {/* table-fixed + no phone minimums: the columns share the dialog's width instead of forcing it
             wider (the old min-widths made the grid ~370px, so on a phone the Use checkboxes
