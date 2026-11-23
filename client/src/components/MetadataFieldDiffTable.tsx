@@ -27,10 +27,11 @@ interface MetadataFieldDiffTableProps {
   authorsChoice?: MainAuthorChooserProps;
   /**
    * Changes once the inputs the diff is derived from have finished loading (the language list,
-   * the qualifier options). The row order is frozen between changes of this key, so the order is
-   * re-derived once when some `changed` flags settle, not on every toggle.
+   * the qualifier options, the metadata choice rules). The row order is frozen between changes of
+   * this key, so the order is re-derived once when some `changed` flags settle, not on every
+   * toggle. Required, so a new caller cannot silently get the un-settled order.
    */
-  orderKey?: string;
+  orderKey: string;
 }
 
 /** Row position per field key with changed rows first and each group in its original order. */
@@ -52,7 +53,7 @@ export function MetadataFieldDiffTable({
   changedFieldKeys,
   seriesChoice,
   authorsChoice,
-  orderKey = "",
+  orderKey,
 }: MetadataFieldDiffTableProps) {
   // Changed rows first (each group keeps its field order): the preview lists every field, and on
   // a phone the dialog body only fits a handful of rows, so a late-ordered changed field
