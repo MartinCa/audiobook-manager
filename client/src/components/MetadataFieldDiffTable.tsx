@@ -25,6 +25,12 @@ interface MetadataFieldDiffTableProps {
    * main-author choice under the names. Omit for a single author.
    */
   authorsChoice?: MainAuthorChooserProps;
+  /**
+   * Changes once the inputs the diff is derived from have finished loading (the language list,
+   * the qualifier options). The row order is frozen between changes of this key, so the order is
+   * re-derived once when some `changed` flags settle, not on every toggle.
+   */
+  orderKey?: string;
 }
 
 /** Row position per field key with changed rows first and each group in its original order. */
@@ -46,21 +52,25 @@ export function MetadataFieldDiffTable({
   changedFieldKeys,
   seriesChoice,
   authorsChoice,
+  orderKey = "",
 }: MetadataFieldDiffTableProps) {
   // Changed rows first (each group keeps its field order): the preview lists every field, and on
   // a phone the dialog body only fits a handful of rows, so a late-ordered changed field
   // (Qualifiers, URL) used to sit below the fold while the counter said it was selected. The order
-  // is frozen per mount (re-derived only when the set of rows changes): `changed` is live state
+  // is frozen per mount (re-derived only when the set of rows or `orderKey` changes): `changed` is live state
   // the user flips while interacting (the split-title toggle, the main-author radios), and rows
   // must not jump under the pointer while a diff is being resolved.
-  const rowKeys = fields.map((f) => f.key).join("|");
+  const rowKeys = `${orderKey}#${fields.map((f) => f.key).join("|")}`;
   const [frozen, setFrozen] = useState(() => ({ rowKeys, rank: rankChangedFirst(fields) }));
   let rank = frozen.rank;
   if (frozen.rowKeys !== rowKeys) {
     rank = rankChangedFirst(fields);
     setFrozen({ rowKeys, rank });
   }
-  const orderedFields = [...fields].sort((a, b) => (rank.get(a.key) ?? 0) - (rank.get(b.key) ?? 0));
+  const orderedFields = [...fields].sort(
+    (a, b) =>
+      (rank.get(a.key) ?? Number.MAX_SAFE_INTEGER) - (rank.get(b.key) ?? Number.MAX_SAFE_INTEGER),
+  );
 
   return (
     <div className="space-y-2">

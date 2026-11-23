@@ -12,20 +12,20 @@ const field = (key: string, changed: boolean): FieldDiff => ({
   changed,
 });
 
-function renderTable(fields: FieldDiff[]) {
+function renderTable(fields: FieldDiff[], orderKey = "") {
   const props = {
     selected: new Set<string>(),
     onToggleField: () => {},
     onToggleAll: () => {},
     changedFieldKeys: fields.filter((f) => f.changed).map((f) => f.key),
   };
-  const ui = <MetadataFieldDiffTable fields={fields} {...props} />;
-  const view = render(ui);
+  const view = render(<MetadataFieldDiffTable fields={fields} orderKey={orderKey} {...props} />);
   return {
-    rerenderWith: (next: FieldDiff[]) =>
+    rerenderWith: (next: FieldDiff[], nextKey = orderKey) =>
       view.rerender(
         <MetadataFieldDiffTable
           fields={next}
+          orderKey={nextKey}
           {...props}
           changedFieldKeys={next.filter((f) => f.changed).map((f) => f.key)}
         />,
@@ -57,5 +57,12 @@ describe("MetadataFieldDiffTable ordering", () => {
     expect(labels()).toEqual(["B", "A"]);
     rerenderWith([field("a", false), field("b", false), field("c", true)]);
     expect(labels()).toEqual(["C", "A", "B"]);
+  });
+
+  it("re-derives the order once when the orderKey changes", () => {
+    const { rerenderWith } = renderTable([field("a", false), field("b", true), field("c", false)]);
+    expect(labels()).toEqual(["B", "A", "C"]);
+    rerenderWith([field("a", false), field("b", true), field("c", true)], "settled");
+    expect(labels()).toEqual(["B", "C", "A"]);
   });
 });

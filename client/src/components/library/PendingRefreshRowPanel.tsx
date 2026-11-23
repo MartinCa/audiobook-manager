@@ -329,6 +329,7 @@ export function PendingRefreshRowPanel({ audiobookId, start }: PendingRefreshRow
         </p>
       )}
       <MetadataFieldDiffTable
+        orderKey={`${languages.length > 0}|${qualifierOptions.length > 0}`}
         fields={changedFields}
         selected={selected}
         onToggleField={toggleField}
