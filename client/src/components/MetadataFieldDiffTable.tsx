@@ -39,6 +39,11 @@ export function MetadataFieldDiffTable({
   seriesChoice,
   authorsChoice,
 }: MetadataFieldDiffTableProps) {
+  // Changed rows first (stable, so each group keeps its field order): the preview lists every
+  // field, and on a phone the dialog body only fits a handful of rows, so a late-ordered changed
+  // field (Qualifiers, URL) used to sit below the fold while the counter said it was selected.
+  const orderedFields = [...fields].sort((a, b) => Number(b.changed) - Number(a.changed));
+
   return (
     <div className="space-y-2">
       <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
@@ -78,7 +83,7 @@ export function MetadataFieldDiffTable({
             </tr>
           </thead>
           <tbody className="divide-border divide-y">
-            {fields.map((field) => {
+            {orderedFields.map((field) => {
               const isChecked = selected.has(field.key);
               const isLinkOrCover = field.key === "www" || field.key === "cover";
               return (
