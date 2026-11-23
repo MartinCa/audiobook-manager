@@ -59,8 +59,12 @@ export function MetadataFieldDiffTable({
       {/* No inner vertical scroll region: the table grows to its content and the surrounding
           scroller (the page, or TagPreviewDialog's body) scrolls. A nested scroller swallowed touch
           drags on mobile, so the Apply buttons below it could not be reached. For the same reason
-          the header is not sticky - it would stick under the app bar instead of inside a box. */}
-      <div className="border-border overflow-x-auto rounded-md border">
+          the header is not sticky - it would stick under the app bar instead of inside a box.
+          overflow-clip, not overflow-x-auto: any non-visible overflow-x makes overflow-y compute to
+          auto, so that wrapper was still a (vertical) scroll container that captured touch drags.
+          Clip only rounds the corners; the table is table-fixed and wraps, so nothing needs to
+          scroll sideways. */}
+      <div className="border-border overflow-clip rounded-md border">
         {/* table-fixed + no phone minimums: the columns share the dialog's width instead of forcing it
             wider (the old min-widths made the grid ~370px, so on a phone the Use checkboxes
             scrolled out of view). Long values wrap; the wide sm: layout is unchanged. */}
