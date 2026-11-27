@@ -195,8 +195,8 @@ importers:
         specifier: ^5.3.0
         version: 5.3.0
       '@formkit/drag-and-drop':
-        specifier: ^0.8.0
-        version: 0.8.0
+        specifier: ^0.9.0
+        version: 0.9.0
       '@hookform/resolvers':
         specifier: ^7.0.0
         version: 7.0.9(ajv-formats@2.1.1(ajv@8.20.0))(ajv@8.20.0)(react-hook-form@7.92.0(@types/react@19.3.0)(react@19.3.1))(zod@4.6.7)
@@ -578,8 +578,8 @@ packages:
   '@fontsource-variable/inter@5.3.0':
     resolution: {integrity: sha512-OupL48va4JNofb97w6NYeF9S7W/kHNKM0Er8Dem5nqi4jeOLrVJDoE8tZEpnMJmtkvNbB1EIPPwHcdkF6b1oUA==}
 
-  '@formkit/drag-and-drop@0.8.0':
-    resolution: {integrity: sha512-up7c/QajtwlOCDmmCA112TY4imKjdJ8Gepv758eQUJq82sRMv+SoIF78juTSYVXFev3wXaSCnZyV/CKLIipRQw==}
+  '@formkit/drag-and-drop@0.9.0':
+    resolution: {integrity: sha512-kZUpre39XIqCVlNpunuWR8BxwEdEiJ7dxU24hj//diWJfUksjJBrd9bWXHZaEKfcoJhu8ro6aI7Inpc/SiyT4A==}
     peerDependencies:
       '@marko/runtime-tags': '>=6.0.166'
     peerDependenciesMeta:
@@ -3242,7 +3242,7 @@ snapshots:
 
   '@fontsource-variable/inter@5.3.0': {}
 
-  '@formkit/drag-and-drop@0.8.0': {}
+  '@formkit/drag-and-drop@0.9.0': {}
 
   '@hookform/resolvers@7.0.9(ajv-formats@2.1.1(ajv@8.20.0))(ajv@8.20.0)(react-hook-form@7.92.0(@types/react@19.3.0)(react@19.3.1))(zod@4.6.7)':
     dependencies:
